@@ -1,0 +1,41 @@
+[workspace]
+members = [
+    "backend/api",
+    "backend/entity",
+    "backend/db-migration",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["C0st1nus <konstantinkoshevoj99@gmail.com>"]
+
+[workspace.dependencies]
+actix-files = "0.6"
+actix-governor = "0.8"
+actix-multipart = "0.7"
+actix-web = "4.11"
+anyhow = "1"
+argon2 = "0.5"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["clock", "serde"] }
+csv = "1.3"
+dotenvy = "0.15"
+jsonwebtoken = "10"
+mime = "0.3"
+num_cpus = "1"
+rand = "0.9"
+sea-orm = { version = "2.0.0-rc.38", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros", "with-chrono", "with-json", "with-uuid"] }
+sea-orm-migration = { version = "2.0.0-rc.38", features = ["sqlx-postgres", "runtime-tokio-rustls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+ulid = { version = "1", features = ["serde"] }
+url = "2"
+uuid = { version = "1", features = ["serde", "v4", "v7"] }
+validator = { version = "0.20", features = ["derive"] }

@@ -1,0 +1,29 @@
+[package]
+name = "decentra-certificates-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+actix-files.workspace = true
+actix-governor.workspace = true
+actix-web.workspace = true
+anyhow.workspace = true
+argon2.workspace = true
+chrono.workspace = true
+dotenvy.workspace = true
+entity = { package = "decentra-certificates-entity", path = "../entity" }
+jsonwebtoken.workspace = true
+num_cpus.workspace = true
+sea-orm.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ulid.workspace = true
+uuid.workspace = true
+validator.workspace = true
+

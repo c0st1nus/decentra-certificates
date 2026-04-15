@@ -1,0 +1,20 @@
+[package]
+name = "decentra-certificates-db-migration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "db_migration"
+path = "src/lib.rs"
+
+[[bin]]
+name = "db-migration"
+path = "src/main.rs"
+
+[dependencies]
+async-trait.workspace = true
+sea-orm.workspace = true
+sea-orm-migration.workspace = true
+tokio.workspace = true
