@@ -1,56 +1,56 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-This repository is a Rust workspace for the Decentrathon certificate backend.
+This repository has two main parts: a Rust backend workspace and a separate Next.js frontend.
 
-- `crates/api/`: Actix Web application, routes, config, and app state.
-- `crates/entity/`: SeaORM entities and shared database models.
-- `crates/db-migration/`: SeaORM migrations and migration CLI entrypoint.
-- `.env.example`: required local environment variables.
+- `backend/api/`: Actix Web app, routes, config, and shared app state.
+- `backend/entity/`: SeaORM entities and database models.
+- `backend/db-migration/`: SeaORM migrations and migration CLI.
+- `frontend/`: Next.js app router frontend, Tailwind v4 styles, and Biome config.
+- `uploads/`: local storage for templates and generated files in development.
 - `docker-compose.yml`: local PostgreSQL and Redis services.
+- `Makefile`: common project commands.
 
-Keep new business logic close to its layer. HTTP handlers belong in `crates/api/src/routes/`; database schema changes belong only in `crates/db-migration/`.
+Keep HTTP logic in `backend/api/src/routes/`, schema changes in `backend/db-migration/`, and UI code inside `frontend/app/` and `frontend/components/`.
 
 ## Build, Test, and Development Commands
-- `cargo check --workspace`: fast compile verification for all crates.
-- `cargo clippy --workspace --all-targets --all-features -- -D warnings`: lint the full workspace and fail on warnings.
-- `cargo test --workspace`: run all Rust tests.
-- `cargo run -p decentra-certificates-api`: start the API server.
-- `cargo run -p decentra-certificates-db-migration -- up`: apply database migrations.
-- `docker compose up -d`: start local PostgreSQL and Redis.
+- `make setup`: install frontend deps, start PostgreSQL and Redis, apply migrations.
+- `make backend`: run the Rust API server.
+- `make frontend`: run the Next.js frontend with Turbopack.
+- `make check`: run `cargo check --workspace` and frontend linting.
+- `make lint`: run `clippy -D warnings` and `bun run lint`.
+- `make fmt`: format Rust and frontend code.
+- `make test`: run Rust tests.
+- `make down`: stop local infrastructure.
 
-Run `cargo check` and `cargo clippy` before opening a PR.
+For frontend-only work, use `cd frontend && bun run dev|build|lint|format`.
 
 ## Coding Style & Naming Conventions
-Use standard Rust formatting with 4-space indentation and keep files ASCII unless there is a clear reason otherwise.
+Use 4-space indentation in Rust and follow standard formatter output. Frontend code should follow Biome formatting.
 
-- Format with `cargo fmt --all`.
-- Use `snake_case` for files, modules, and functions.
-- Use `PascalCase` for structs, enums, and SeaORM entity models.
-- Prefer small route modules such as `public.rs`, `admin.rs`, `system.rs`.
-- Keep handlers thin; move reusable logic into dedicated modules as the codebase grows.
+- Rust: `snake_case` for modules/functions, `PascalCase` for types.
+- React/Next: `PascalCase` for components, route files in lowercase under `frontend/app/`.
+- Keep handlers thin and push reusable logic into dedicated modules as the codebase grows.
+- Prefer ASCII unless the file already uses another character set intentionally.
 
 ## Testing Guidelines
-Use Rust’s built-in test framework. Prefer unit tests near the code under test and integration tests in a top-level `tests/` directory when cross-crate behavior matters.
+Use Rust’s built-in test framework for backend tests. Put unit tests close to the code and add integration tests in a top-level `tests/` directory when behavior crosses crate boundaries.
 
-Test names should describe behavior, for example: `rejects_invalid_email` or `creates_certificate_issue_record`.
+Minimum expectation before a PR:
+- `make lint`
+- `make test`
+- `cd frontend && bun run build`
 
-Minimum expectation for backend changes:
-- `cargo test --workspace`
-- `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+Test names should describe behavior, for example `rejects_invalid_email`.
 
 ## Commit & Pull Request Guidelines
-This repository has no commit history yet, so use short imperative commit messages such as:
+Use short imperative commit messages such as:
 
 - `add participant import endpoint`
-- `wire jwt auth middleware`
-- `create initial seaorm schema`
+- `split public and admin frontend shells`
+- `wire make targets for local workflow`
 
-For pull requests, include:
-- a brief description of the change
-- impacted crates and routes
-- config or migration notes
-- sample request/response snippets for API changes
+PRs should include a concise summary, impacted backend/frontend areas, migration or config notes, and screenshots for visible UI changes.
 
 ## Security & Configuration Tips
-Never commit real secrets. Copy `.env.example` to a local `.env` and fill in local values. Keep JWT secrets, database URLs, and admin credentials out of source control. Protected logic must stay server-side; do not expose participant data to frontend clients.
+Do not commit real secrets. Use `.env.example` as the base for local `.env`. Keep participant data and admin-only flows server-side. Do not expose database access, JWT secrets, or internal storage paths to the frontend.
