@@ -153,7 +153,15 @@ make backend
 
 Backend по умолчанию стартует на `127.0.0.1:8080`.
 
-### 5. Запустить frontend
+### 5. Создать первого админа
+
+```bash
+make seed-admin ARGS="--login admin --password 'strong-password-here' --role super_admin"
+```
+
+Если логин уже существует и нужно обновить пароль или роль, добавьте `--force`.
+
+### 6. Запустить frontend
 
 ```bash
 make frontend
@@ -170,6 +178,7 @@ make install
 make up
 make down
 make backend
+make seed-admin
 make frontend
 make migrate
 make migrate-down
@@ -185,6 +194,7 @@ make test
 - `make up` — поднять PostgreSQL и Redis
 - `make down` — остановить локальную инфраструктуру
 - `make backend` — запустить Rust API
+- `make seed-admin` — создать или обновить первого админа
 - `make frontend` — запустить Next.js frontend
 - `make migrate` — применить миграции
 - `make migrate-down` — откатить последнюю миграцию

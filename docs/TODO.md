@@ -37,6 +37,8 @@
   - `frontend/app/page.tsx`
   - `frontend/app/admin/page.tsx`
 - есть настройки `JWT`, `workers`, storage-пути в конфиге
+- есть отдельная CLI-утилита для первичного bootstrap админа
+- backend применяет миграции при старте, чтобы dev-окружение само поднимало схему
 
 Что уже закрыто в первой фазе:
 
@@ -45,18 +47,19 @@
 - `issuance_enabled` больше не живет только в `.env`, а хранится в `app_settings`
 - `system/health` показывает состояние storage и runtime-конфиг, а не только флаг из env
 - storage-стратегия для `uploads/templates` и `uploads/generated` вынесена в отдельный сервис
+- есть `seed-admin` CLI для создания первого администратора
 
 К чему пришли:
 
 - foundation-слой backend теперь готов для public issuance и admin MVP
 - следующая практическая работа идет по `Этапу 2. Public issuance MVP`
 - публичная выдача сертификатов и серверная PDF-генерация теперь реализованы в MVP-форме
+- админский bootstrap теперь тоже закрыт через отдельную CLI-утилиту
 
 Что пока не реализовано по факту:
 
-- нет реального импорта CSV/XLSX
-- нет загрузки шаблонов
-- нет editor/preview для layout
+- нет импорта XLSX
+- нет drag-and-drop редактора layout
 - нет verification page
 - нет audit log действий админа
 
@@ -906,11 +909,28 @@ Backend-валидации:
 
 ### Этап 3. Admin MVP
 
-- [ ] Сделать страницу логина
-- [ ] Сделать upload шаблонов
-- [ ] Сделать layout editor с preview
-- [ ] Сделать импорт CSV/XLSX
-- [ ] Сделать переключатель выдачи
+- [x] Сделать страницу логина
+- [x] Сделать upload шаблонов
+- [x] Сделать layout editor с preview
+- [x] Сделать импорт CSV
+- [x] Сделать переключатель выдачи
+
+Фактически сделано:
+
+- `frontend/app/admin/login/page.tsx`
+- `frontend/app/admin/page.tsx`
+- `frontend/app/admin/templates/page.tsx`
+- `frontend/app/admin/templates/[id]/page.tsx`
+- `frontend/app/admin/templates/[id]/layout/page.tsx`
+- `frontend/app/admin/participants/page.tsx`
+- `frontend/app/admin/issuance/page.tsx`
+- `seed-admin` CLI для создания первого admin-account
+
+Оставшиеся хвосты этапа:
+
+- XLSX-импорт участников
+- drag-and-drop позиционирование в layout editor
+- более богатый preview UX
 
 ### Этап 4. Ops and hardening
 

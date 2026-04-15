@@ -2,11 +2,7 @@ use actix_web::{HttpResponse, get, http::header, post, web};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
-use crate::{
-    error::AppError,
-    services::certificates,
-    state::AppState,
-};
+use crate::{error::AppError, services::certificates, state::AppState};
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct CertificateRequest {

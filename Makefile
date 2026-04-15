@@ -1,7 +1,7 @@
 SHELL := /bin/sh
 
 .PHONY: help install up down logs ps backend frontend migrate migrate-down \
-	check test lint fmt dev setup
+	seed-admin check test lint fmt dev setup
 
 help:
 	@printf "%s\n" \
@@ -12,6 +12,7 @@ help:
 		"  make logs          - show docker compose logs" \
 		"  make ps            - show docker compose service status" \
 		"  make backend       - run Rust Actix API" \
+		"  make seed-admin    - create or update the first admin account" \
 		"  make frontend      - run Next.js frontend with Turbopack" \
 		"  make migrate       - apply SeaORM migrations" \
 		"  make migrate-down  - revert the latest SeaORM migration" \
@@ -39,6 +40,9 @@ ps:
 
 backend:
 	cargo run -p decentra-certificates-api
+
+seed-admin:
+	cargo run -p decentra-certificates-api --bin seed-admin -- $(ARGS)
 
 frontend:
 	cd frontend && bun run dev

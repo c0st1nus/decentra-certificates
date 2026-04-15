@@ -35,6 +35,24 @@ impl StorageService {
             .join(format!("{certificate_id}.pdf"))
     }
 
+    pub fn template_file_path(&self, template_id: &str, file_name: &str) -> PathBuf {
+        let extension = PathBuf::from(file_name)
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("bin")
+            .to_lowercase();
+
+        self.settings
+            .templates_dir
+            .join(format!("{template_id}.{extension}"))
+    }
+
+    pub fn template_preview_path(&self, template_id: &str) -> PathBuf {
+        self.settings
+            .templates_dir
+            .join(format!("{template_id}-preview.pdf"))
+    }
+
     pub fn strategy(&self) -> StorageStrategy {
         StorageStrategy {
             driver: "local_fs",

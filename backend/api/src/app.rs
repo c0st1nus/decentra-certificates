@@ -1,6 +1,6 @@
+use actix_cors::Cors;
 use actix_governor::{Governor, GovernorConfigBuilder};
 use actix_web::{middleware::from_fn, web};
-use actix_cors::Cors;
 
 use crate::middleware::auth::require_admin_auth;
 use crate::routes::{admin, public, system};

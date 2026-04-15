@@ -1,6 +1,7 @@
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::schema::{
-    boolean, integer, json_binary, string, string_null, timestamp, timestamp_null, uuid,
+    boolean, integer, json_binary, string, string_null, timestamp_with_time_zone,
+    timestamp_with_time_zone_null, uuid,
 };
 
 #[derive(DeriveMigrationName)]
@@ -19,9 +20,15 @@ impl MigrationTrait for Migration {
                     .col(string(Admins::PasswordHash))
                     .col(string(Admins::Role))
                     .col(boolean(Admins::IsActive).default(true))
-                    .col(timestamp_null(Admins::LastLoginAt))
-                    .col(timestamp(Admins::CreatedAt).default(Expr::current_timestamp()))
-                    .col(timestamp(Admins::UpdatedAt).default(Expr::current_timestamp()))
+                    .col(timestamp_with_time_zone_null(Admins::LastLoginAt))
+                    .col(
+                        timestamp_with_time_zone(Admins::CreatedAt)
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        timestamp_with_time_zone(Admins::UpdatedAt)
+                            .default(Expr::current_timestamp()),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -34,9 +41,12 @@ impl MigrationTrait for Migration {
                     .col(uuid_pk(RefreshSessions::Id))
                     .col(uuid(RefreshSessions::AdminId))
                     .col(string(RefreshSessions::TokenHash).unique_key())
-                    .col(timestamp(RefreshSessions::ExpiresAt))
-                    .col(timestamp_null(RefreshSessions::RevokedAt))
-                    .col(timestamp(RefreshSessions::CreatedAt).default(Expr::current_timestamp()))
+                    .col(timestamp_with_time_zone(RefreshSessions::ExpiresAt))
+                    .col(timestamp_with_time_zone_null(RefreshSessions::RevokedAt))
+                    .col(
+                        timestamp_with_time_zone(RefreshSessions::CreatedAt)
+                            .default(Expr::current_timestamp()),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_refresh_sessions_admin_id")
@@ -61,11 +71,11 @@ impl MigrationTrait for Migration {
                     .col(string_null(CertificateTemplates::PreviewPath))
                     .col(boolean(CertificateTemplates::IsActive).default(false))
                     .col(
-                        timestamp(CertificateTemplates::CreatedAt)
+                        timestamp_with_time_zone(CertificateTemplates::CreatedAt)
                             .default(Expr::current_timestamp()),
                     )
                     .col(
-                        timestamp(CertificateTemplates::UpdatedAt)
+                        timestamp_with_time_zone(CertificateTemplates::UpdatedAt)
                             .default(Expr::current_timestamp()),
                     )
                     .to_owned(),
@@ -89,8 +99,14 @@ impl MigrationTrait for Migration {
                     .col(string(TemplateLayouts::FontColorHex))
                     .col(string(TemplateLayouts::TextAlign))
                     .col(boolean(TemplateLayouts::AutoShrink).default(true))
-                    .col(timestamp(TemplateLayouts::CreatedAt).default(Expr::current_timestamp()))
-                    .col(timestamp(TemplateLayouts::UpdatedAt).default(Expr::current_timestamp()))
+                    .col(
+                        timestamp_with_time_zone(TemplateLayouts::CreatedAt)
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        timestamp_with_time_zone(TemplateLayouts::UpdatedAt)
+                            .default(Expr::current_timestamp()),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_template_layouts_template_id")
@@ -115,9 +131,18 @@ impl MigrationTrait for Migration {
                     .col(string(Participants::FullName))
                     .col(string_null(Participants::Category))
                     .col(json_binary(Participants::Metadata).default(Expr::value("{}")))
-                    .col(timestamp(Participants::ImportedAt).default(Expr::current_timestamp()))
-                    .col(timestamp(Participants::CreatedAt).default(Expr::current_timestamp()))
-                    .col(timestamp(Participants::UpdatedAt).default(Expr::current_timestamp()))
+                    .col(
+                        timestamp_with_time_zone(Participants::ImportedAt)
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        timestamp_with_time_zone(Participants::CreatedAt)
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        timestamp_with_time_zone(Participants::UpdatedAt)
+                            .default(Expr::current_timestamp()),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -154,8 +179,13 @@ impl MigrationTrait for Migration {
                     .col(uuid(CertificateIssues::TemplateId))
                     .col(string(CertificateIssues::GeneratedPdfPath))
                     .col(integer(CertificateIssues::DownloadCount).default(0))
-                    .col(timestamp_null(CertificateIssues::LastDownloadedAt))
-                    .col(timestamp(CertificateIssues::CreatedAt).default(Expr::current_timestamp()))
+                    .col(timestamp_with_time_zone_null(
+                        CertificateIssues::LastDownloadedAt,
+                    ))
+                    .col(
+                        timestamp_with_time_zone(CertificateIssues::CreatedAt)
+                            .default(Expr::current_timestamp()),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_certificate_issues_participant_id")
@@ -183,7 +213,10 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(string(AppSettings::Key).primary_key())
                     .col(json_binary(AppSettings::Value).default(Expr::value("{}")))
-                    .col(timestamp(AppSettings::UpdatedAt).default(Expr::current_timestamp()))
+                    .col(
+                        timestamp_with_time_zone(AppSettings::UpdatedAt)
+                            .default(Expr::current_timestamp()),
+                    )
                     .to_owned(),
             )
             .await?;

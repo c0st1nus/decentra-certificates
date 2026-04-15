@@ -7,8 +7,9 @@ pub struct Migrator;
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(
-            migrations::m20260415_000001_create_initial_schema::Migration,
-        )]
+        vec![
+            Box::new(migrations::m20260415_000001_create_initial_schema::Migration),
+            Box::new(migrations::m20260415_000002_convert_timestamps_to_timestamptz::Migration),
+        ]
     }
 }

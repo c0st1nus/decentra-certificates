@@ -4,20 +4,30 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+default-run = "decentra-certificates-api"
+
+[[bin]]
+name = "seed-admin"
+path = "src/bin/seed_admin.rs"
 
 [dependencies]
 actix-cors.workspace = true
 actix-files.workspace = true
 actix-governor.workspace = true
+actix-multipart.workspace = true
 actix-web.workspace = true
 anyhow.workspace = true
 argon2.workspace = true
 chrono.workspace = true
 dotenvy.workspace = true
 entity = { package = "decentra-certificates-entity", path = "../entity" }
+db-migration = { package = "decentra-certificates-db-migration", path = "../db-migration" }
+csv.workspace = true
+futures-util.workspace = true
 jsonwebtoken.workspace = true
 num_cpus.workspace = true
 sea-orm.workspace = true
+sea-orm-migration.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

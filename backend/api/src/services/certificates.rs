@@ -3,8 +3,9 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use entity::{
-    certificate_issues, certificate_templates, participants, template_layouts,
+    certificate_issues, certificate_templates, participants,
     prelude::{CertificateIssues, CertificateTemplates, Participants, TemplateLayouts},
+    template_layouts,
 };
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
@@ -92,13 +93,15 @@ pub async fn download_certificate(
     let pdf = match tokio::fs::read(path).await {
         Ok(bytes) => bytes,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return Err(AppError::NotFound("generated certificate file not found".to_owned()))
+            return Err(AppError::NotFound(
+                "generated certificate file not found".to_owned(),
+            ));
         }
         Err(err) => {
             return Err(AppError::Internal(anyhow::anyhow!(
                 "failed to read generated certificate file: {} ({err})",
                 path.display()
-            )))
+            )));
         }
     };
 
@@ -242,19 +245,22 @@ async fn write_certificate_pdf(
     issue: &certificate_issues::Model,
 ) -> Result<()> {
     if let Some(parent) = output_path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .with_context(|| format!("failed to create generated directory: {}", parent.display()))?;
+        tokio::fs::create_dir_all(parent).await.with_context(|| {
+            format!("failed to create generated directory: {}", parent.display())
+        })?;
     }
 
     let pdf = render_certificate_pdf(participant, template, layout, issue)?;
-    tokio::fs::write(output_path, pdf)
-        .await
-        .with_context(|| format!("failed to write generated certificate: {}", output_path.display()))?;
+    tokio::fs::write(output_path, pdf).await.with_context(|| {
+        format!(
+            "failed to write generated certificate: {}",
+            output_path.display()
+        )
+    })?;
     Ok(())
 }
 
-fn render_certificate_pdf(
+pub(crate) fn render_certificate_pdf(
     participant: &participants::Model,
     template: &certificate_templates::Model,
     layout: &template_layouts::Model,
@@ -289,15 +295,20 @@ fn render_certificate_pdf(
     let body_y_start = safe_name_y - 70.0;
 
     let mut content = String::new();
-    content.push_str(&draw_line(accent, 36.0, page_height - 44.0, page_width - 72.0));
-    content.push_str(&draw_text(
-        (0.0, 0.0, 0.0),
-        16.0,
-        title_x,
-        title_y,
-        title,
+    content.push_str(&draw_line(
+        accent,
+        36.0,
+        page_height - 44.0,
+        page_width - 72.0,
     ));
-    content.push_str(&draw_text((0.24, 0.24, 0.24), 11.0, title_x, title_y - 22.0, &subtitle));
+    content.push_str(&draw_text((0.0, 0.0, 0.0), 16.0, title_x, title_y, title));
+    content.push_str(&draw_text(
+        (0.24, 0.24, 0.24),
+        11.0,
+        title_x,
+        title_y - 22.0,
+        &subtitle,
+    ));
     content.push_str(&draw_text(
         font_color,
         11.0,

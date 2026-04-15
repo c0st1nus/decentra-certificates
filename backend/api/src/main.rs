@@ -11,7 +11,10 @@ use std::io;
 use actix_web::{App, HttpServer, middleware::Logger, web};
 use app::{build_app, build_cors};
 use config::Settings;
+use db_migration::Migrator;
+use jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER as JWT_CRYPTO_PROVIDER;
 use sea_orm::Database;
+use sea_orm_migration::MigratorTraitSelf;
 use services::settings as settings_service;
 use state::AppState;
 use tracing::info;
@@ -21,6 +24,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 async fn main() -> io::Result<()> {
     dotenvy::dotenv().ok();
     init_tracing();
+    init_jwt_crypto();
 
     let settings = Settings::from_env().map_err(io::Error::other)?;
     settings
@@ -31,6 +35,7 @@ async fn main() -> io::Result<()> {
     let db = Database::connect(&settings.database_url)
         .await
         .map_err(io::Error::other)?;
+    Migrator.up(&db, None).await.map_err(io::Error::other)?;
     settings_service::ensure_defaults(&db, settings.issuance_enabled_default)
         .await
         .map_err(io::Error::other)?;
@@ -59,4 +64,8 @@ fn init_tracing() {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,actix_web=info"));
 
     fmt().with_env_filter(filter).init();
+}
+
+fn init_jwt_crypto() {
+    let _ = JWT_CRYPTO_PROVIDER.install_default();
 }
