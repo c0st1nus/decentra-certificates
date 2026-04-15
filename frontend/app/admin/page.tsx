@@ -83,9 +83,7 @@ export default function AdminPage() {
     };
   }, []);
 
-  const activeTemplate = state.templates.find(
-    (template) => template.template.is_active,
-  );
+  const activeTemplate = state.templates.find((template) => template.template.is_active);
 
   return (
     <section className="space-y-6">
@@ -97,13 +95,10 @@ export default function AdminPage() {
           </span>
         </div>
 
-        <h1 className="heading-hero text-gradient text-left">
-          Операционный центр выдачи.
-        </h1>
+        <h1 className="heading-hero text-gradient text-left">Операционный центр выдачи.</h1>
         <p className="max-w-2xl text-sm leading-6 text-white/68 sm:text-base">
-          Здесь видно, готова ли система к выдаче, какой шаблон активен и
-          сколько участников уже импортировано. Отсюда же можно перейти к
-          шаблонам, импорту и переключателю выдачи.
+          Здесь видно, готова ли система к выдаче, какой шаблон активен и сколько участников уже
+          импортировано. Отсюда же можно перейти к шаблонам, импорту и переключателю выдачи.
         </p>
       </div>
 
@@ -212,33 +207,21 @@ export default function AdminPage() {
           <div className="mt-4 space-y-3">
             <FlagRow
               label="Template"
-              value={
-                state.issuance?.has_active_template ? "Present" : "Missing"
-              }
+              value={state.issuance?.has_active_template ? "Present" : "Missing"}
             />
-            <FlagRow
-              label="Layout"
-              value={state.issuance?.has_layout ? "Configured" : "Missing"}
-            />
+            <FlagRow label="Layout" value={state.issuance?.has_layout ? "Configured" : "Missing"} />
             <FlagRow
               label="Participants"
               value={state.issuance?.participant_count ? "Loaded" : "Empty"}
             />
-            <FlagRow
-              label="Issuance"
-              value={state.issuance?.enabled ? "Enabled" : "Disabled"}
-            />
-            <FlagRow
-              label="Ready"
-              value={state.issuance?.ready_to_enable ? "Yes" : "No"}
-            />
+            <FlagRow label="Issuance" value={state.issuance?.enabled ? "Enabled" : "Disabled"} />
+            <FlagRow label="Ready" value={state.issuance?.ready_to_enable ? "Yes" : "No"} />
           </div>
 
           <div className="mt-6 rounded-3xl border border-white/10 bg-black/25 p-4">
             <p className="text-sm leading-6 text-white/62">
-              Эта панель показывает только операционные факты. Никакие данные
-              участников на клиент не подгружаются сверх необходимого для
-              админки.
+              Эта панель показывает только операционные факты. Никакие данные участников на клиент
+              не подгружаются сверх необходимого для админки.
             </p>
           </div>
         </aside>

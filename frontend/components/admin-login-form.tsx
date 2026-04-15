@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  ArrowRight,
-  LoaderCircle,
-  LockKeyhole,
-  ShieldCheck,
-  User,
-} from "lucide-react";
+import { ArrowRight, LoaderCircle, LockKeyhole, ShieldCheck, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useState } from "react";
@@ -67,9 +61,7 @@ export function AdminLoginForm() {
           <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
             Admin login
           </p>
-          <h1 className="mt-2 text-2xl font-black text-white">
-            Вход в админку
-          </h1>
+          <h1 className="mt-2 text-2xl font-black text-white">Вход в админку</h1>
         </div>
       </div>
 
@@ -79,10 +71,7 @@ export function AdminLoginForm() {
           void handleSubmit(event);
         }}
       >
-        <label
-          className="block text-sm font-medium text-white/72"
-          htmlFor="login"
-        >
+        <label className="block text-sm font-medium text-white/72" htmlFor="login">
           Логин
         </label>
         <div className="relative">
@@ -101,10 +90,7 @@ export function AdminLoginForm() {
           />
         </div>
 
-        <label
-          className="block text-sm font-medium text-white/72"
-          htmlFor="password"
-        >
+        <label className="block text-sm font-medium text-white/72" htmlFor="password">
           Пароль
         </label>
         <div className="relative">
@@ -124,16 +110,10 @@ export function AdminLoginForm() {
           />
         </div>
 
-        <button
-          className="btn-hero glow-primary w-full rounded-2xl bg-white/5"
-          type="submit"
-        >
+        <button className="btn-hero glow-primary w-full rounded-2xl bg-white/5" type="submit">
           {isLoading ? (
             <>
-              <LoaderCircle
-                aria-hidden="true"
-                className="size-4 animate-spin"
-              />
+              <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
               Входим
             </>
           ) : (
