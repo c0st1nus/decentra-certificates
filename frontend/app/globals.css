@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", sans-serif;
+  --font-mono: "Fira Code", monospace;
+  --font-pixel: "Press Start 2P", cursive;
+
+  --color-background: #050505;
+  --color-foreground: #f4f4f5;
+  --color-panel: #0d0d13;
+  --color-primary: #8cd812;
+  --color-secondary: #662bb1;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at top, rgba(102, 43, 177, 0.18), transparent 36%),
+    radial-gradient(circle at 20% 20%, rgba(140, 216, 18, 0.12), transparent 28%),
+    var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+}
+
+.font-pixel {
+  font-family: var(--font-pixel);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #f7f7f7 0%, #8cd812 35%, #662bb1 75%, #f7f7f7 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradientShift 6s ease-in-out infinite;
+}
+
+.panel-glow {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03), 0 0 40px rgba(102, 43, 177, 0.14), 0 0 70px
+    rgba(140, 216, 18, 0.09);
+}
+
+.cta-button {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(140, 216, 18, 0.35);
+  background: linear-gradient(135deg, rgba(140, 216, 18, 0.24), rgba(102, 43, 177, 0.22));
+  padding: 0.95rem 1.25rem;
+  color: white;
+  font-weight: 700;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  box-shadow: 0 0 18px rgba(140, 216, 18, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.cta-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(140, 216, 18, 0.7);
+}
+
+@keyframes gradientShift {
+  0% {
+    background-position: 0% center;
+  }
+
+  50% {
+    background-position: 100% center;
+  }
+
+  100% {
+    background-position: 0% center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
