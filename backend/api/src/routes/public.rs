@@ -2,7 +2,7 @@ use actix_web::{HttpResponse, post, web};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
-use crate::{error::AppError, state::AppState};
+use crate::{error::AppError, services::settings, state::AppState};
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct CertificateRequest {
@@ -25,17 +25,24 @@ async fn request_certificate(
         .validate()
         .map_err(|err| AppError::BadRequest(err.to_string()))?;
 
-    if !state.settings.issuance_enabled {
+    let issuance =
+        settings::get_issuance_setting(&state.db, state.settings.issuance_enabled_default)
+            .await
+            .map_err(AppError::Internal)?;
+
+    if !issuance.enabled {
         return Ok(HttpResponse::Forbidden().json(CertificateRequestResponse {
             status: "issuance_disabled",
             message: "Выдача сертификатов еще не открыта",
         }));
     }
 
-    Ok(HttpResponse::NotImplemented().json(CertificateRequestResponse {
-        status: "pending",
-        message: "Публичная выдача будет подключена после импорта участников и шаблонов",
-    }))
+    Ok(
+        HttpResponse::NotImplemented().json(CertificateRequestResponse {
+            status: "pending",
+            message: "Публичная выдача будет подключена после импорта участников и шаблонов",
+        }),
+    )
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {

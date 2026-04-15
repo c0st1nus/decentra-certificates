@@ -28,11 +28,14 @@
 - Next.js frontend для публичной страницы и каркаса админки
 - локальная инфраструктура через `docker compose`
 - rate limit для public/admin API scopes
+- отдельный `auth` domain на backend с login/refresh/logout/me
+- JWT middleware и role checks для защищенных admin routes
+- DB-backed `issuance_enabled` в `app_settings`
+- storage strategy и healthcheck для templates/generated files
 
 Пока еще не завершено:
 
 - реальная публичная выдача сертификатов
-- полноценная JWT-auth админки
 - импорт участников
 - загрузка шаблонов
 - layout editor и preview
@@ -216,11 +219,16 @@ docs/             additional project docs
 Сейчас реализовано:
 
 - `GET /api/v1/system/health`
+- `POST /api/v1/admin/auth/login`
+- `POST /api/v1/admin/auth/refresh`
+- `POST /api/v1/admin/auth/logout`
+- `GET /api/v1/admin/auth/me`
+- `GET /api/v1/admin/issuance/status`
+- `PATCH /api/v1/admin/issuance/status`
 
 Сейчас в виде заглушек:
 
 - `POST /api/v1/public/certificates/request`
-- `POST /api/v1/admin/auth/login`
 
 Планируемые API и подробный scope описаны в [TODO.md](/home/const/Projects/decentra-certificates/TODO.md).
 
@@ -289,14 +297,18 @@ cd frontend && bun run build
 - проверка участника по базе
 - генерация сертификата
 - скачивание `PDF`
-- админ-логин
-- JWT token authentication
-- protected admin routes
 - загрузка шаблона
 - настройка позиции имени
 - загрузка `CSV/XLSX`
 - включение и выключение выдачи
 - базовая cluster-настройка
+
+Уже выполнено в foundation-фазе:
+
+- админ-логин
+- JWT token authentication
+- protected admin routes
+- хранение `issuance_enabled` в БД settings
 
 ### После MVP
 

@@ -10,7 +10,7 @@ pub struct Settings {
     pub jwt: JwtSettings,
     pub server: ServerSettings,
     pub storage: StorageSettings,
-    pub issuance_enabled: bool,
+    pub issuance_enabled_default: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -58,7 +58,7 @@ impl Settings {
                 templates_dir,
                 generated_dir,
             },
-            issuance_enabled: env_parse("ISSUANCE_ENABLED", false)?,
+            issuance_enabled_default: env_parse("ISSUANCE_ENABLED", false)?,
         })
     }
 

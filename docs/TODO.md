@@ -38,11 +38,23 @@
   - `frontend/app/admin/page.tsx`
 - есть настройки `JWT`, `workers`, storage-пути в конфиге
 
+Что уже закрыто в первой фазе:
+
+- backend получил отдельный `auth` domain с `login`, `refresh`, `logout`, `me`
+- admin scope теперь проходит через JWT middleware и role checks
+- `issuance_enabled` больше не живет только в `.env`, а хранится в `app_settings`
+- `system/health` показывает состояние storage и runtime-конфиг, а не только флаг из env
+- storage-стратегия для `uploads/templates` и `uploads/generated` вынесена в отдельный сервис
+
+К чему пришли:
+
+- foundation-слой backend теперь готов для public issuance и admin MVP
+- следующая практическая работа идет по `Этапу 2. Public issuance MVP`
+- публичная выдача и PDF-генерация по-прежнему остаются незавершенными
+
 Что пока не реализовано по факту:
 
 - публичная выдача сертификатов пока `NotImplemented`
-- админ-логин пока `NotImplemented`
-- защищенные admin routes еще не закрыты реальной JWT-проверкой
 - нет реального импорта CSV/XLSX
 - нет загрузки шаблонов
 - нет editor/preview для layout
@@ -864,10 +876,27 @@ Backend-валидации:
 
 ### Этап 1. Foundation
 
-- [ ] Завершить auth domain на backend
-- [ ] Добавить JWT middleware и role checks
-- [ ] Перенести `issuance_enabled` в БД settings
-- [ ] Подготовить storage-стратегию для templates/generated files
+- [x] Завершить auth domain на backend
+- [x] Добавить JWT middleware и role checks
+- [x] Перенести `issuance_enabled` в БД settings
+- [x] Подготовить storage-стратегию для templates/generated files
+
+Фактически сделано:
+
+- `POST /api/v1/admin/auth/login`
+- `POST /api/v1/admin/auth/refresh`
+- `POST /api/v1/admin/auth/logout`
+- `GET /api/v1/admin/auth/me`
+- `GET /api/v1/admin/issuance/status`
+- `PATCH /api/v1/admin/issuance/status`
+- middleware для проверки bearer JWT на защищенных admin routes
+- storage healthcheck и DB-backed app settings для issuance state
+
+Результат этапа:
+
+- backend теперь может аутентифицировать администратора и держать runtime-настройки в БД
+- admin routes больше не выглядят как заглушки и готовы к следующему слою функциональности
+- публичная часть пока остается на `NotImplemented`, но уже опирается на правильный foundation
 
 ### Этап 2. Public issuance MVP
 
@@ -905,4 +934,3 @@ Backend-валидации:
 - пользователь по невалидному или отсутствующему e-mail не получает лишних данных
 - админские роуты недоступны без валидного JWT
 - система переживает массовые одновременные запросы без дублирующей генерации одного сертификата
-

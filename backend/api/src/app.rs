@@ -1,6 +1,7 @@
 use actix_governor::{Governor, GovernorConfigBuilder};
-use actix_web::web;
+use actix_web::{middleware::from_fn, web};
 
+use crate::middleware::auth::require_admin_auth;
 use crate::routes::{admin, public, system};
 
 pub fn build_app(cfg: &mut web::ServiceConfig) {
@@ -27,7 +28,12 @@ pub fn build_app(cfg: &mut web::ServiceConfig) {
             .service(
                 web::scope("/admin")
                     .wrap(Governor::new(&admin_governor))
-                    .configure(admin::configure),
+                    .service(web::scope("/auth").configure(admin::configure_public_auth))
+                    .service(
+                        web::scope("")
+                            .wrap(from_fn(require_admin_auth))
+                            .configure(admin::configure_protected),
+                    ),
             ),
     );
 }

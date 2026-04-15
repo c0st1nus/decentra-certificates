@@ -10,8 +10,12 @@ This repository has two main parts: a Rust backend workspace and a separate Next
 - `uploads/`: local storage for templates and generated files in development.
 - `docker-compose.yml`: local PostgreSQL and Redis services.
 - `Makefile`: common project commands.
+- `README.md`: current project status, setup, and API overview.
+- `docs/TODO.md`: source of truth for the implementation roadmap and phase status.
 
 Keep HTTP logic in `backend/api/src/routes/`, schema changes in `backend/db-migration/`, and UI code inside `frontend/app/` and `frontend/components/`.
+
+For the current workstream, start with `docs/TODO.md` to see what is already done and which phase comes next.
 
 ## Build, Test, and Development Commands
 - `make setup`: install frontend deps, start PostgreSQL and Redis, apply migrations.
