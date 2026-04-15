@@ -7,9 +7,13 @@ pub enum AppError {
     #[error("{0}")]
     BadRequest(String),
     #[error("{0}")]
+    NotFound(String),
+    #[error("{0}")]
     Unauthorized(String),
     #[error("{0}")]
     Forbidden(String),
+    #[error("{0}")]
+    ServiceUnavailable(String),
     #[error("internal server error")]
     Internal(#[from] anyhow::Error),
 }
@@ -24,8 +28,10 @@ impl ResponseError for AppError {
     fn status_code(&self) -> StatusCode {
         match self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
+            Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
+            Self::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }

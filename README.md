@@ -35,11 +35,10 @@
 
 Пока еще не завершено:
 
-- реальная публичная выдача сертификатов
 - импорт участников
 - загрузка шаблонов
 - layout editor и preview
-- серверная генерация PDF
+- verification page
 
 Актуальный план работ описан в [TODO.md](/home/const/Projects/decentra-certificates/TODO.md).
 
@@ -219,6 +218,9 @@ docs/             additional project docs
 Сейчас реализовано:
 
 - `GET /api/v1/system/health`
+- `POST /api/v1/public/certificates/request`
+- `GET /api/v1/public/certificates/{certificate_id}/download`
+- `GET /api/v1/public/certificates/verify/{verification_code}`
 - `POST /api/v1/admin/auth/login`
 - `POST /api/v1/admin/auth/refresh`
 - `POST /api/v1/admin/auth/logout`
@@ -227,8 +229,7 @@ docs/             additional project docs
 - `PATCH /api/v1/admin/issuance/status`
 
 Сейчас в виде заглушек:
-
-- `POST /api/v1/public/certificates/request`
+- `/verify/[code]` frontend page
 
 Планируемые API и подробный scope описаны в [TODO.md](/home/const/Projects/decentra-certificates/TODO.md).
 

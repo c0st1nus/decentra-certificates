@@ -9,7 +9,7 @@ mod state;
 use std::io;
 
 use actix_web::{App, HttpServer, middleware::Logger, web};
-use app::build_app;
+use app::{build_app, build_cors};
 use config::Settings;
 use sea_orm::Database;
 use services::settings as settings_service;
@@ -44,6 +44,7 @@ async fn main() -> io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
+            .wrap(build_cors(&settings.cors_origins))
             .app_data(web::Data::new(state.clone()))
             .configure(build_app)
     })

@@ -1,23 +1,11 @@
-"use client";
-
-import { ArrowRight, BadgeCheck, Download, ShieldCheck } from "lucide-react";
+import { ArrowRight, BadgeCheck, ShieldCheck, Sparkles } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
 
+import { EmailRequestForm } from "@/components/email-request-form";
 import { GlowCard } from "@/components/glow-card";
 import { GridBackground } from "@/components/grid-background";
-import { cn } from "@/lib/utils";
-
-const statusCopy = {
-  idle: "Введите e-mail, который использовался при регистрации.",
-  success: "Демо-состояние: запрос принят, сертификат готов к выдаче.",
-  error: "Укажите корректный e-mail, чтобы продолжить.",
-} as const;
 
 export default function HomePage() {
-  const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<keyof typeof statusCopy>("idle");
-
   return (
     <main className="relative isolate min-h-screen overflow-hidden">
       <GridBackground />
@@ -37,35 +25,50 @@ export default function HomePage() {
           </div>
 
           <Link
-            className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/64 transition hover:border-primary/30 hover:text-white"
+            className="inline-flex min-h-10 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/64 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             href="/admin"
           >
             Admin
+            <ArrowRight className="size-3.5" />
           </Link>
         </header>
 
         <section className="grid flex-1 items-start gap-6 py-6 lg:grid-cols-[1fr_420px] lg:gap-8 lg:py-10">
           <div className="space-y-6">
-            <div className="max-w-2xl space-y-4">
-              <p className="font-pixel text-[10px] uppercase tracking-[0.28em] text-primary/85">
-                Public issuance
-              </p>
-              <h1 className="text-3xl font-black leading-none sm:text-5xl lg:text-6xl">
+            <div className="max-w-2xl space-y-5">
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5">
+                <Sparkles className="size-4 text-primary" />
+                <span className="font-pixel text-[10px] uppercase tracking-[0.2em] text-primary">
+                  Public issuance
+                </span>
+              </div>
+
+              <h1 className="heading-hero text-gradient text-left">
                 Получение сертификата без лишнего шума.
               </h1>
+
               <p className="max-w-xl text-sm leading-6 text-white/68 sm:text-base">
-                Пользователь вводит e-mail, сервер проверяет базу участников и отдает готовый PDF.
-                Без ручного ввода имени и без перегруженного интерфейса.
+                Введите e-mail, backend сверит базу участников, сгенерирует PDF на сервере и вернет
+                ссылку на скачивание. Имя не раскрывается до серверной валидации.
               </p>
+
+              <div className="flex flex-wrap gap-3">
+                <Pill label="Server-only" value="Name comes from DB" />
+                <Pill label="PDF" value="Generated on backend" />
+                <Pill label="Verify" value="Code and download URL included" />
+              </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
               <GlowCard
-                eyebrow="Server only"
-                title="Имя подтягивается только из базы на backend."
+                eyebrow="Protected"
+                title="Имя и данные участников не уходят на клиент до проверки."
               />
-              <GlowCard eyebrow="Fast flow" title="Один основной сценарий без перегруженного UI." />
-              <GlowCard eyebrow="Reusable" title="Подходит для следующих хакатонов и программ." />
+              <GlowCard eyebrow="Fast path" title="Один e-mail, одна проверка, один готовый PDF." />
+              <GlowCard
+                eyebrow="Reusable"
+                title="Форму и рендер можно переиспользовать для новых событий."
+              />
             </div>
 
             <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4 sm:p-5">
@@ -78,77 +81,24 @@ export default function HomePage() {
                 <StepCard number="03" title="Скачивание PDF" />
               </div>
             </div>
-          </div>
 
-          <section className="panel-glow rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
-            <div className="mb-6 flex items-center justify-between gap-4">
-              <div>
-                <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
-                  Certificate Form
-                </p>
-                <h2 className="mt-3 text-2xl font-bold text-white">Получить сертификат</h2>
-              </div>
-              <ShieldCheck className="size-5 shrink-0 text-primary/80" />
-            </div>
-
-            <form
-              className="space-y-4"
-              onSubmit={(event) => {
-                event.preventDefault();
-                setStatus(email.includes("@") ? "success" : "error");
-              }}
-            >
-              <label className="block text-sm font-medium text-white/72" htmlFor="email">
-                E-mail участника
-              </label>
-              <input
-                id="email"
-                autoComplete="email"
-                className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3.5 text-base outline-none transition focus:border-primary/60 focus:bg-black/50"
-                placeholder="name@example.com"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
-
-              <button className="cta-button group" type="submit">
-                <span>Получить сертификат</span>
-                <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
-              </button>
-            </form>
-
-            <div
-              className={cn(
-                "mt-4 rounded-2xl border px-4 py-3 text-sm leading-6",
-                status === "idle" && "border-white/10 bg-white/5 text-white/55",
-                status === "success" && "border-primary/30 bg-primary/10 text-primary",
-                status === "error" && "border-red-500/30 bg-red-500/10 text-red-300",
-              )}
-            >
-              {statusCopy[status]}
-            </div>
-
-            <div className="mt-5 rounded-[1.5rem] border border-white/8 bg-black/25 p-4">
-              <div className="flex items-center justify-between gap-4">
+            <div className="rounded-[1.5rem] border border-white/10 bg-black/25 p-4 sm:p-5">
+              <div className="flex items-start gap-3">
+                <ShieldCheck className="mt-0.5 size-5 text-primary" />
                 <div>
-                  <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-white/45">
-                    Download
+                  <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">
+                    Operational note
                   </p>
-                  <p className="mt-2 text-sm text-white/62">
-                    Кнопка скачивания появится после успешной выдачи.
+                  <p className="mt-2 text-sm leading-6 text-white/64">
+                    Выдача может быть отключена администратором. В этом случае форма покажет
+                    отдельное состояние и не раскроет лишние детали.
                   </p>
                 </div>
-                <button
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/45"
-                  disabled
-                  type="button"
-                >
-                  <Download className="size-4" />
-                  PDF
-                </button>
               </div>
             </div>
-          </section>
+          </div>
+
+          <EmailRequestForm />
         </section>
       </div>
     </main>
@@ -157,9 +107,18 @@ export default function HomePage() {
 
 function StepCard({ number, title }: { number: string; title: string }) {
   return (
-    <div className="rounded-[1.25rem] border border-white/8 bg-black/20 p-4">
+    <div className="rounded-[1.25rem] border border-white/10 bg-black/20 p-4">
       <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary/80">{number}</p>
       <p className="mt-3 text-sm text-white/72">{title}</p>
+    </div>
+  );
+}
+
+function Pill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2">
+      <p className="font-pixel text-[10px] uppercase tracking-[0.18em] text-primary">{label}</p>
+      <p className="mt-1 text-xs text-white/65">{value}</p>
     </div>
   );
 }

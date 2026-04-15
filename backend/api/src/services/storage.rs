@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::{Context, Result};
 use serde::Serialize;
 
@@ -25,6 +27,12 @@ pub struct StorageHealth {
 impl StorageService {
     pub fn new(settings: StorageSettings) -> Self {
         Self { settings }
+    }
+
+    pub fn generated_file_path(&self, certificate_id: &str) -> PathBuf {
+        self.settings
+            .generated_dir
+            .join(format!("{certificate_id}.pdf"))
     }
 
     pub fn strategy(&self) -> StorageStrategy {

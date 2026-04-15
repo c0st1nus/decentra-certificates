@@ -1,5 +1,6 @@
 use actix_governor::{Governor, GovernorConfigBuilder};
 use actix_web::{middleware::from_fn, web};
+use actix_cors::Cors;
 
 use crate::middleware::auth::require_admin_auth;
 use crate::routes::{admin, public, system};
@@ -36,4 +37,17 @@ pub fn build_app(cfg: &mut web::ServiceConfig) {
                     ),
             ),
     );
+}
+
+pub fn build_cors(origins: &[String]) -> Cors {
+    let mut cors = Cors::default()
+        .allow_any_header()
+        .allow_any_method()
+        .supports_credentials();
+
+    for origin in origins {
+        cors = cors.allowed_origin(origin);
+    }
+
+    cors
 }

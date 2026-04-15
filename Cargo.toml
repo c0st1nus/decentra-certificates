@@ -14,6 +14,7 @@ authors = ["C0st1nus <konstantinkoshevoj99@gmail.com>"]
 
 [workspace.dependencies]
 actix-files = "0.6"
+actix-cors = "0.7"
 actix-governor = "0.8"
 actix-multipart = "0.7"
 actix-web = "4.11"

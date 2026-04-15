@@ -10,6 +10,7 @@ pub struct Settings {
     pub jwt: JwtSettings,
     pub server: ServerSettings,
     pub storage: StorageSettings,
+    pub cors_origins: Vec<String>,
     pub issuance_enabled_default: bool,
 }
 
@@ -58,6 +59,10 @@ impl Settings {
                 templates_dir,
                 generated_dir,
             },
+            cors_origins: env_list(
+                "CORS_ORIGINS",
+                &["http://localhost:3000", "http://127.0.0.1:3000"],
+            ),
             issuance_enabled_default: env_parse("ISSUANCE_ENABLED", false)?,
         })
     }
@@ -85,6 +90,21 @@ fn env_path(key: &str, default: &str) -> PathBuf {
     env::var(key)
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(default))
+}
+
+fn env_list(key: &str, default: &[&str]) -> Vec<String> {
+    env::var(key)
+        .ok()
+        .map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .filter(|values: &Vec<String>| !values.is_empty())
+        .unwrap_or_else(|| default.iter().map(|value| (*value).to_owned()).collect())
 }
 
 fn env_parse<T>(key: &str, default: T) -> Result<T>

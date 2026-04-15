@@ -10,16 +10,16 @@ export const metadata: Metadata = {
     default: "Decentrathon Certificates",
     template: "%s | Decentrathon Certificates",
   },
-  description: "Certificate issuance platform for Decentrathon participants and organizers.",
+  description: "Платформа выдачи сертификатов для участников и организаторов Decentrathon.",
 };
 
 export const viewport: Viewport = {
-  themeColor: "#050505",
+  themeColor: "#000000",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html className="dark" lang="en">
+    <html className="dark" lang="ru">
       <body
         className={clsx(
           "min-h-screen bg-background text-foreground antialiased",
