@@ -18,14 +18,20 @@ actix-multipart.workspace = true
 actix-web.workspace = true
 anyhow.workspace = true
 argon2.workspace = true
+aws-config.workspace = true
+aws-sdk-s3.workspace = true
+calamine.workspace = true
 chrono.workspace = true
 dotenvy.workspace = true
 entity = { package = "decentra-certificates-entity", path = "../entity" }
 db-migration = { package = "decentra-certificates-db-migration", path = "../db-migration" }
 csv.workspace = true
+flate2.workspace = true
 futures-util.workspace = true
+image.workspace = true
 jsonwebtoken.workspace = true
 num_cpus.workspace = true
+redis.workspace = true
 sea-orm.workspace = true
 sea-orm-migration.workspace = true
 serde.workspace = true

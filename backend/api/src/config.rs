@@ -7,6 +7,7 @@ use serde::Serialize;
 pub struct Settings {
     pub app_name: String,
     pub database_url: String,
+    pub redis_url: String,
     pub jwt: JwtSettings,
     pub server: ServerSettings,
     pub storage: StorageSettings,
@@ -30,20 +31,52 @@ pub struct ServerSettings {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct StorageSettings {
+    pub driver: StorageDriver,
     pub uploads_dir: PathBuf,
     pub templates_dir: PathBuf,
     pub generated_dir: PathBuf,
+    pub s3: Option<S3StorageSettings>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub enum StorageDriver {
+    LocalFs,
+    S3,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct S3StorageSettings {
+    pub bucket: String,
+    pub region: String,
+    pub prefix: String,
+    pub endpoint_url: Option<String>,
+    pub force_path_style: bool,
 }
 
 impl Settings {
     pub fn from_env() -> Result<Self> {
+        let storage_driver = env_storage_driver("STORAGE_DRIVER", StorageDriver::LocalFs)?;
         let uploads_dir = env_path("UPLOADS_DIR", "./uploads");
         let templates_dir = uploads_dir.join("templates");
         let generated_dir = uploads_dir.join("generated");
+        let s3 = match storage_driver {
+            StorageDriver::LocalFs => None,
+            StorageDriver::S3 => Some(S3StorageSettings {
+                bucket: env_required("STORAGE_S3_BUCKET")?,
+                region: env_required("STORAGE_S3_REGION")?,
+                prefix: normalize_s3_prefix(&env_string(
+                    "STORAGE_S3_PREFIX",
+                    "decentra-certificates",
+                )),
+                endpoint_url: env_optional("STORAGE_S3_ENDPOINT_URL"),
+                force_path_style: env_parse("STORAGE_S3_FORCE_PATH_STYLE", false)?,
+            }),
+        };
 
         Ok(Self {
             app_name: env_string("APP_NAME", "decentra-certificates"),
             database_url: env_required("DATABASE_URL")?,
+            redis_url: env_string("REDIS_URL", "redis://127.0.0.1:6379/0"),
             jwt: JwtSettings {
                 access_secret: env_required("JWT_ACCESS_SECRET")?,
                 refresh_secret: env_required("JWT_REFRESH_SECRET")?,
@@ -55,9 +88,11 @@ impl Settings {
                 workers: env_parse("HTTP_WORKERS", num_cpus::get_physical().max(2))?,
             },
             storage: StorageSettings {
+                driver: storage_driver,
                 uploads_dir,
                 templates_dir,
                 generated_dir,
+                s3,
             },
             cors_origins: env_list(
                 "CORS_ORIGINS",
@@ -68,12 +103,15 @@ impl Settings {
     }
 
     pub async fn ensure_directories(&self) -> Result<()> {
-        tokio::fs::create_dir_all(&self.storage.templates_dir)
-            .await
-            .context("failed to create templates directory")?;
-        tokio::fs::create_dir_all(&self.storage.generated_dir)
-            .await
-            .context("failed to create generated certificates directory")?;
+        if matches!(self.storage.driver, StorageDriver::LocalFs) {
+            tokio::fs::create_dir_all(&self.storage.templates_dir)
+                .await
+                .context("failed to create templates directory")?;
+            tokio::fs::create_dir_all(&self.storage.generated_dir)
+                .await
+                .context("failed to create generated certificates directory")?;
+        }
+
         Ok(())
     }
 }
@@ -84,6 +122,13 @@ fn env_required(key: &str) -> Result<String> {
 
 fn env_string(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
+}
+
+fn env_optional(key: &str) -> Option<String> {
+    env::var(key)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
 }
 
 fn env_path(key: &str, default: &str) -> PathBuf {
@@ -117,5 +162,28 @@ where
             .parse::<T>()
             .map_err(|err| anyhow::anyhow!("invalid value for `{key}`: {err}")),
         Err(_) => Ok(default),
+    }
+}
+
+fn env_storage_driver(key: &str, default: StorageDriver) -> Result<StorageDriver> {
+    match env::var(key) {
+        Ok(value) => StorageDriver::from_env_value(&value),
+        Err(_) => Ok(default),
+    }
+}
+
+fn normalize_s3_prefix(value: &str) -> String {
+    value.trim_matches('/').to_owned()
+}
+
+impl StorageDriver {
+    fn from_env_value(value: &str) -> Result<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "local" | "local_fs" | "localfs" => Ok(Self::LocalFs),
+            "s3" => Ok(Self::S3),
+            other => Err(anyhow::anyhow!(
+                "invalid value for `STORAGE_DRIVER`: expected `local_fs` or `s3`, got `{other}`"
+            )),
+        }
     }
 }

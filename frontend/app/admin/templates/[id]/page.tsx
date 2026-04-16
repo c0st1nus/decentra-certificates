@@ -1,10 +1,10 @@
 "use client";
 
-import { ArrowRight, Layers3, LoaderCircle, PencilLine, RefreshCw } from "lucide-react";
-import Link from "next/link";
+import { Layers3, LoaderCircle, PencilLine } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { use, useEffect, useState } from "react";
 
+import { TemplateLayoutEditor } from "@/components/template-layout-editor";
 import {
   type TemplateDetail,
   activateTemplate,
@@ -14,11 +14,12 @@ import {
 } from "@/lib/admin-api";
 
 type Props = {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 };
 
 export default function TemplateDetailPage({ params }: Props) {
   const router = useRouter();
+  const { id } = use(params);
   const [template, setTemplate] = useState<TemplateDetail | null>(null);
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -29,7 +30,7 @@ export default function TemplateDetailPage({ params }: Props) {
     let isMounted = true;
 
     async function load() {
-      const { data } = await fetchTemplate(params.id);
+      const { data } = await fetchTemplate(id);
       if (!isMounted) {
         return;
       }
@@ -47,20 +48,25 @@ export default function TemplateDetailPage({ params }: Props) {
     return () => {
       isMounted = false;
     };
-  }, [params.id]);
+  }, [id]);
 
   async function handleSave() {
+    if (!name.trim()) {
+      setMessage("Template name is required.");
+      return;
+    }
+
     const form = new FormData();
-    form.append("name", name);
+    form.append("name", name.trim());
     if (file) {
       form.append("file", file);
     }
 
     setIsSaving(true);
-    setMessage("Saving template...");
+    setMessage(file ? "Saving template and replacing asset..." : "Saving template...");
 
     try {
-      const { response, data } = await updateTemplate(params.id, form);
+      const { response, data } = await updateTemplate(id, form);
       if (!response.ok || !data) {
         setMessage("Template update failed.");
         setIsSaving(false);
@@ -68,8 +74,13 @@ export default function TemplateDetailPage({ params }: Props) {
       }
 
       setTemplate(data);
-      setMessage("Template saved.");
+      setName(data.template.name);
       setFile(null);
+      setMessage(
+        file
+          ? "Template source updated. The editor below now uses the saved asset."
+          : "Template saved.",
+      );
     } catch {
       setMessage("Template update failed.");
     } finally {
@@ -78,7 +89,7 @@ export default function TemplateDetailPage({ params }: Props) {
   }
 
   async function handleActivate() {
-    const { data } = await activateTemplate(params.id);
+    const { data } = await activateTemplate(id);
     if (data) {
       setTemplate(data);
       setMessage("Template activated.");
@@ -90,7 +101,7 @@ export default function TemplateDetailPage({ params }: Props) {
       return;
     }
 
-    const { response } = await deleteTemplate(params.id);
+    const { response } = await deleteTemplate(id);
     if (response.ok) {
       setMessage("Template deleted.");
       router.replace("/admin/templates");
@@ -111,13 +122,14 @@ export default function TemplateDetailPage({ params }: Props) {
         <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5">
           <Layers3 className="size-4 text-primary" />
           <span className="font-pixel text-[10px] uppercase tracking-[0.2em] text-primary">
-            Template details
+            Template workspace
           </span>
         </div>
 
         <h1 className="heading-hero text-gradient text-left">{template.template.name}</h1>
         <p className="max-w-2xl text-sm leading-6 text-white/68 sm:text-base">
-          Manage the uploaded asset, refresh the active flag, or jump into the layout editor.
+          Edit the template name, replace the persisted source file, and adjust the certificate
+          layout without leaving this screen.
         </p>
       </div>
 
@@ -128,24 +140,32 @@ export default function TemplateDetailPage({ params }: Props) {
       <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
         <div className="rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
           <div className="grid gap-4">
-            <label className="block text-sm font-medium text-white/72">
+            <label className="block text-sm font-medium text-white/72" htmlFor="template-name">
               Template name
               <input
+                id="template-name"
                 className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
               />
             </label>
 
-            <label className="block text-sm font-medium text-white/72">
-              Replace file
+            <label className="block text-sm font-medium text-white/72" htmlFor="template-file">
+              Replace source file
               <input
+                id="template-file"
                 className="mt-2 block w-full rounded-2xl border border-dashed border-white/15 bg-black/20 px-4 py-4 text-sm text-white/72 file:mr-4 file:rounded-full file:border-0 file:bg-primary/15 file:px-4 file:py-2 file:text-xs file:font-pixel file:uppercase file:tracking-[0.18em] file:text-primary hover:file:bg-primary/20"
                 accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
                 type="file"
                 onChange={(event) => setFile(event.target.files?.[0] ?? null)}
               />
             </label>
+
+            <div className="rounded-[1.5rem] border border-white/10 bg-black/25 p-4 text-sm leading-6 text-white/62">
+              {file
+                ? `Selected file: ${file.name}. Save changes to persist it and refresh the source preview below.`
+                : "If you replace the source file, save first. The layout editor below always works with the persisted template asset."}
+            </div>
 
             <div className="flex flex-wrap gap-2">
               <button
@@ -181,14 +201,6 @@ export default function TemplateDetailPage({ params }: Props) {
               >
                 Delete
               </button>
-              <Link
-                className="btn-hero rounded-2xl border border-white/10 bg-white/[0.04]"
-                href={`/admin/templates/${template.template.id}/layout`}
-              >
-                <RefreshCw className="size-4" />
-                Edit layout
-                <ArrowRight className="size-4" />
-              </Link>
             </div>
           </div>
         </div>
@@ -202,17 +214,37 @@ export default function TemplateDetailPage({ params }: Props) {
             <InfoRow label="Source" value={template.template.source_kind.toUpperCase()} />
             <InfoRow label="Layout" value={template.template.has_layout ? "Ready" : "Missing"} />
             <InfoRow
-              label="Created"
-              value={new Date(template.template.created_at).toLocaleString()}
+              label="Updated"
+              value={new Date(template.template.updated_at).toLocaleString()}
             />
           </div>
 
           <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-black/25 p-4 text-sm leading-6 text-white/62">
-            Use the layout editor to position the name, then render a PDF preview before you enable
-            issuance.
+            This page now combines source asset management and layout editing, so reloads only show
+            the saved file version from the backend.
           </div>
         </aside>
       </div>
+
+      <TemplateLayoutEditor
+        showHeader={false}
+        template={template}
+        onSaved={(layout) => {
+          setTemplate((current) =>
+            current
+              ? {
+                  ...current,
+                  layout,
+                  template: {
+                    ...current.template,
+                    has_layout: true,
+                  },
+                }
+              : current,
+          );
+          setMessage("Layout saved.");
+        }}
+      />
     </section>
   );
 }

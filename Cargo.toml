@@ -21,14 +21,20 @@ actix-web = "4.11"
 anyhow = "1"
 argon2 = "0.5"
 async-trait = "0.1"
+aws-config = "1"
+aws-sdk-s3 = "1"
+calamine = "0.34"
 chrono = { version = "0.4", features = ["clock", "serde"] }
 csv = "1.3"
 dotenvy = "0.15"
+flate2 = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 mime = "0.3"
 num_cpus = "1"
 rand = "0.9"
 futures-util = "0.3"
+redis = { version = "1", features = ["aio", "tokio-comp"] }
 sea-orm = { version = "2.0.0-rc.38", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros", "with-chrono", "with-json", "with-uuid"] }
 sea-orm-migration = { version = "2.0.0-rc.38", features = ["sqlx-postgres", "runtime-tokio-rustls"] }
 serde = { version = "1", features = ["derive"] }

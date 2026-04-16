@@ -26,16 +26,17 @@
 - модели БД на `SeaORM`
 - миграции для базовой схемы
 - Next.js frontend для публичной страницы и каркаса админки
-- локальная инфраструктура через `docker compose`
+- локальная инфраструктура через `docker compose` c `PostgreSQL`, `Redis` и `MinIO`
 - rate limit для public/admin API scopes
 - отдельный `auth` domain на backend с login/refresh/logout/me
 - JWT middleware и role checks для защищенных admin routes
 - DB-backed `issuance_enabled` в `app_settings`
 - storage strategy и healthcheck для templates/generated files
+- Redis-backed admin login throttling, issuance lock и cluster readiness health checks
+- audit log для админских действий
 
 Пока еще не завершено:
 
-- импорт участников
 - загрузка шаблонов
 - layout editor и preview
 - verification page
@@ -51,7 +52,8 @@
 - `backend/db-migration` — миграции БД
 - `frontend` — публичный сайт и админ-панель на `Next.js`
 - `uploads` — локальное хранилище шаблонов и сгенерированных файлов в dev-режиме
-- `docker-compose.yml` — PostgreSQL и Redis для локальной разработки
+- `S3`-совместимое object storage для production-хранения шаблонов и PDF
+- `docker-compose.yml` — PostgreSQL, Redis и MinIO для локальной разработки
 
 Текущая схема БД уже включает:
 
@@ -123,6 +125,7 @@ BIND_ADDRESS=127.0.0.1:8080
 HTTP_WORKERS=4
 
 DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/decentra_certificates
+REDIS_URL=redis://127.0.0.1:6379/0
 
 JWT_ACCESS_SECRET=change_me_access_secret
 JWT_REFRESH_SECRET=change_me_refresh_secret
@@ -130,7 +133,29 @@ JWT_ACCESS_TTL_MINUTES=15
 JWT_REFRESH_TTL_DAYS=30
 
 ISSUANCE_ENABLED=false
+STORAGE_DRIVER=local_fs
 UPLOADS_DIR=./uploads
+STORAGE_S3_BUCKET=
+STORAGE_S3_REGION=
+STORAGE_S3_PREFIX=decentra-certificates
+STORAGE_S3_ENDPOINT_URL=
+STORAGE_S3_FORCE_PATH_STYLE=false
+```
+
+Для production можно переключить storage driver на `s3`:
+
+```env
+STORAGE_DRIVER=s3
+STORAGE_S3_BUCKET=my-certificates-bucket
+STORAGE_S3_REGION=eu-central-1
+STORAGE_S3_PREFIX=decentra-certificates
+```
+
+Для S3-совместимых провайдеров вроде MinIO или Cloudflare R2 можно дополнительно задать:
+
+```env
+STORAGE_S3_ENDPOINT_URL=https://<custom-endpoint>
+STORAGE_S3_FORCE_PATH_STYLE=true
 ```
 
 ### 3. Поднять локальное окружение
@@ -142,7 +167,7 @@ make setup
 Эта команда:
 
 - установит frontend dependencies
-- поднимет PostgreSQL и Redis
+- поднимет PostgreSQL, Redis и MinIO
 - применит миграции
 
 ### 4. Запустить backend

@@ -12,6 +12,41 @@
   --color-secondary: #662bb1;
 }
 
+@layer base {
+  textarea {
+    width: 100%;
+    min-height: 9rem;
+    resize: both;
+    overflow: auto;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 1rem;
+    background: rgba(0, 0, 0, 0.35);
+    padding: 0.875rem 1rem;
+    color: var(--color-foreground);
+    outline: none;
+    transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+  }
+
+  textarea::placeholder {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  textarea:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  textarea:focus {
+    border-color: rgba(140, 216, 18, 0.6);
+    background: rgba(0, 0, 0, 0.5);
+    box-shadow: 0 0 0 2px rgba(140, 216, 18, 0.2);
+  }
+
+  textarea:disabled {
+    cursor: not-allowed;
+    opacity: 0.8;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

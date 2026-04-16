@@ -10,7 +10,6 @@ import {
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
-import Link from "next/link";
 import type { FormEvent, ReactNode } from "react";
 import { useState } from "react";
 
@@ -27,7 +26,7 @@ type RequestState =
   | { kind: "error"; message: string };
 
 const initialMessage =
-  "Введите e-mail, который использовался при регистрации. Имя подтянется только после серверной проверки.";
+  "Введите e-mail, который использовался при регистрации. Мы покажем результат только после серверной проверки.";
 
 export function EmailRequestForm() {
   const [email, setEmail] = useState("");
@@ -64,7 +63,10 @@ export function EmailRequestForm() {
       }
 
       if (response.status === 404) {
-        setState({ kind: "not_found", message: "Данный e-mail не найден в базе участников." });
+        setState({
+          kind: "not_found",
+          message: "Данный e-mail не найден в базе участников.",
+        });
         return;
       }
 
@@ -113,7 +115,7 @@ export function EmailRequestForm() {
           <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
             Public issuance
           </p>
-          <h2 className="mt-3 text-2xl font-black text-white">Получить сертификат</h2>
+          <h2 className="mt-3 text-2xl font-black text-white">Забрать сертификат</h2>
         </div>
         <ShieldCheck className="size-5 shrink-0 text-primary/85" />
       </div>
@@ -126,7 +128,7 @@ export function EmailRequestForm() {
         }}
       >
         <label className="block text-sm font-medium text-white/72" htmlFor="email">
-          E-mail участника
+          E-mail для сертификата
         </label>
 
         <div className="relative">
@@ -143,6 +145,7 @@ export function EmailRequestForm() {
             )}
             disabled={isLoading}
             placeholder="name@example.com"
+            spellCheck={false}
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -153,11 +156,11 @@ export function EmailRequestForm() {
           {isLoading ? (
             <>
               <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
-              Проверяем базу
+              Проверяем e-mail
             </>
           ) : (
             <>
-              <span>Получить сертификат</span>
+              <span>Забрать сертификат</span>
               <ArrowRight />
             </>
           )}
@@ -186,15 +189,6 @@ export function EmailRequestForm() {
 
         {state.kind === "issuance_disabled" && (
           <StatusNotice
-            action={
-              <Link
-                className="btn-hero mt-4 w-full rounded-2xl border border-amber-500/30 bg-white/[0.04] text-amber-100"
-                href="/admin"
-              >
-                <ShieldCheck aria-hidden="true" className="size-4" />
-                Admin panel
-              </Link>
-            }
             icon={<ShieldCheck aria-hidden="true" className="size-5 text-amber-300" />}
             message={state.message}
             title="Выдача отключена"
@@ -264,11 +258,6 @@ function StatusIdle({ message }: { message: string }) {
     <div className="space-y-3">
       <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-white/45">Status</p>
       <p className="max-w-md text-sm leading-6 text-white/72">{message}</p>
-      <div className="grid gap-2 sm:grid-cols-3">
-        <MetaPill label="Server only" value="Name stays in DB" />
-        <MetaPill label="PDF" value="Issued on the backend" />
-        <MetaPill label="Verified" value="Download link included" />
-      </div>
     </div>
   );
 }
@@ -330,7 +319,7 @@ function StatusNotice({
   message,
   title,
 }: {
-  action: ReactNode;
+  action?: ReactNode;
   icon: ReactNode;
   message: string;
   title: string;
@@ -346,7 +335,7 @@ function StatusNotice({
           <p className="mt-2 text-sm leading-6 text-white/72">{message}</p>
         </div>
       </div>
-      {action}
+      {action ? action : null}
     </div>
   );
 }

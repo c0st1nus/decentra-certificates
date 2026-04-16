@@ -1,3 +1,4 @@
+pub use crate::admin_audit_logs::Entity as AdminAuditLogs;
 pub use crate::admins::Entity as Admins;
 pub use crate::app_settings::Entity as AppSettings;
 pub use crate::certificate_issues::Entity as CertificateIssues;

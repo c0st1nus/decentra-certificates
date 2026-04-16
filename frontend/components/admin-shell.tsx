@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, BadgeCheck, LogOut, ShieldCheck } from "lucide-react";
+import { BadgeCheck, LogOut, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
@@ -9,13 +9,6 @@ import { useEffect, useState } from "react";
 import { GridBackground } from "@/components/grid-background";
 import { adminLogout, getAdminSession, hasAdminSession } from "@/lib/admin-api";
 import { cn } from "@/lib/utils";
-
-const adminLinks = [
-  { href: "/admin", label: "Overview" },
-  { href: "/admin/templates", label: "Templates" },
-  { href: "/admin/participants", label: "Participants" },
-  { href: "/admin/issuance", label: "Issuance" },
-];
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -76,14 +69,6 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 <p className="truncate text-sm text-white/58">Secure access</p>
               </div>
             </div>
-
-            <Link
-              className="inline-flex min-h-10 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/64 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              href="/"
-            >
-              <ArrowLeft className="size-3.5" />
-              Public page
-            </Link>
           </header>
 
           <div className="flex flex-1 items-center justify-center py-8">{children}</div>
@@ -115,27 +100,6 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </div>
 
           <nav className="flex flex-wrap items-center gap-2">
-            {adminLinks.map((link) => (
-              <Link
-                key={link.href}
-                className={cn(
-                  "rounded-full border px-3 py-2 text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                  pathname === link.href
-                    ? "border-primary/35 bg-primary/10 text-white"
-                    : "border-white/10 bg-white/5 text-white/64 hover:border-primary/30 hover:text-white",
-                )}
-                href={link.href}
-              >
-                {link.label}
-              </Link>
-            ))}
-            <Link
-              className="inline-flex min-h-10 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/64 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              href="/"
-            >
-              <ArrowLeft className="size-3.5" />
-              Public page
-            </Link>
             <button
               className="inline-flex min-h-10 items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-100 transition hover:border-red-400/40 hover:bg-red-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               type="button"

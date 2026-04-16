@@ -38,11 +38,18 @@ export interface TemplateLayoutData {
   name_x: number;
   name_y: number;
   name_max_width: number;
+  name_box_height: number;
   font_family: string;
   font_size: number;
   font_color_hex: string;
   text_align: string;
+  vertical_align: string;
   auto_shrink: boolean;
+}
+
+export interface FontFamilyOption {
+  label: string;
+  value: string;
 }
 
 export interface TemplateSummary {
@@ -228,6 +235,14 @@ export async function fetchTemplate(id: string) {
   return adminRequestJson<TemplateDetail>(`/api/v1/admin/templates/${id}`);
 }
 
+export async function fetchTemplateSource(id: string) {
+  return adminRequest(`/api/v1/admin/templates/${id}/source`);
+}
+
+export async function fetchFontFamilies() {
+  return adminRequestJson<FontFamilyOption[]>("/api/v1/admin/fonts");
+}
+
 export async function createTemplate(form: FormData) {
   return adminRequestJson<TemplateDetail>("/api/v1/admin/templates", {
     body: form,
@@ -264,9 +279,16 @@ export async function saveTemplateLayout(id: string, layout: TemplateLayoutData)
   });
 }
 
-export async function previewTemplate(id: string, previewName: string) {
+export async function previewTemplate(
+  id: string,
+  previewName: string,
+  layout?: TemplateLayoutData,
+) {
   return adminRequest(`/api/v1/admin/templates/${id}/preview`, {
-    body: JSON.stringify({ preview_name: previewName }),
+    body: JSON.stringify({
+      preview_name: previewName,
+      layout,
+    }),
     headers: {
       "Content-Type": "application/json",
     },

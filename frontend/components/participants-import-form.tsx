@@ -7,29 +7,38 @@ import { useState } from "react";
 import { type ImportResponse, importParticipants } from "@/lib/admin-api";
 
 type ParticipantsImportFormProps = {
+  templateId: string | null;
+  templateName: string | null;
   onImported?: (result: ImportResponse) => void;
 };
 
-export function ParticipantsImportForm({ onImported }: ParticipantsImportFormProps) {
-  const [eventCode, setEventCode] = useState("main");
+export function ParticipantsImportForm({
+  onImported,
+  templateId,
+  templateName,
+}: ParticipantsImportFormProps) {
   const [file, setFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [message, setMessage] = useState("CSV uploads are supported for the current stage.");
+  const [message, setMessage] = useState("CSV and XLSX uploads are supported.");
   const [result, setResult] = useState<ImportResponse | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!templateId) {
+      setMessage("Select a template first.");
+      return;
+    }
     if (!file) {
-      setMessage("Choose a CSV file first.");
+      setMessage("Choose a CSV or XLSX file first.");
       return;
     }
 
     const form = new FormData();
-    form.append("event_code", eventCode.trim() || "main");
+    form.append("event_code", templateId);
     form.append("file", file);
 
     setIsLoading(true);
-    setMessage("Importing participants...");
+    setMessage(`Importing participants into ${templateName ?? "the selected template"}...`);
 
     try {
       const { response, data } = await importParticipants(form);
@@ -56,40 +65,37 @@ export function ParticipantsImportForm({ onImported }: ParticipantsImportFormPro
           <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
             Participants
           </p>
-          <h2 className="mt-3 text-2xl font-black text-white">Import CSV</h2>
+          <h2 className="mt-3 text-2xl font-black text-white">Import CSV/XLSX</h2>
+          <p className="mt-2 max-w-sm text-sm leading-6 text-white/58">
+            {templateName
+              ? `This import will be linked to ${templateName}.`
+              : "Select a template to bind incoming participants."}
+          </p>
         </div>
         <FileUp className="size-5 text-primary/85" />
       </div>
 
       <form className="mt-6 space-y-4" onSubmit={(event) => void handleSubmit(event)}>
-        <label className="block text-sm font-medium text-white/72" htmlFor="event-code">
-          Event code
-          <input
-            id="event-code"
-            className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
-            disabled={isLoading}
-            placeholder="main"
-            value={eventCode}
-            onChange={(event) => setEventCode(event.target.value)}
-          />
-        </label>
-
         <label className="block text-sm font-medium text-white/72" htmlFor="participants-file">
-          CSV file
+          CSV or XLSX file
           <div className="mt-2 flex items-center gap-3 rounded-2xl border border-dashed border-white/15 bg-black/20 px-4 py-4">
             <Upload className="size-5 text-primary/80" />
             <input
               id="participants-file"
-              accept=".csv,text/csv"
+              accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               className="block w-full text-sm text-white/72 file:mr-4 file:rounded-full file:border-0 file:bg-primary/15 file:px-4 file:py-2 file:text-xs file:font-pixel file:uppercase file:tracking-[0.18em] file:text-primary hover:file:bg-primary/20"
-              disabled={isLoading}
+              disabled={isLoading || !templateId}
               type="file"
               onChange={(event) => setFile(event.target.files?.[0] ?? null)}
             />
           </div>
         </label>
 
-        <button className="btn-hero glow-primary w-full rounded-2xl bg-white/[0.05]" type="submit">
+        <button
+          className="btn-hero glow-primary w-full rounded-2xl bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={!templateId}
+          type="submit"
+        >
           {isLoading ? (
             <>
               <LoaderCircle className="size-4 animate-spin" />

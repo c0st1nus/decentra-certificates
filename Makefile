@@ -7,7 +7,7 @@ help:
 	@printf "%s\n" \
 		"Available targets:" \
 		"  make install       - install frontend dependencies with bun" \
-		"  make up            - start PostgreSQL and Redis with docker compose" \
+		"  make up            - start PostgreSQL, Redis and MinIO with docker compose" \
 		"  make down          - stop local infrastructure" \
 		"  make logs          - show docker compose logs" \
 		"  make ps            - show docker compose service status" \

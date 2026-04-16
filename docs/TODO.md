@@ -912,7 +912,7 @@ Backend-валидации:
 - [x] Сделать страницу логина
 - [x] Сделать upload шаблонов
 - [x] Сделать layout editor с preview
-- [x] Сделать импорт CSV
+- [x] Сделать импорт CSV/XLSX
 - [x] Сделать переключатель выдачи
 
 Фактически сделано:
@@ -928,17 +928,21 @@ Backend-валидации:
 
 Оставшиеся хвосты этапа:
 
-- XLSX-импорт участников
 - drag-and-drop позиционирование в layout editor
 - более богатый preview UX
 
 ### Этап 4. Ops and hardening
 
-- [ ] Логи действий админа
-- [ ] CAPTCHA/rate limit hardening
-- [ ] Redis integration
-- [ ] Cluster readiness и health checks
-- [ ] Тесты и нагрузочная проверка
+- [x] Логи действий админа
+- [x] CAPTCHA/rate limit hardening
+- [x] Redis integration
+- [x] Cluster readiness и health checks
+- [x] Тесты
+
+Примечание:
+
+- добавлен Redis-backed throttling для admin login и lock для выдачи сертификатов
+- отдельный load test ещё не запускался
 
 ## 16. Acceptance criteria
 

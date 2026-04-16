@@ -1458,10 +1458,8 @@ function computePreviewTextMetrics(layout: TemplateLayoutData, text: string): Pr
   const boxWidth = Math.min(layout.page_width, Math.max(240, layout.name_max_width));
   const boxHeight = getNameBoxHeight(layout);
   const textWidth = roundToHundredths(estimateTextWidth(text, pdfFontSize, pdfFontFamily));
+  const textTop = roundToHundredths(computePreviewTextTop(layout, boxHeight, pdfFontSize));
   const ascentRatio = resolvePdfTextAscentRatio(pdfFontFamily);
-  const textTop = roundToHundredths(
-    computePreviewTextTop(layout, boxHeight, pdfFontSize, ascentRatio),
-  );
 
   return {
     textLeft: roundToHundredths(resolvePreviewTextLeft(layout.text_align, boxWidth, textWidth)),
@@ -1499,19 +1497,14 @@ function buildSourceOverlayMetrics(
   };
 }
 
-function computePreviewTextTop(
-  layout: TemplateLayoutData,
-  boxHeight: number,
-  fontSize: number,
-  ascentRatio: number,
-) {
+function computePreviewTextTop(layout: TemplateLayoutData, boxHeight: number, fontSize: number) {
   switch (layout.vertical_align) {
     case "top":
       return NAME_BOX_INSET;
     case "bottom":
       return boxHeight - fontSize - NAME_BOX_INSET;
     default:
-      return boxHeight / 2 + fontSize * (0.35 - ascentRatio);
+      return (boxHeight - fontSize) / 2;
   }
 }
 
@@ -1642,7 +1635,7 @@ function estimateTextUnits(text: string, fontFamily: string) {
   const normalized = fontFamily.toLowerCase();
   const familyFactor =
     normalized === "times-roman"
-      ? 0.85
+      ? 0.98
       : normalized === "courier"
         ? 0.62
         : normalized === "symbol" || normalized === "zapfdingbats"

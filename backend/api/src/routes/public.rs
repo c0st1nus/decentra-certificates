@@ -32,6 +32,7 @@ async fn request_certificate(
 
     let response = certificates::issue_certificate(
         &state.db,
+        &state.redis,
         &state.storage,
         state.settings.issuance_enabled_default,
         &payload.email,
@@ -47,7 +48,8 @@ async fn download_certificate(
     path: web::Path<String>,
 ) -> Result<HttpResponse, AppError> {
     let certificate_id = path.into_inner();
-    let (pdf, filename) = certificates::download_certificate(&state.db, &certificate_id).await?;
+    let (pdf, filename) =
+        certificates::download_certificate(&state.db, &state.storage, &certificate_id).await?;
 
     Ok(HttpResponse::Ok()
         .insert_header((header::CONTENT_TYPE, "application/pdf"))

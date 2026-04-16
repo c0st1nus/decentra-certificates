@@ -10,6 +10,8 @@ impl MigratorTrait for Migrator {
         vec![
             Box::new(migrations::m20260415_000001_create_initial_schema::Migration),
             Box::new(migrations::m20260415_000002_convert_timestamps_to_timestamptz::Migration),
+            Box::new(migrations::m20260416_000003_add_ops_hardening::Migration),
+            Box::new(migrations::m20260416_000004_add_layout_box_geometry::Migration),
         ]
     }
 }

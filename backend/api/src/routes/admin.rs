@@ -17,6 +17,7 @@ use crate::{
     error::AppError,
     middleware::auth::AdminAuth,
     services::{
+        audit,
         auth::{AuthService, RefreshTokenRequest, SessionResponse},
         participants as participant_service, settings,
         templates::{self, TemplateLayoutData},
@@ -54,6 +55,7 @@ pub struct TemplateLayoutRequest {
     pub name_x: i32,
     pub name_y: i32,
     pub name_max_width: i32,
+    pub name_box_height: i32,
     #[validate(length(min = 1))]
     pub font_family: String,
     pub font_size: i32,
@@ -61,12 +63,15 @@ pub struct TemplateLayoutRequest {
     pub font_color_hex: String,
     #[validate(length(min = 1))]
     pub text_align: String,
+    #[validate(length(min = 1))]
+    pub vertical_align: String,
     pub auto_shrink: bool,
 }
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct TemplatePreviewRequest {
     pub preview_name: Option<String>,
+    pub layout: Option<TemplateLayoutRequest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -107,11 +112,25 @@ async fn login(
 
     let response = AuthService::login(
         &state.db,
+        &state.redis,
         &state.settings.jwt,
         &payload.login,
         &payload.password,
     )
     .await?;
+
+    audit::log_admin_action(
+        &state.db,
+        response.admin.id,
+        "admin.login",
+        "admin_session",
+        Some(response.admin.id.to_string()),
+        serde_json::json!({
+            "login": &response.admin.login,
+            "role": &response.admin.role,
+        }),
+    )
+    .await;
 
     Ok(HttpResponse::Ok().json(response))
 }
@@ -131,9 +150,21 @@ async fn refresh(
 async fn logout(
     state: web::Data<AppState>,
     payload: web::Json<RefreshTokenRequest>,
-    _auth: AdminAuth,
+    auth: AdminAuth,
 ) -> Result<HttpResponse, AppError> {
     AuthService::logout(&state.db, &state.settings.jwt, &payload.refresh_token).await?;
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "admin.logout",
+        "admin_session",
+        Some(auth.0.id.to_string()),
+        serde_json::json!({
+            "login": &auth.0.login,
+            "role": auth.0.role.as_str(),
+        }),
+    )
+    .await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "status": "ok"
@@ -176,6 +207,22 @@ async fn update_issuance_status(
         .await
         .map_err(AppError::Internal)?;
 
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "issuance.update",
+        "issuance_setting",
+        Some("issuance_enabled".to_owned()),
+        serde_json::json!({
+            "enabled": issuance.enabled,
+            "ready_to_enable": status.ready_to_enable,
+            "has_active_template": status.has_active_template,
+            "participant_count": status.participant_count,
+            "has_layout": status.has_layout,
+        }),
+    )
+    .await;
+
     Ok(HttpResponse::Ok().json(IssuanceStatusResponse {
         enabled: issuance.enabled,
         has_active_template: status.has_active_template,
@@ -195,6 +242,7 @@ async fn list_templates(state: web::Data<AppState>) -> Result<HttpResponse, AppE
 #[post("/templates")]
 async fn create_template(
     state: web::Data<AppState>,
+    auth: AdminAuth,
     payload: Multipart,
 ) -> Result<HttpResponse, AppError> {
     let form = collect_multipart(payload).await?;
@@ -220,6 +268,20 @@ async fn create_template(
     )
     .await?;
 
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "template.create",
+        "certificate_template",
+        Some(template.template.id.to_string()),
+        serde_json::json!({
+            "name": &template.template.name,
+            "source_kind": &template.template.source_kind,
+            "has_layout": template.layout.is_some(),
+        }),
+    )
+    .await;
+
     Ok(HttpResponse::Ok().json(template))
 }
 
@@ -232,9 +294,27 @@ async fn get_template(
     Ok(HttpResponse::Ok().json(template))
 }
 
+#[get("/templates/{id}/source")]
+async fn get_template_source(
+    state: web::Data<AppState>,
+    path: web::Path<Uuid>,
+) -> Result<HttpResponse, AppError> {
+    let source =
+        templates::get_template_source(&state.db, &state.storage, path.into_inner()).await?;
+    Ok(HttpResponse::Ok()
+        .insert_header(("Content-Type", source.content_type))
+        .insert_header((
+            "Content-Disposition",
+            format!("inline; filename=\"{}\"", source.file_name),
+        ))
+        .insert_header(("Cache-Control", "no-store"))
+        .body(source.bytes))
+}
+
 #[patch("/templates/{id}")]
 async fn update_template(
     state: web::Data<AppState>,
+    auth: AdminAuth,
     path: web::Path<Uuid>,
     payload: Multipart,
 ) -> Result<HttpResponse, AppError> {
@@ -254,54 +334,118 @@ async fn update_template(
     )
     .await?;
 
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "template.update",
+        "certificate_template",
+        Some(template.template.id.to_string()),
+        serde_json::json!({
+            "name": &template.template.name,
+            "source_kind": &template.template.source_kind,
+            "has_layout": template.layout.is_some(),
+        }),
+    )
+    .await;
+
     Ok(HttpResponse::Ok().json(template))
 }
 
 #[post("/templates/{id}/activate")]
 async fn activate_template(
     state: web::Data<AppState>,
+    auth: AdminAuth,
     path: web::Path<Uuid>,
 ) -> Result<HttpResponse, AppError> {
     let template = templates::activate_template(&state.db, path.into_inner()).await?;
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "template.activate",
+        "certificate_template",
+        Some(template.template.id.to_string()),
+        serde_json::json!({
+            "name": &template.template.name,
+            "is_active": template.template.is_active,
+        }),
+    )
+    .await;
     Ok(HttpResponse::Ok().json(template))
 }
 
 #[delete("/templates/{id}")]
 async fn delete_template(
     state: web::Data<AppState>,
+    auth: AdminAuth,
     path: web::Path<Uuid>,
 ) -> Result<HttpResponse, AppError> {
-    templates::delete_template(&state.db, path.into_inner()).await?;
+    let template_id = path.into_inner();
+    templates::delete_template(&state.db, &state.storage, template_id).await?;
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "template.delete",
+        "certificate_template",
+        Some(template_id.to_string()),
+        serde_json::json!({}),
+    )
+    .await;
     Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })))
 }
 
 #[put("/templates/{id}/layout")]
 async fn save_template_layout(
     state: web::Data<AppState>,
+    auth: AdminAuth,
     path: web::Path<Uuid>,
     payload: web::Json<TemplateLayoutRequest>,
 ) -> Result<HttpResponse, AppError> {
+    let template_id = path.into_inner();
     payload
         .validate()
         .map_err(|err| AppError::BadRequest(err.to_string()))?;
 
     let layout = templates::save_layout(
         &state.db,
-        path.into_inner(),
+        template_id,
         TemplateLayoutData {
             page_width: payload.page_width,
             page_height: payload.page_height,
             name_x: payload.name_x,
             name_y: payload.name_y,
             name_max_width: payload.name_max_width,
+            name_box_height: payload.name_box_height,
             font_family: payload.font_family.clone(),
             font_size: payload.font_size,
             font_color_hex: payload.font_color_hex.clone(),
             text_align: payload.text_align.clone(),
+            vertical_align: payload.vertical_align.clone(),
             auto_shrink: payload.auto_shrink,
         },
     )
     .await?;
+
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "template.layout.update",
+        "template_layout",
+        Some(template_id.to_string()),
+        serde_json::json!({
+            "page_width": layout.page_width,
+            "page_height": layout.page_height,
+            "name_x": layout.name_x,
+            "name_y": layout.name_y,
+            "name_max_width": layout.name_max_width,
+            "name_box_height": layout.name_box_height,
+            "font_family": &layout.font_family,
+            "font_size": layout.font_size,
+            "text_align": &layout.text_align,
+            "vertical_align": &layout.vertical_align,
+            "auto_shrink": layout.auto_shrink,
+        }),
+    )
+    .await;
 
     Ok(HttpResponse::Ok().json(layout))
 }
@@ -309,16 +453,53 @@ async fn save_template_layout(
 #[post("/templates/{id}/preview")]
 async fn preview_template(
     state: web::Data<AppState>,
+    auth: AdminAuth,
     path: web::Path<Uuid>,
     payload: web::Json<TemplatePreviewRequest>,
 ) -> Result<HttpResponse, AppError> {
+    let template_id = path.into_inner();
     let preview_name = payload
         .preview_name
         .as_deref()
         .unwrap_or("Preview Participant");
-    let pdf =
-        templates::preview_template_pdf(&state.db, &state.storage, path.into_inner(), preview_name)
-            .await?;
+    let preview = templates::preview_template_pdf(
+        &state.db,
+        &state.storage,
+        template_id,
+        preview_name,
+        payload
+            .layout
+            .as_ref()
+            .map(|layout| templates::TemplateLayoutData {
+                page_width: layout.page_width,
+                page_height: layout.page_height,
+                name_x: layout.name_x,
+                name_y: layout.name_y,
+                name_max_width: layout.name_max_width,
+                name_box_height: layout.name_box_height,
+                font_family: layout.font_family.clone(),
+                font_size: layout.font_size,
+                font_color_hex: layout.font_color_hex.clone(),
+                text_align: layout.text_align.clone(),
+                vertical_align: layout.vertical_align.clone(),
+                auto_shrink: layout.auto_shrink,
+            }),
+    )
+    .await?;
+    let diagnostics_header =
+        serde_json::to_string(&preview.diagnostics).map_err(|err| AppError::Internal(err.into()))?;
+
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "template.preview",
+        "certificate_template",
+        Some(template_id.to_string()),
+        serde_json::json!({
+            "preview_name": preview_name,
+        }),
+    )
+    .await;
 
     Ok(HttpResponse::Ok()
         .insert_header(("Content-Type", "application/pdf"))
@@ -326,12 +507,14 @@ async fn preview_template(
             "Content-Disposition",
             "inline; filename=\"template-preview.pdf\"",
         ))
-        .body(pdf))
+        .insert_header(("X-Template-Preview-Diagnostics", diagnostics_header))
+        .body(preview.pdf))
 }
 
 #[post("/participants/import")]
 async fn import_participants(
     state: web::Data<AppState>,
+    auth: AdminAuth,
     payload: Multipart,
 ) -> Result<HttpResponse, AppError> {
     let form = collect_multipart(payload).await?;
@@ -342,14 +525,34 @@ async fn import_participants(
         .cloned()
         .unwrap_or_else(|| "main".to_owned());
 
-    if !is_csv_file(file.file_name.as_deref(), file.content_type.as_deref()) {
+    if !is_supported_participant_import(file.file_name.as_deref(), file.content_type.as_deref()) {
         return Err(AppError::BadRequest(
-            "participant imports currently support CSV files only".to_owned(),
+            "participant imports currently support CSV and XLSX files".to_owned(),
         ));
     }
 
-    let result =
-        participant_service::import_csv(&state.db, &file.bytes, &default_event_code).await?;
+    let result = if is_xlsx_file(file.file_name.as_deref(), file.content_type.as_deref()) {
+        participant_service::import_xlsx(&state.db, &file.bytes, &default_event_code).await?
+    } else {
+        participant_service::import_csv(&state.db, &file.bytes, &default_event_code).await?
+    };
+
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "participants.import",
+        "participants",
+        Some(default_event_code.clone()),
+        serde_json::json!({
+            "event_code": default_event_code,
+            "total_rows": result.total_rows,
+            "inserted": result.inserted,
+            "updated": result.updated,
+            "skipped": result.skipped,
+            "errors": result.errors.len(),
+        }),
+    )
+    .await;
     Ok(HttpResponse::Ok().json(result))
 }
 
@@ -374,13 +577,31 @@ async fn list_participants(
 #[delete("/participants")]
 async fn delete_participants(
     state: web::Data<AppState>,
+    auth: AdminAuth,
     query: web::Query<DeleteParticipantsQuery>,
 ) -> Result<HttpResponse, AppError> {
     let deleted = participant_service::delete_participants(&state.db, &query.event_code).await?;
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "participants.delete",
+        "participants",
+        Some(query.event_code.clone()),
+        serde_json::json!({
+            "event_code": &query.event_code,
+            "deleted": deleted,
+        }),
+    )
+    .await;
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "status": "ok",
         "deleted": deleted
     })))
+}
+
+#[get("/fonts")]
+async fn list_fonts() -> Result<HttpResponse, AppError> {
+    Ok(HttpResponse::Ok().json(templates::available_font_families()))
 }
 
 pub fn configure_public_auth(cfg: &mut web::ServiceConfig) {
@@ -395,11 +616,13 @@ pub fn configure_protected(cfg: &mut web::ServiceConfig) {
         .service(list_templates)
         .service(create_template)
         .service(get_template)
+        .service(get_template_source)
         .service(update_template)
         .service(activate_template)
         .service(delete_template)
         .service(save_template_layout)
         .service(preview_template)
+        .service(list_fonts)
         .service(import_participants)
         .service(list_participants)
         .service(delete_participants);
@@ -507,6 +730,10 @@ fn infer_source_kind(
     Ok(inferred.to_owned())
 }
 
+fn is_supported_participant_import(file_name: Option<&str>, content_type: Option<&str>) -> bool {
+    is_csv_file(file_name, content_type) || is_xlsx_file(file_name, content_type)
+}
+
 fn is_csv_file(file_name: Option<&str>, content_type: Option<&str>) -> bool {
     match file_name
         .and_then(|value| std::path::Path::new(value).extension())
@@ -515,6 +742,20 @@ fn is_csv_file(file_name: Option<&str>, content_type: Option<&str>) -> bool {
     {
         Some(extension) if extension == "csv" => true,
         _ => matches!(content_type, Some("text/csv") | Some("application/csv")),
+    }
+}
+
+fn is_xlsx_file(file_name: Option<&str>, content_type: Option<&str>) -> bool {
+    match file_name
+        .and_then(|value| std::path::Path::new(value).extension())
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_lowercase())
+    {
+        Some(extension) if extension == "xlsx" => true,
+        _ => matches!(
+            content_type,
+            Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        ),
     }
 }
 

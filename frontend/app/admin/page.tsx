@@ -16,15 +16,12 @@ import {
   fetchTemplates,
   getStoredAdminProfile,
 } from "@/lib/admin-api";
-import { cn } from "@/lib/utils";
 
 type DashboardState = {
   admin: AdminProfile | null;
   issuance: IssuanceStatusResponse | null;
   templates: TemplateDetail[];
   participantCount: number;
-  isLoading: boolean;
-  message: string;
 };
 
 const initialState: DashboardState = {
@@ -32,8 +29,6 @@ const initialState: DashboardState = {
   issuance: null,
   templates: [],
   participantCount: 0,
-  isLoading: true,
-  message: "Загружаем рабочее состояние админки...",
 };
 
 export default function AdminPage() {
@@ -60,8 +55,6 @@ export default function AdminPage() {
           issuance: issuance.data ?? null,
           templates: templates.data ?? [],
           participantCount: participants.data?.total ?? 0,
-          isLoading: false,
-          message: "Операционное состояние загружено.",
         });
       } catch {
         if (!isMounted) {
@@ -70,8 +63,6 @@ export default function AdminPage() {
 
         setState((current) => ({
           ...current,
-          isLoading: false,
-          message: "Не удалось загрузить часть данных админки.",
         }));
       }
     }
@@ -87,32 +78,6 @@ export default function AdminPage() {
 
   return (
     <section className="space-y-6">
-      <div className="max-w-3xl space-y-4">
-        <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5">
-          <Activity className="size-4 text-primary" />
-          <span className="font-pixel text-[10px] uppercase tracking-[0.2em] text-primary">
-            Admin overview
-          </span>
-        </div>
-
-        <h1 className="heading-hero text-gradient text-left">Операционный центр выдачи.</h1>
-        <p className="max-w-2xl text-sm leading-6 text-white/68 sm:text-base">
-          Здесь видно, готова ли система к выдаче, какой шаблон активен и сколько участников уже
-          импортировано. Отсюда же можно перейти к шаблонам, импорту и переключателю выдачи.
-        </p>
-      </div>
-
-      <div
-        className={cn(
-          "rounded-3xl border p-4 text-sm",
-          state.isLoading
-            ? "border-white/10 bg-white/3 text-white/70"
-            : "border-primary/20 bg-primary/10 text-white",
-        )}
-      >
-        {state.message}
-      </div>
-
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           eyebrow="Auth"

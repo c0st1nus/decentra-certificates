@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Cursor;
 
+use calamine::{Data, Reader, open_workbook_auto_from_rs};
 use chrono::Utc;
 use entity::{participants, prelude::Participants};
 use sea_orm::{
@@ -126,7 +128,7 @@ pub async fn import_csv(
         .clone();
 
     let mut seen = HashSet::new();
-    let mut rows = Vec::new();
+    let mut parsed_rows = Vec::new();
     let mut errors = Vec::new();
     let mut total_rows = 0u64;
     let mut row_number = 1usize;
@@ -140,7 +142,7 @@ pub async fn import_csv(
             continue;
         }
 
-        match parse_row(&headers, &record, default_event_code) {
+        match parse_csv_row(&headers, &record, default_event_code) {
             Ok(Some(row)) => {
                 let key = (row.event_code.clone(), row.email_normalized.clone());
                 if !seen.insert(key) {
@@ -152,7 +154,7 @@ pub async fn import_csv(
                     continue;
                 }
 
-                rows.push((row_number, row));
+                parsed_rows.push((row_number, row));
             }
             Ok(None) => {}
             Err(error) => errors.push(ImportError {
@@ -163,8 +165,89 @@ pub async fn import_csv(
         }
     }
 
+    import_rows(db, parsed_rows, total_rows, errors).await
+}
+
+pub async fn import_xlsx(
+    db: &DatabaseConnection,
+    bytes: &[u8],
+    default_event_code: &str,
+) -> Result<ImportResponse, AppError> {
+    let cursor = Cursor::new(bytes.to_vec());
+    let mut workbook = open_workbook_auto_from_rs(cursor)
+        .map_err(|err| AppError::BadRequest(format!("invalid xlsx workbook: {err}")))?;
+    let sheet_name = workbook
+        .sheet_names()
+        .first()
+        .cloned()
+        .ok_or_else(|| AppError::BadRequest("xlsx workbook has no worksheets".to_owned()))?;
+    let range = workbook
+        .worksheet_range(&sheet_name)
+        .map_err(|err| AppError::BadRequest(format!("failed to read xlsx worksheet: {err}")))?;
+
+    let mut rows = range.rows();
+    let headers = rows
+        .next()
+        .ok_or_else(|| AppError::BadRequest("xlsx sheet is empty".to_owned()))?
+        .iter()
+        .map(cell_to_string)
+        .collect::<Vec<_>>();
+
+    if headers.iter().all(|value| value.trim().is_empty()) {
+        return Err(AppError::BadRequest(
+            "xlsx file is missing a header row".to_owned(),
+        ));
+    }
+
+    let mut seen = HashSet::new();
+    let mut parsed_rows = Vec::new();
+    let mut errors = Vec::new();
+    let mut total_rows = 0u64;
+    let mut row_number = 1usize;
+
+    for row in rows {
+        row_number += 1;
+        total_rows += 1;
+        let values = row.iter().map(cell_to_string).collect::<Vec<_>>();
+        if values.iter().all(|value| value.trim().is_empty()) {
+            continue;
+        }
+
+        match parse_row_from_cells(&headers, &values, default_event_code) {
+            Ok(Some(row)) => {
+                let key = (row.event_code.clone(), row.email_normalized.clone());
+                if !seen.insert(key) {
+                    errors.push(ImportError {
+                        row_number,
+                        email: row.email.clone(),
+                        message: "duplicate row in import file".to_owned(),
+                    });
+                    continue;
+                }
+
+                parsed_rows.push((row_number, row));
+            }
+            Ok(None) => {}
+            Err(error) => errors.push(ImportError {
+                row_number,
+                email: String::new(),
+                message: error.to_string(),
+            }),
+        }
+    }
+
+    import_rows(db, parsed_rows, total_rows, errors).await
+}
+
+async fn import_rows(
+    db: &DatabaseConnection,
+    rows: Vec<(usize, ImportRow)>,
+    total_rows: u64,
+    errors: Vec<ImportError>,
+) -> Result<ImportResponse, AppError> {
     let mut inserted = 0u64;
     let mut updated = 0u64;
+
     for (_, row) in rows {
         let existing = Participants::find()
             .filter(participants::Column::EventCode.eq(&row.event_code))
@@ -217,13 +300,34 @@ pub async fn import_csv(
     })
 }
 
-fn parse_row(
+fn parse_csv_row(
     headers: &csv::StringRecord,
     record: &csv::StringRecord,
     default_event_code: &str,
 ) -> Result<Option<ImportRow>, AppError> {
+    let headers = headers
+        .iter()
+        .map(|value| value.trim().to_owned())
+        .collect::<Vec<_>>();
+    let values = record
+        .iter()
+        .map(|value| value.trim().to_owned())
+        .collect::<Vec<_>>();
+
+    parse_row_from_cells(&headers, &values, default_event_code)
+}
+
+fn parse_row_from_cells(
+    headers: &[String],
+    values: &[String],
+    default_event_code: &str,
+) -> Result<Option<ImportRow>, AppError> {
+    if values.iter().all(|value| value.trim().is_empty()) {
+        return Ok(None);
+    }
+
     let mut row = HashMap::new();
-    for (header, value) in headers.iter().zip(record.iter()) {
+    for (header, value) in headers.iter().zip(values.iter()) {
         row.insert(header.trim().to_lowercase(), value.trim().to_owned());
     }
 
@@ -281,6 +385,10 @@ fn parse_row(
     }))
 }
 
+fn cell_to_string(cell: &Data) -> String {
+    cell.to_string().trim().to_owned()
+}
+
 fn normalize_email(email: &str) -> String {
     email.trim().to_lowercase()
 }
@@ -293,5 +401,39 @@ fn to_summary(model: participants::Model) -> ParticipantSummary {
         full_name: model.full_name,
         category: model.category,
         imported_at: model.imported_at,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_row_from_cells;
+
+    #[test]
+    fn keeps_extra_import_columns_in_metadata() {
+        let headers = vec![
+            "email".to_owned(),
+            "full_name".to_owned(),
+            "track_name".to_owned(),
+            "certificate_type".to_owned(),
+            "issue_date".to_owned(),
+        ];
+        let values = vec![
+            "aigerim.sadykova@gmail.com".to_owned(),
+            "Aigerim Sadykova".to_owned(),
+            "AI Track".to_owned(),
+            "Participant".to_owned(),
+            "2026-04-20".to_owned(),
+        ];
+
+        let parsed = parse_row_from_cells(&headers, &values, "main")
+            .expect("row should parse")
+            .expect("row should not be empty");
+
+        assert_eq!(parsed.email, "aigerim.sadykova@gmail.com");
+        assert_eq!(parsed.full_name, "Aigerim Sadykova");
+        assert_eq!(parsed.event_code, "main");
+        assert_eq!(parsed.metadata["track_name"], "AI Track");
+        assert_eq!(parsed.metadata["certificate_type"], "Participant");
+        assert_eq!(parsed.metadata["issue_date"], "2026-04-20");
     }
 }

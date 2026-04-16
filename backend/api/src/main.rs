@@ -39,7 +39,9 @@ async fn main() -> io::Result<()> {
     settings_service::ensure_defaults(&db, settings.issuance_enabled_default)
         .await
         .map_err(io::Error::other)?;
-    let state = AppState::new(settings.clone(), db);
+    let state = AppState::try_new(settings.clone(), db)
+        .await
+        .map_err(io::Error::other)?;
 
     let bind_address = settings.server.bind_address.clone();
     let workers = settings.server.workers;

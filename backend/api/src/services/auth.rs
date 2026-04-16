@@ -11,7 +11,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::{config::JwtSettings, error::AppError};
+use crate::{config::JwtSettings, error::AppError, services::redis::RedisService};
+
+const LOGIN_FAILURE_WINDOW_SECONDS: usize = 15 * 60;
+const LOGIN_LOCK_SECONDS: usize = 10 * 60;
+const LOGIN_FAILURE_THRESHOLD: u64 = 5;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -117,22 +121,44 @@ pub struct AuthService;
 impl AuthService {
     pub async fn login(
         db: &DatabaseConnection,
+        redis: &RedisService,
         jwt: &JwtSettings,
         login: &str,
         password: &str,
     ) -> Result<LoginResponse, AppError> {
-        let admin = admins::Entity::find()
+        let login_key = normalize_login(login);
+        if is_login_blocked(redis, &login_key).await {
+            return Err(AppError::Unauthorized(
+                "too many failed login attempts".to_owned(),
+            ));
+        }
+
+        let admin = match admins::Entity::find()
             .filter(admins::Column::Login.eq(login))
             .one(db)
             .await
             .map_err(|err| AppError::Internal(err.into()))?
-            .ok_or_else(|| AppError::Unauthorized("invalid login or password".to_owned()))?;
+        {
+            Some(admin) => admin,
+            None => {
+                record_login_failure(redis, &login_key).await;
+                return Err(AppError::Unauthorized(
+                    "invalid login or password".to_owned(),
+                ));
+            }
+        };
 
         if !admin.is_active {
+            record_login_failure(redis, &login_key).await;
             return Err(AppError::Forbidden("admin account is disabled".to_owned()));
         }
 
-        verify_password(&admin.password_hash, password)?;
+        if let Err(err) = verify_password(&admin.password_hash, password) {
+            record_login_failure(redis, &login_key).await;
+            return Err(err);
+        }
+
+        clear_login_failures(redis, &login_key).await;
 
         let admin_role = AdminRole::try_from(admin.role.as_str())?;
         let admin_id = admin.id;
@@ -387,4 +413,64 @@ fn verify_password(password_hash: &str, password: &str) -> Result<(), AppError> 
 
 fn hash_token(token: &str) -> String {
     format!("{:x}", Sha256::digest(token.as_bytes()))
+}
+
+async fn is_login_blocked(redis: &RedisService, login_key: &str) -> bool {
+    redis
+        .get_string(&login_block_key(login_key))
+        .await
+        .map(|value| value.is_some())
+        .unwrap_or(false)
+}
+
+async fn record_login_failure(redis: &RedisService, login_key: &str) {
+    let failure_key = login_failure_key(login_key);
+    let block_key = login_block_key(login_key);
+
+    match redis
+        .increment_counter(&failure_key, LOGIN_FAILURE_WINDOW_SECONDS)
+        .await
+    {
+        Ok(count) if count >= LOGIN_FAILURE_THRESHOLD => {
+            let _ = redis.acquire_lock(&block_key, LOGIN_LOCK_SECONDS).await;
+        }
+        Ok(_) => {}
+        Err(err) => {
+            tracing::warn!(error = %err, login = %login_key, "failed to record admin login failure")
+        }
+    }
+}
+
+async fn clear_login_failures(redis: &RedisService, login_key: &str) {
+    let _ = redis.remove_key(&login_failure_key(login_key)).await;
+    let _ = redis.remove_key(&login_block_key(login_key)).await;
+}
+
+fn normalize_login(login: &str) -> String {
+    login.trim().to_lowercase()
+}
+
+fn login_failure_key(login_key: &str) -> String {
+    format!("admin:login:failures:{login_key}")
+}
+
+fn login_block_key(login_key: &str) -> String {
+    format!("admin:login:block:{login_key}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_login_and_builds_rate_limit_keys() {
+        let login_key = normalize_login("  Admin.User ");
+
+        assert_eq!(login_key, "admin.user");
+        assert_eq!(
+            login_failure_key(&login_key),
+            "admin:login:failures:admin.user"
+        );
+        assert_eq!(login_block_key(&login_key), "admin:login:block:admin.user");
+    }
 }

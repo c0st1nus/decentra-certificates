@@ -43,6 +43,7 @@ pub fn build_cors(origins: &[String]) -> Cors {
     let mut cors = Cors::default()
         .allow_any_header()
         .allow_any_method()
+        .expose_headers(["X-Template-Preview-Diagnostics", "Content-Disposition"])
         .supports_credentials();
 
     for origin in origins {

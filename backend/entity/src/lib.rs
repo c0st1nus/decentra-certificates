@@ -1,3 +1,4 @@
+pub mod admin_audit_logs;
 pub mod admins;
 pub mod app_settings;
 pub mod certificate_issues;
