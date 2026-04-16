@@ -17,7 +17,7 @@ use ulid::Ulid;
 
 use crate::{
     error::AppError,
-    services::{redis::RedisService, settings, storage::StorageService, templates},
+    services::{settings, storage::StorageService, templates},
 };
 
 const NAME_BOX_INSET: f32 = 16.0;
@@ -69,13 +69,10 @@ pub struct PreviewRenderDiagnostics {
 }
 
 pub async fn issue_certificate(
-    db: &DatabaseConnection,
-    redis: &RedisService,
-    storage: &StorageService,
-    issuance_default_enabled: bool,
+    state: &crate::state::AppState,
     email: &str,
 ) -> Result<PublicCertificateResponse, AppError> {
-    let issuance = settings::get_issuance_setting(db, issuance_default_enabled)
+    let issuance = settings::get_issuance_setting(&state.db, state.settings.issuance_enabled_default)
         .await
         .map_err(AppError::Internal)?;
 
@@ -85,38 +82,12 @@ pub async fn issue_certificate(
         ));
     }
 
-    let template = find_active_template(db).await?;
+    let template = find_active_template(&state.db).await?;
     let normalized_email = normalize_email(email);
-    let participant = find_participant_for_template(db, &normalized_email, template.id).await?;
-    let layout = find_layout_for_template(db, template.id).await?;
-    let lock_key = format!("certificate:issue-lock:{}:{}", participant.id, template.id);
-    let lock_acquired = redis.acquire_lock(&lock_key, 30).await.unwrap_or(false);
-
-    let issue = if lock_acquired {
-        let result = find_or_create_issue(db, storage, &participant, &template, &layout).await;
-        let _ = redis.remove_key(&lock_key).await;
-        result?
-    } else if let Some(existing) = find_existing_issue(db, &participant, &template).await? {
-        if !storage
-            .object_exists(&existing.generated_pdf_path)
-            .await
-            .unwrap_or(false)
-        {
-            write_certificate_pdf(
-                storage,
-                &existing.generated_pdf_path,
-                &participant,
-                &template,
-                &layout,
-                &existing,
-            )
-            .await
-            .map_err(AppError::Internal)?;
-        }
-        existing
-    } else {
-        find_or_create_issue(db, storage, &participant, &template, &layout).await?
-    };
+    let participant = find_participant_for_template(&state.db, &normalized_email, template.id).await?;
+    let layout = find_layout_for_template(&state.db, template.id).await?;
+    
+    let issue = find_or_create_issue(state, &participant, &template, &layout).await?;
 
     Ok(build_public_response(participant, template, issue))
 }
@@ -254,28 +225,25 @@ async fn find_layout_for_template(
 }
 
 async fn find_or_create_issue(
-    db: &DatabaseConnection,
-    storage: &StorageService,
+    state: &crate::state::AppState,
     participant: &participants::Model,
     template: &certificate_templates::Model,
     layout: &template_layouts::Model,
 ) -> Result<certificate_issues::Model, AppError> {
-    if let Some(existing) = find_existing_issue(db, participant, template).await? {
-        if !storage
+    if let Some(existing) = find_existing_issue(&state.db, participant, template).await? {
+        if !state.storage
             .object_exists(&existing.generated_pdf_path)
             .await
             .unwrap_or(false)
         {
-            write_certificate_pdf(
-                storage,
-                &existing.generated_pdf_path,
-                participant,
-                template,
-                layout,
-                &existing,
-            )
-            .await
-            .map_err(AppError::Internal)?;
+            spawn_write_certificate_pdf(
+                state.clone(),
+                existing.generated_pdf_path.clone(),
+                participant.clone(),
+                template.clone(),
+                layout.clone(),
+                existing.clone(),
+            );
         }
 
         return Ok(existing);
@@ -283,7 +251,7 @@ async fn find_or_create_issue(
 
     let certificate_id = Ulid::new().to_string().to_lowercase();
     let verification_code = Ulid::new().to_string().to_lowercase();
-    let output_key = storage.generated_file_key(&certificate_id);
+    let output_key = state.storage.generated_file_key(&certificate_id);
     let issue = certificate_issues::ActiveModel {
         id: Set(uuid::Uuid::new_v4()),
         certificate_id: Set(certificate_id.clone()),
@@ -296,21 +264,50 @@ async fn find_or_create_issue(
         created_at: Set(Utc::now()),
     };
 
-    let issue = match issue.insert(db).await {
+    let issue = match issue.insert(&state.db).await {
         Ok(issue) => issue,
         Err(err) if is_unique_issue_violation(&err) => {
-            find_existing_issue(db, participant, template)
+            find_existing_issue(&state.db, participant, template)
                 .await?
                 .ok_or_else(|| AppError::Internal(err.into()))?
         }
         Err(err) => return Err(AppError::Internal(err.into())),
     };
 
-    write_certificate_pdf(storage, &output_key, participant, template, layout, &issue)
-        .await
-        .map_err(AppError::Internal)?;
+    spawn_write_certificate_pdf(
+        state.clone(),
+        output_key,
+        participant.clone(),
+        template.clone(),
+        layout.clone(),
+        issue.clone(),
+    );
 
     Ok(issue)
+}
+
+fn spawn_write_certificate_pdf(
+    state: crate::state::AppState,
+    output_key: String,
+    participant: participants::Model,
+    template: certificate_templates::Model,
+    layout: template_layouts::Model,
+    issue: certificate_issues::Model,
+) {
+    tokio::spawn(async move {
+        if let Err(err) = write_certificate_pdf(
+            &state,
+            &output_key,
+            &participant,
+            &template,
+            &layout,
+            &issue,
+        )
+        .await
+        {
+            tracing::error!("Failed to write certificate PDF in background: {err}");
+        }
+    });
 }
 
 async fn find_existing_issue(
@@ -334,7 +331,7 @@ fn is_unique_issue_violation(err: &DbErr) -> bool {
 }
 
 async fn write_certificate_pdf(
-    storage: &StorageService,
+    state: &crate::state::AppState,
     output_key: &str,
     participant: &participants::Model,
     template: &certificate_templates::Model,
@@ -343,8 +340,8 @@ async fn write_certificate_pdf(
 ) -> Result<()> {
     let font_family = templates::resolve_pdf_font_family(&layout.font_family);
     let pdf =
-        render_certificate_pdf(storage, participant, template, layout, &font_family, issue).await?;
-    storage
+        render_certificate_pdf(state, participant, template, layout, &font_family, issue).await?;
+    state.storage
         .put_object(output_key, pdf, Some("application/pdf"))
         .await
         .with_context(|| format!("failed to write generated certificate object: {output_key}"))?;
@@ -357,7 +354,7 @@ fn is_storage_not_found(err: &anyhow::Error) -> bool {
 }
 
 pub(crate) async fn render_certificate_pdf(
-    storage: &StorageService,
+    state: &crate::state::AppState,
     participant: &participants::Model,
     template: &certificate_templates::Model,
     layout: &template_layouts::Model,
@@ -365,7 +362,7 @@ pub(crate) async fn render_certificate_pdf(
     issue: &certificate_issues::Model,
 ) -> Result<Vec<u8>> {
     let (pdf, _diagnostics) = render_certificate_pdf_with_diagnostics(
-        storage,
+        state,
         participant,
         template,
         layout,
@@ -378,7 +375,7 @@ pub(crate) async fn render_certificate_pdf(
 }
 
 pub(crate) async fn render_certificate_pdf_with_diagnostics(
-    storage: &StorageService,
+    state: &crate::state::AppState,
     participant: &participants::Model,
     template: &certificate_templates::Model,
     layout: &template_layouts::Model,
@@ -391,7 +388,7 @@ pub(crate) async fn render_certificate_pdf_with_diagnostics(
     let font_color = parse_hex_color(&layout.font_color_hex).unwrap_or((0.05, 0.05, 0.05));
     let diagnostics =
         compute_preview_render_diagnostics(name, layout, font_family, page_width, page_height);
-    let background = load_pdf_background(storage, template).await?;
+    let background = load_pdf_background(state, template).await?;
     let content = if background.is_some() {
         draw_text(
             &font_family,
@@ -421,27 +418,34 @@ pub(crate) async fn render_certificate_pdf_with_diagnostics(
         page_height,
         &content,
         &font_family,
-        background.as_ref(),
+        background.as_deref(),
     )?;
 
     Ok((pdf, diagnostics))
 }
 
 #[derive(Clone, Debug)]
-struct PdfBackground {
-    width: u32,
-    height: u32,
-    filter: &'static str,
-    bytes: Vec<u8>,
+pub struct PdfBackground {
+    pub width: u32,
+    pub height: u32,
+    pub filter: &'static str,
+    pub bytes: Vec<u8>,
 }
 
 async fn load_pdf_background(
-    storage: &StorageService,
+    state: &crate::state::AppState,
     template: &certificate_templates::Model,
-) -> Result<Option<PdfBackground>> {
+) -> Result<Option<std::sync::Arc<PdfBackground>>> {
     match template.source_kind.to_ascii_lowercase().as_str() {
         "png" | "jpg" | "jpeg" => {
-            let bytes = storage
+            {
+                let cache = state.pdf_backgrounds.read().await;
+                if let Some(cached) = cache.get(&template.id) {
+                    return Ok(Some(cached.clone()));
+                }
+            }
+
+            let bytes = state.storage
                 .get_object(&template.source_path)
                 .await
                 .with_context(|| {
@@ -465,12 +469,19 @@ async fn load_pdf_background(
                 .finish()
                 .context("failed to finalize template background compression")?;
 
-            Ok(Some(PdfBackground {
+            let background = std::sync::Arc::new(PdfBackground {
                 width,
                 height,
                 filter: "FlateDecode",
                 bytes: compressed,
-            }))
+            });
+
+            {
+                let mut cache = state.pdf_backgrounds.write().await;
+                cache.insert(template.id, background.clone());
+            }
+
+            Ok(Some(background))
         }
         _ => Ok(None),
     }

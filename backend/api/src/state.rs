@@ -1,8 +1,13 @@
 use sea_orm::DatabaseConnection;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use crate::config::Settings;
 use crate::services::redis::RedisService;
 use crate::services::storage::StorageService;
+
+pub type PdfBackgroundCache = Arc<RwLock<HashMap<uuid::Uuid, Arc<crate::services::certificates::PdfBackground>>>>;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -10,6 +15,7 @@ pub struct AppState {
     pub db: DatabaseConnection,
     pub redis: RedisService,
     pub storage: StorageService,
+    pub pdf_backgrounds: PdfBackgroundCache,
 }
 
 impl AppState {
@@ -22,6 +28,7 @@ impl AppState {
             db,
             redis,
             storage,
+            pdf_backgrounds: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 }

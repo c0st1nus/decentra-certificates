@@ -463,8 +463,7 @@ async fn preview_template(
         .as_deref()
         .unwrap_or("Preview Participant");
     let preview = templates::preview_template_pdf(
-        &state.db,
-        &state.storage,
+        &state,
         template_id,
         preview_name,
         payload

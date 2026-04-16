@@ -411,14 +411,13 @@ pub async fn save_layout(
 }
 
 pub async fn preview_template_pdf(
-    db: &DatabaseConnection,
-    storage: &StorageService,
+    state: &crate::state::AppState,
     template_id: Uuid,
     preview_name: &str,
     layout_override: Option<TemplateLayoutData>,
 ) -> Result<TemplatePreviewPdf, AppError> {
     let template = CertificateTemplates::find_by_id(template_id)
-        .one(db)
+        .one(&state.db)
         .await
         .map_err(|err| AppError::Internal(err.into()))?
         .ok_or_else(|| AppError::NotFound("template not found".to_owned()))?;
@@ -426,7 +425,7 @@ pub async fn preview_template_pdf(
         Some(layout) => build_preview_layout_model(template_id, layout),
         None => TemplateLayouts::find()
             .filter(template_layouts::Column::TemplateId.eq(template_id))
-            .one(db)
+            .one(&state.db)
             .await
             .map_err(|err| AppError::Internal(err.into()))?
             .ok_or_else(|| {
@@ -460,7 +459,7 @@ pub async fn preview_template_pdf(
     };
 
     let (pdf, diagnostics) = certificates::render_certificate_pdf_with_diagnostics(
-        storage,
+        state,
         &participant,
         &template,
         &layout,
@@ -470,8 +469,8 @@ pub async fn preview_template_pdf(
     .await
     .map_err(AppError::Internal)?;
 
-    let preview_key = storage.template_preview_key(&template.id.to_string());
-    storage
+    let preview_key = state.storage.template_preview_key(&template.id.to_string());
+    state.storage
         .put_object(&preview_key, pdf.clone(), Some("application/pdf"))
         .await
         .with_context(|| format!("failed to write template preview object: {preview_key}"))
@@ -481,7 +480,7 @@ pub async fn preview_template_pdf(
     active_model.preview_path = Set(Some(preview_key));
     active_model.updated_at = Set(Utc::now());
     active_model
-        .update(db)
+        .update(&state.db)
         .await
         .map_err(|err| AppError::Internal(err.into()))?;
 

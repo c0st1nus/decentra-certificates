@@ -30,14 +30,7 @@ async fn request_certificate(
         .validate()
         .map_err(|err| AppError::BadRequest(err.to_string()))?;
 
-    let response = certificates::issue_certificate(
-        &state.db,
-        &state.redis,
-        &state.storage,
-        state.settings.issuance_enabled_default,
-        &payload.email,
-    )
-    .await?;
+    let response = certificates::issue_certificate(&state, &payload.email).await?;
 
     Ok(HttpResponse::Ok().json(response))
 }
