@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, ArrowRight, Layers3, Trash2 } from "lucide-react";
+import { Activity, ArrowRight, Layers3, ScanLine, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -154,8 +154,15 @@ function TemplateCard({
             href={`/admin/templates/${template.template.id}`}
           >
             <Activity className="size-3.5" />
-            Open
+            Template
             <ArrowRight className="size-3.5" />
+          </Link>
+          <Link
+            className="inline-flex items-center gap-2 rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-2 text-xs text-sky-100 transition hover:border-sky-300/35 hover:bg-sky-400/15"
+            href={`/admin/templates/${template.template.id}/layout`}
+          >
+            <ScanLine className="size-3.5" />
+            Editor
           </Link>
           {!template.template.is_active ? (
             <button

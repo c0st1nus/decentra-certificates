@@ -1,11 +1,11 @@
 "use client";
 
-import { ArrowRight, Layers3, LoaderCircle, PencilLine } from "lucide-react";
+import { ArrowRight, Layers3, LoaderCircle, PencilLine, ScanLine } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useState } from "react";
 
-import { TemplateLayoutEditor } from "@/components/template-layout-editor";
+import { TemplateCurrentPreview } from "@/components/template-current-preview";
 import {
   type TemplateDetail,
   activateTemplate,
@@ -114,8 +114,8 @@ export default function TemplateDetailPage({ params }: Props) {
 
         <h1 className="heading-hero text-gradient text-left">{template.template.name}</h1>
         <p className="max-w-2xl text-sm leading-6 text-white/68 sm:text-base">
-          Edit the template name, replace the persisted source file, and adjust the certificate
-          layout without leaving this screen.
+          Страница шаблона теперь отвечает за asset, статус и текущий пример. Полноценный холст
+          редактора вынесен отдельно, чтобы можно было нормально работать с layout.
         </p>
       </div>
 
@@ -177,7 +177,7 @@ export default function TemplateDetailPage({ params }: Props) {
             <div className="rounded-[1.5rem] border border-white/10 bg-black/25 p-4 text-sm leading-6 text-white/62">
               {file
                 ? `Selected file: ${file.name}. Save changes to persist it and refresh the source preview below.`
-                : "If you replace the source file, save first. The layout editor below always works with the persisted template asset."}
+                : "Если меняете исходный файл, сначала сохраните его здесь. Отдельный редактор всегда работает только с уже сохраненным asset."}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -207,6 +207,13 @@ export default function TemplateDetailPage({ params }: Props) {
                   Activate
                 </button>
               ) : null}
+              <Link
+                className="btn-hero rounded-2xl border border-sky-400/20 bg-sky-400/10 text-sky-100"
+                href={`/admin/templates/${template.template.id}/layout`}
+              >
+                <ScanLine className="size-4" />
+                Open canvas editor
+              </Link>
               <button
                 className="btn-hero rounded-2xl border border-red-500/20 bg-red-500/10 text-red-100"
                 type="button"
@@ -233,30 +240,13 @@ export default function TemplateDetailPage({ params }: Props) {
           </div>
 
           <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-black/25 p-4 text-sm leading-6 text-white/62">
-            This page now combines source asset management and layout editing, so reloads only show
-            the saved file version from the backend.
+            Следующий шаг для редактора: перейти от одного `name_box` к слоям, чтобы отдельно
+            управлять именем, основным текстом сертификата, категорией и декоративными asset-ами.
           </div>
         </aside>
       </div>
 
-      <TemplateLayoutEditor
-        showHeader={false}
-        template={template}
-        onSaved={(layout) => {
-          setTemplate((current) =>
-            current
-              ? {
-                  ...current,
-                  layout,
-                  template: {
-                    ...current.template,
-                    has_layout: true,
-                  },
-                }
-              : current,
-          );
-        }}
-      />
+      <TemplateCurrentPreview template={template} />
     </section>
   );
 }

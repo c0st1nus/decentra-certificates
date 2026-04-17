@@ -45,6 +45,50 @@ export interface TemplateLayoutData {
   text_align: string;
   vertical_align: string;
   auto_shrink: boolean;
+  canvas?: TemplateCanvasData | null;
+}
+
+export interface TemplateCanvasData {
+  version: number;
+  layers: TemplateCanvasLayer[];
+}
+
+export interface TemplateCanvasLayer {
+  id: string;
+  name: string;
+  kind: "text" | "image";
+  role?: string | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  opacity: number;
+  visible: boolean;
+  locked: boolean;
+  text?: TemplateCanvasTextLayer | null;
+  image?: TemplateCanvasImageLayer | null;
+}
+
+export interface TemplateCanvasTextLayer {
+  content: string;
+  binding?: string | null;
+  font_family: string;
+  font_size: number;
+  font_color_hex: string;
+  text_align: string;
+  vertical_align: string;
+  auto_shrink: boolean;
+  font_weight: number;
+  letter_spacing: number;
+  line_height: number;
+  background_color_hex?: string | null;
+}
+
+export interface TemplateCanvasImageLayer {
+  src: string;
+  fit: "contain" | "cover";
+  border_radius: number;
 }
 
 export interface FontFamilyOption {

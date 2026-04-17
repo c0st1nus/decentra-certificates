@@ -13,6 +13,7 @@ impl MigratorTrait for Migrator {
             Box::new(migrations::m20260416_000003_add_ops_hardening::Migration),
             Box::new(migrations::m20260416_000004_add_layout_box_geometry::Migration),
             Box::new(migrations::m20260417_000005_add_template_roster_indexes::Migration),
+            Box::new(migrations::m20260417_000006_add_template_canvas_data::Migration),
         ]
     }
 }

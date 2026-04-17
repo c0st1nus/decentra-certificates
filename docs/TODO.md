@@ -217,7 +217,14 @@ Backend-валидации:
 
 Назначение:
 
-- настроить, где и как выводится имя участника
+- отдельная full-page страница-холст для редактирования шаблона
+- страница `/admin/templates/[id]` должна показывать только summary, asset management и текущий пример
+
+Текущее MVP-состояние:
+
+- текущая реализация уже умеет один `name_box`
+- этого достаточно только для простого сертификата с именем
+- для реальных кейсов нужен multi-layer editor, а не набор полей только под имя
 
 Настраиваемые параметры:
 
@@ -239,10 +246,35 @@ Backend-валидации:
 - поля точной настройки координат
 - моментальное обновление превью после изменения настроек
 
+Следующая эволюция редактора:
+
+- хранить layout как список слоев на холсте, а не только как один прямоугольник имени
+- базовые типы слоев:
+  - `participant_name`
+  - `certificate_body`
+  - `category_label`
+  - `image_asset`
+  - `emoji`
+  - `qr_code`
+  - `verification_code`
+- у каждого слоя должны быть:
+  - `id`
+  - `type`
+  - `x`, `y`, `width`, `height`, `rotation`, `z_index`
+  - `visible`
+  - `bindings` для данных участника или template metadata
+  - `style` для шрифта/цвета/alignment
+- категория должна влиять не только на текст, но и на видимость слоев:
+  - например показывать бейдж, иконку, дополнительную подложку или другой body copy
+- отдельные decorative assets лучше хранить как template-owned uploads, а в layout ссылаться по `asset_id`
+- текст сертификата лучше редактировать как rich/plain text шаблон с placeholders:
+  - пример: `Awarded to {{participant.full_name}} for completing {{event.title}}`
+
 Критичные backend-задачи:
 
 - сохранить layout отдельно от файла шаблона
 - возвращать preview-safe данные
+- предусмотреть версионирование layout schema, чтобы мигрировать от MVP `name_*` полей к canvas layers без поломки старых шаблонов
 - иметь endpoint для server-side preview generation
 
 ## 4.6. Страница импорта участников `/admin/participants`
@@ -668,6 +700,8 @@ Backend-валидации:
 - `admin_audit_logs`
 - возможно `participant_import_jobs`
 - возможно `template_assets_fonts`, если будут кастомные шрифты
+- возможно `template_assets` для sticker/image/emoji-like overlays и декоративных слоев
+- возможно JSON schema внутри `template_layouts` или отдельная `template_layout_versions` для canvas layer model
 - возможно поле `event_code` в `certificate_templates`, если потребуется несколько потоков и событий
 
 ### Изменения, которые стоит проверить в миграциях

@@ -15,6 +15,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [hydrated, setHydrated] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const isCanvasEditorRoute = /^\/admin\/templates\/[^/]+\/layout$/.test(pathname);
 
   useEffect(() => {
     const session = getAdminSession();
@@ -85,7 +86,12 @@ export function AdminShell({ children }: { children: ReactNode }) {
     <main className="relative isolate min-h-screen overflow-hidden">
       <GridBackground />
 
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+      <div
+        className={cn(
+          "mx-auto flex min-h-screen w-full flex-col px-4 py-4 sm:px-6 sm:py-6 lg:px-8",
+          isCanvasEditorRoute ? "max-w-none" : "max-w-7xl",
+        )}
+      >
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-primary/30 bg-primary/10 shadow-[0_0_24px_rgba(140,216,18,0.16)]">

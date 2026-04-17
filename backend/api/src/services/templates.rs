@@ -36,6 +36,57 @@ pub struct TemplateLayoutData {
     pub text_align: String,
     pub vertical_align: String,
     pub auto_shrink: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canvas: Option<TemplateCanvasData>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TemplateCanvasData {
+    pub version: i32,
+    pub layers: Vec<TemplateCanvasLayer>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TemplateCanvasLayer {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub role: Option<String>,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub rotation: i32,
+    pub opacity: i32,
+    pub visible: bool,
+    pub locked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<TemplateCanvasText>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<TemplateCanvasImage>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TemplateCanvasText {
+    pub content: String,
+    pub binding: Option<String>,
+    pub font_family: String,
+    pub font_size: i32,
+    pub font_color_hex: String,
+    pub text_align: String,
+    pub vertical_align: String,
+    pub auto_shrink: bool,
+    pub font_weight: i32,
+    pub letter_spacing: i32,
+    pub line_height: i32,
+    pub background_color_hex: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TemplateCanvasImage {
+    pub src: String,
+    pub fit: String,
+    pub border_radius: i32,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -371,6 +422,7 @@ pub async fn save_layout(
     layout: TemplateLayoutData,
 ) -> Result<TemplateLayoutData, AppError> {
     let now = Utc::now();
+    let canvas_data = serialize_canvas_data(layout.canvas.as_ref())?;
 
     if let Some(existing) = TemplateLayouts::find()
         .filter(template_layouts::Column::TemplateId.eq(template_id))
@@ -391,6 +443,7 @@ pub async fn save_layout(
         active_model.text_align = Set(layout.text_align.clone());
         active_model.vertical_align = Set(layout.vertical_align.clone());
         active_model.auto_shrink = Set(layout.auto_shrink);
+        active_model.canvas_data = Set(canvas_data.clone());
         active_model.updated_at = Set(now);
         active_model
             .update(db)
@@ -412,6 +465,7 @@ pub async fn save_layout(
             text_align: Set(layout.text_align.clone()),
             vertical_align: Set(layout.vertical_align.clone()),
             auto_shrink: Set(layout.auto_shrink),
+            canvas_data: Set(canvas_data),
             created_at: Set(now),
             updated_at: Set(now),
         }
@@ -519,6 +573,10 @@ fn build_preview_layout_model(
         text_align: layout.text_align,
         vertical_align: layout.vertical_align,
         auto_shrink: layout.auto_shrink,
+        canvas_data: layout
+            .canvas
+            .as_ref()
+            .and_then(|canvas| serde_json::to_value(canvas).ok()),
         created_at: Utc::now(),
         updated_at: Utc::now(),
     }
@@ -581,12 +639,13 @@ fn to_layout_data(layout: &template_layouts::Model) -> TemplateLayoutData {
         text_align: layout.text_align.clone(),
         vertical_align: layout.vertical_align.clone(),
         auto_shrink: layout.auto_shrink,
+        canvas: deserialize_canvas_data(layout.canvas_data.as_ref()),
     }
 }
 
 impl TemplateLayoutData {
     pub fn default_for_template() -> Self {
-        Self {
+        let mut layout = Self {
             page_width: 1920,
             page_height: 1080,
             name_x: 420,
@@ -599,7 +658,58 @@ impl TemplateLayoutData {
             text_align: "center".to_owned(),
             vertical_align: "center".to_owned(),
             auto_shrink: true,
-        }
+            canvas: None,
+        };
+        layout.canvas = Some(default_canvas_for_layout(&layout));
+        layout
+    }
+}
+
+fn serialize_canvas_data(
+    canvas: Option<&TemplateCanvasData>,
+) -> Result<Option<serde_json::Value>, AppError> {
+    canvas
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|err| AppError::Internal(err.into()))
+}
+
+fn deserialize_canvas_data(canvas: Option<&serde_json::Value>) -> Option<TemplateCanvasData> {
+    canvas.and_then(|value| serde_json::from_value(value.clone()).ok())
+}
+
+fn default_canvas_for_layout(layout: &TemplateLayoutData) -> TemplateCanvasData {
+    TemplateCanvasData {
+        version: 1,
+        layers: vec![TemplateCanvasLayer {
+            id: "legacy-name-layer".to_owned(),
+            name: "Participant name".to_owned(),
+            kind: "text".to_owned(),
+            role: Some("legacy_name".to_owned()),
+            x: layout.name_x,
+            y: layout.name_y - layout.name_box_height,
+            width: layout.name_max_width,
+            height: layout.name_box_height,
+            rotation: 0,
+            opacity: 100,
+            visible: true,
+            locked: false,
+            text: Some(TemplateCanvasText {
+                content: "Preview Participant".to_owned(),
+                binding: Some("participant.full_name".to_owned()),
+                font_family: layout.font_family.clone(),
+                font_size: layout.font_size,
+                font_color_hex: layout.font_color_hex.clone(),
+                text_align: layout.text_align.clone(),
+                vertical_align: layout.vertical_align.clone(),
+                auto_shrink: layout.auto_shrink,
+                font_weight: 500,
+                letter_spacing: 0,
+                line_height: 120,
+                background_color_hex: None,
+            }),
+            image: None,
+        }],
     }
 }
 

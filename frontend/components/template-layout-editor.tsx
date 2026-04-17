@@ -1,11 +1,32 @@
 "use client";
 
-import { LoaderCircle, MoveDiagonal2, Save, Sparkles, WandSparkles } from "lucide-react";
-import type { CSSProperties, FormEvent, ReactNode, PointerEvent as ReactPointerEvent } from "react";
-import { useEffect, useRef, useState } from "react";
+import {
+  Eye,
+  FileImage,
+  Layers3,
+  LoaderCircle,
+  MoveDiagonal2,
+  Save,
+  Sparkles,
+  Trash2,
+  Type,
+  Upload,
+  WandSparkles,
+} from "lucide-react";
+import type {
+  CSSProperties,
+  ChangeEvent,
+  FormEvent,
+  ReactNode,
+  PointerEvent as ReactPointerEvent,
+} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   type FontFamilyOption,
+  type TemplateCanvasData,
+  type TemplateCanvasLayer,
+  type TemplateCanvasTextLayer,
   type TemplateDetail,
   type TemplateLayoutData,
   fetchFontFamilies,
@@ -13,18 +34,33 @@ import {
   previewTemplate,
   saveTemplateLayout,
 } from "@/lib/admin-api";
+import {
+  clampLayerToLayout,
+  createImageCanvasLayer,
+  createTextCanvasLayer,
+  getCanvasLayerDisplayText,
+  getCanvasLayerLabel,
+  isLegacyNameLayer,
+  moveLayerBackward,
+  moveLayerForward,
+  sanitizeTemplateCanvas,
+  syncLayoutWithCanvas,
+  updateCanvasLayers,
+} from "@/lib/template-canvas";
+import {
+  type TemplatePdfPreviewDiagnostics,
+  type TemplatePreviewTextMetrics,
+  buildTemplateSourceOverlayMetrics,
+  computeTemplatePreviewMetrics,
+  getTemplateNameBoxHeight,
+  sanitizeTemplateLayout,
+} from "@/lib/template-layout";
 import { cn } from "@/lib/utils";
 
 type TemplateLayoutEditorProps = {
   template: TemplateDetail;
   onSaved?: (layout: TemplateLayoutData) => void;
   showHeader?: boolean;
-};
-
-type LayoutPoint = {
-  offsetX: number;
-  offsetY: number;
-  boxHeight: number;
 };
 
 type ResizeMode =
@@ -37,14 +73,20 @@ type ResizeMode =
   | "bottom-left"
   | "bottom-right";
 
-type ResizePoint = {
+type LayerDragState = {
+  layerId: string;
+  offsetX: number;
+  offsetY: number;
+  width: number;
+  height: number;
+};
+
+type LayerResizeState = {
+  layerId: string;
   mode: ResizeMode;
   startX: number;
   startY: number;
-  startLeft: number;
-  startTop: number;
-  startWidth: number;
-  startHeight: number;
+  startLayer: TemplateCanvasLayer;
 };
 
 type SnapGuides = {
@@ -52,104 +94,81 @@ type SnapGuides = {
   y: boolean;
 };
 
-type PreviewTextMetrics = {
-  textLeft: number;
-  textTop: number;
-  baselineTop: number;
-  textWidth: number;
-  fontSize: number;
-  fontFamily: string;
-  ascentRatio: number;
-  pdfFontFamily: string;
-  source: "local" | "backend";
-};
-
-type PdfPreviewDiagnostics = {
-  preview_name: string;
-  page_width: number;
-  page_height: number;
-  box_left: number;
-  box_top: number;
-  box_width: number;
-  box_height: number;
-  text_left: number;
-  text_top: number;
-  text_left_in_box: number;
-  text_top_in_box: number;
-  text_width: number;
-  font_size: number;
-  ascent_ratio: number;
-  baseline_top: number;
-  baseline_y: number;
-  pdf_font_family: string;
-  text_align: string;
-  vertical_align: string;
-};
-
-const DEFAULT_LAYOUT: TemplateLayoutData = {
-  page_width: 1920,
-  page_height: 1080,
-  name_x: 420,
-  name_y: 520,
-  name_max_width: 1080,
-  name_box_height: 81,
-  font_family: "Outfit",
-  font_size: 54,
-  font_color_hex: "#111827",
-  text_align: "center",
-  vertical_align: "center",
-  auto_shrink: true,
-};
-
-const NAME_BOX_INSET = 16;
-
 export function TemplateLayoutEditor({
   template,
   onSaved,
   showHeader = true,
 }: TemplateLayoutEditorProps) {
-  const [layout, setLayout] = useState<TemplateLayoutData>(() => sanitizeLayout(template.layout));
+  const initialLayout = useMemo(() => sanitizeTemplateLayout(template.layout), [template.layout]);
+  const initialCanvas = useMemo(() => sanitizeTemplateCanvas(initialLayout), [initialLayout]);
+  const [layout, setLayout] = useState<TemplateLayoutData>({
+    ...initialLayout,
+    canvas: initialCanvas,
+  });
+  const [canvas, setCanvas] = useState<TemplateCanvasData>(initialCanvas);
+  const [selectedLayerId, setSelectedLayerId] = useState<string>(initialCanvas.layers[0]?.id ?? "");
   const [previewName, setPreviewName] = useState("Preview Participant");
   const [isSaving, setIsSaving] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
-  const [message, setMessage] = useState("Adjust the layout and render a live preview.");
+  const [message, setMessage] = useState("Canvas is ready. Legacy name export stays in sync.");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [sourceMime, setSourceMime] = useState<string>("application/octet-stream");
   const [sourceState, setSourceState] = useState<"loading" | "ready" | "error">("loading");
   const [fontFamilies, setFontFamilies] = useState<FontFamilyOption[]>([]);
-  const [pdfDiagnostics, setPdfDiagnostics] = useState<PdfPreviewDiagnostics | null>(null);
+  const [pdfDiagnostics, setPdfDiagnostics] = useState<TemplatePdfPreviewDiagnostics | null>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
-  const [snapGuides, setSnapGuides] = useState<SnapGuides>({
-    x: false,
-    y: false,
-  });
+  const [snapGuides, setSnapGuides] = useState<SnapGuides>({ x: false, y: false });
+  const [imageAction, setImageAction] = useState<{
+    mode: "add" | "replace";
+    layerId?: string;
+  } | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const dragRef = useRef<LayoutPoint | null>(null);
-  const resizeRef = useRef<ResizePoint | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const dragRef = useRef<LayerDragState | null>(null);
+  const resizeRef = useRef<LayerResizeState | null>(null);
   const previewRequestRef = useRef(0);
+  const layoutRef = useRef(layout);
+  const canvasRef = useRef(canvas);
   const sourceRevision = `${template.template.id}:${template.template.updated_at}`;
-  const previewLayoutKey = JSON.stringify(layout);
+  const legacyPreviewSignature = buildLegacyPreviewSignature(layout);
 
   useEffect(() => {
-    setLayout(sanitizeLayout(template.layout));
+    layoutRef.current = layout;
+  }, [layout]);
+
+  useEffect(() => {
+    canvasRef.current = canvas;
+  }, [canvas]);
+
+  useEffect(() => {
+    const nextLayout = sanitizeTemplateLayout(template.layout);
+    const nextCanvas = sanitizeTemplateCanvas(nextLayout);
+    const hydratedLayout = sanitizeTemplateLayout({
+      ...nextLayout,
+      canvas: nextCanvas,
+    });
+    setLayout(hydratedLayout);
+    setCanvas(nextCanvas);
+    setSelectedLayerId(nextCanvas.layers[0]?.id ?? "");
     setPdfDiagnostics(null);
-    setMessage("Adjust the layout and render a live preview.");
+    setMessage("Canvas is ready. Legacy name export stays in sync.");
   }, [template]);
 
   useEffect(() => {
-    if (!previewName.trim()) {
+    if (!previewName.trim() || !legacyPreviewSignature) {
       return;
     }
 
+    const requestSignature = legacyPreviewSignature;
     const timer = window.setTimeout(() => {
-      if (previewLayoutKey.length >= 0) {
+      if (requestSignature === buildLegacyPreviewSignature(layoutRef.current)) {
         void renderPreview({ silent: true });
       }
     }, 650);
 
     return () => window.clearTimeout(timer);
-  }, [previewLayoutKey, previewName]);
+  }, [legacyPreviewSignature, previewName]);
 
   useEffect(() => {
     let isMounted = true;
@@ -255,29 +274,85 @@ export function TemplateLayoutEditor({
     };
   }, []);
 
-  function updateLayout(updater: (current: TemplateLayoutData) => TemplateLayoutData) {
-    setLayout((current) => updater(current));
+  const selectedLayer =
+    canvas.layers.find((layer) => layer.id === selectedLayerId) ?? canvas.layers[0] ?? null;
+  const legacyLayer =
+    canvas.layers.find((layer) => isLegacyNameLayer(layer)) ?? selectedLayer ?? null;
+  const legacyPreviewMetrics = buildTemplateSourceOverlayMetrics(
+    layout,
+    previewName,
+    pdfDiagnostics,
+  );
+  const debugRows = buildPreviewDebugRows(legacyPreviewMetrics, pdfDiagnostics);
+  const debugDeltaRows = buildPreviewDebugDeltaRows(legacyPreviewMetrics, pdfDiagnostics);
+
+  function applyCanvas(nextCanvas: TemplateCanvasData) {
+    const nextLayout = syncLayoutWithCanvas(layoutRef.current, nextCanvas);
+    const normalizedCanvas = sanitizeTemplateCanvas(nextLayout);
+    const hydratedLayout = sanitizeTemplateLayout({
+      ...nextLayout,
+      canvas: normalizedCanvas,
+    });
+
+    layoutRef.current = hydratedLayout;
+    canvasRef.current = normalizedCanvas;
+    setLayout(hydratedLayout);
+    setCanvas(normalizedCanvas);
+
+    if (!normalizedCanvas.layers.some((layer) => layer.id === selectedLayerId)) {
+      setSelectedLayerId(normalizedCanvas.layers[0]?.id ?? "");
+    }
+  }
+
+  function updateCanvas(updater: (current: TemplateCanvasData) => TemplateCanvasData) {
+    applyCanvas(updater(canvasRef.current));
+  }
+
+  function updateSelectedLayer(updater: (layer: TemplateCanvasLayer) => TemplateCanvasLayer) {
+    if (!selectedLayer) {
+      return;
+    }
+
+    updateCanvas((current) =>
+      updateCanvasLayers(current, (layers) =>
+        layers.map((layer) => {
+          if (layer.id !== selectedLayer.id) {
+            return layer;
+          }
+
+          return clampLayerToLayout(updater(layer), layoutRef.current);
+        }),
+      ),
+    );
   }
 
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSaving(true);
-    setMessage("Saving layout...");
+    setMessage("Saving canvas...");
 
     try {
-      const { response, data } = await saveTemplateLayout(
-        template.template.id,
-        sanitizeLayout(layout),
-      );
+      const payload = sanitizeTemplateLayout({
+        ...layoutRef.current,
+        canvas: canvasRef.current,
+      });
+      const { response, data } = await saveTemplateLayout(template.template.id, payload);
       if (!response.ok || !data) {
         setMessage("Layout save failed.");
         setIsSaving(false);
         return;
       }
 
-      setLayout(sanitizeLayout(data));
-      setMessage("Layout saved.");
-      onSaved?.(data);
+      const nextLayout = sanitizeTemplateLayout(data);
+      const nextCanvas = sanitizeTemplateCanvas(nextLayout);
+      const hydratedLayout = sanitizeTemplateLayout({
+        ...nextLayout,
+        canvas: nextCanvas,
+      });
+      setLayout(hydratedLayout);
+      setCanvas(nextCanvas);
+      setMessage("Canvas saved. Legacy PDF export kept intact.");
+      onSaved?.(hydratedLayout);
       void renderPreview({ silent: false });
     } catch {
       setMessage("Layout save failed.");
@@ -287,15 +362,15 @@ export function TemplateLayoutEditor({
   }
 
   async function renderPreview(options?: { silent?: boolean }) {
-    const requestLayout = sanitizeLayout(layout);
-    const localDiagnosticsForRequest = computePreviewTextMetrics(requestLayout, previewName);
+    const requestLayout = sanitizeTemplateLayout(layoutRef.current);
+    const localDiagnosticsForRequest = computeTemplatePreviewMetrics(requestLayout, previewName);
     const requestId = previewRequestRef.current + 1;
     previewRequestRef.current = requestId;
     const shouldShowStatus = !options?.silent || !previewUrl;
 
     setIsRendering(true);
     if (shouldShowStatus) {
-      setMessage("Rendering preview...");
+      setMessage("Rendering server PDF preview...");
     }
 
     try {
@@ -320,23 +395,6 @@ export function TemplateLayoutEditor({
         console.info("[template-preview-diagnostics]", {
           source: localDiagnosticsForRequest,
           pdf: nextDiagnostics,
-          delta: {
-            textLeftInBox: roundToHundredths(
-              localDiagnosticsForRequest.textLeft - nextDiagnostics.text_left_in_box,
-            ),
-            textTopInBox: roundToHundredths(
-              localDiagnosticsForRequest.textTop - nextDiagnostics.text_top_in_box,
-            ),
-            baselineTop: roundToHundredths(
-              localDiagnosticsForRequest.baselineTop - nextDiagnostics.baseline_top,
-            ),
-            fontSize: roundToHundredths(
-              localDiagnosticsForRequest.fontSize - nextDiagnostics.font_size,
-            ),
-            textWidth: roundToHundredths(
-              localDiagnosticsForRequest.textWidth - nextDiagnostics.text_width,
-            ),
-          },
         });
       }
 
@@ -353,7 +411,7 @@ export function TemplateLayoutEditor({
         return nextUrl;
       });
       if (shouldShowStatus) {
-        setMessage("Preview updated.");
+        setMessage("Server PDF preview updated.");
       }
     } catch {
       if (requestId === previewRequestRef.current && shouldShowStatus) {
@@ -374,8 +432,8 @@ export function TemplateLayoutEditor({
 
     const rect = stage.getBoundingClientRect();
     return {
-      x: ((clientX - rect.left) / rect.width) * layout.page_width,
-      y: ((clientY - rect.top) / rect.height) * layout.page_height,
+      x: ((clientX - rect.left) / rect.width) * layoutRef.current.page_width,
+      y: ((clientY - rect.top) / rect.height) * layoutRef.current.page_height,
     };
   }
 
@@ -387,32 +445,33 @@ export function TemplateLayoutEditor({
 
     const rect = stage.getBoundingClientRect();
     return {
-      x: (deltaClientX / rect.width) * layout.page_width,
-      y: (deltaClientY / rect.height) * layout.page_height,
+      x: (deltaClientX / rect.width) * layoutRef.current.page_width,
+      y: (deltaClientY / rect.height) * layoutRef.current.page_height,
     };
   }
 
-  function handlePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+  function beginLayerDrag(layer: TemplateCanvasLayer, event: ReactPointerEvent<HTMLDivElement>) {
     resizeRef.current = null;
+    setSelectedLayerId(layer.id);
     setSnapGuides({ x: false, y: false });
     const point = getStagePoint(event.clientX, event.clientY);
     if (!point) {
       return;
     }
 
-    const boxHeight = getNameBoxHeight(layout);
-    const boxLeft = layout.name_x;
-    const boxTop = Math.max(0, layout.name_y - boxHeight);
     dragRef.current = {
-      offsetX: point.x - boxLeft,
-      offsetY: point.y - boxTop,
-      boxHeight,
+      layerId: layer.id,
+      offsetX: point.x - layer.x,
+      offsetY: point.y - layer.y,
+      width: layer.width,
+      height: layer.height,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
-  function handlePointerMove(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (!dragRef.current) {
+  function handleLayerPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag) {
       return;
     }
 
@@ -421,46 +480,52 @@ export function TemplateLayoutEditor({
       return;
     }
 
-    const { offsetX, offsetY, boxHeight } = dragRef.current;
-    updateLayout((current) => {
-      let nextLeft = clamp(
-        Math.round(point.x - offsetX),
-        0,
-        Math.max(0, current.page_width - current.name_max_width),
-      );
-      let nextTop = clamp(Math.round(point.y - offsetY), 0, current.page_height - boxHeight);
-      const snapThresholdX = getSnapThreshold(current.page_width, stageSize.width);
-      const snapThresholdY = getSnapThreshold(current.page_height, stageSize.height);
-      const pageCenterX = current.page_width / 2;
-      const pageCenterY = current.page_height / 2;
-      const boxCenterX = nextLeft + current.name_max_width / 2;
-      const boxCenterY = nextTop + boxHeight / 2;
-      const snapX = Math.abs(boxCenterX - pageCenterX) <= snapThresholdX;
-      const snapY = Math.abs(boxCenterY - pageCenterY) <= snapThresholdY;
+    updateCanvas((current) =>
+      updateCanvasLayers(current, (layers) =>
+        layers.map((layer) => {
+          if (layer.id !== drag.layerId) {
+            return layer;
+          }
 
-      if (snapX) {
-        nextLeft = Math.round(pageCenterX - current.name_max_width / 2);
-      }
+          let nextX = clamp(Math.round(point.x - drag.offsetX), 0, layoutRef.current.page_width);
+          let nextY = clamp(Math.round(point.y - drag.offsetY), 0, layoutRef.current.page_height);
+          const snapThresholdX = getSnapThreshold(layoutRef.current.page_width, stageSize.width);
+          const snapThresholdY = getSnapThreshold(layoutRef.current.page_height, stageSize.height);
+          const pageCenterX = layoutRef.current.page_width / 2;
+          const pageCenterY = layoutRef.current.page_height / 2;
+          const layerCenterX = nextX + layer.width / 2;
+          const layerCenterY = nextY + layer.height / 2;
+          const snapX = Math.abs(layerCenterX - pageCenterX) <= snapThresholdX;
+          const snapY = Math.abs(layerCenterY - pageCenterY) <= snapThresholdY;
 
-      if (snapY) {
-        nextTop = Math.round(pageCenterY - boxHeight / 2);
-      }
+          if (snapX) {
+            nextX = Math.round(pageCenterX - layer.width / 2);
+          }
 
-      setSnapGuides((currentGuides) =>
-        currentGuides.x === snapX && currentGuides.y === snapY
-          ? currentGuides
-          : { x: snapX, y: snapY },
-      );
+          if (snapY) {
+            nextY = Math.round(pageCenterY - layer.height / 2);
+          }
 
-      return {
-        ...current,
-        name_x: nextLeft,
-        name_y: nextTop + boxHeight,
-      };
-    });
+          setSnapGuides((currentGuides) =>
+            currentGuides.x === snapX && currentGuides.y === snapY
+              ? currentGuides
+              : { x: snapX, y: snapY },
+          );
+
+          return clampLayerToLayout(
+            {
+              ...layer,
+              x: nextX,
+              y: nextY,
+            },
+            layoutRef.current,
+          );
+        }),
+      ),
+    );
   }
 
-  function handlePointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+  function handleLayerPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
     dragRef.current = null;
     setSnapGuides({ x: false, y: false });
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -468,145 +533,153 @@ export function TemplateLayoutEditor({
     }
   }
 
-  function beginResize(mode: ResizeMode, event: ReactPointerEvent<HTMLButtonElement>) {
+  function beginResize(
+    layer: TemplateCanvasLayer,
+    mode: ResizeMode,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) {
     dragRef.current = null;
+    setSelectedLayerId(layer.id);
     setSnapGuides({ x: false, y: false });
-    const boxHeight = getNameBoxHeight(layout);
     resizeRef.current = {
+      layerId: layer.id,
       mode,
       startX: event.clientX,
       startY: event.clientY,
-      startLeft: layout.name_x,
-      startTop: layout.name_y - boxHeight,
-      startWidth: layout.name_max_width,
-      startHeight: boxHeight,
+      startLayer: layer,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   function handleResizeMove(event: ReactPointerEvent<HTMLButtonElement>) {
-    const state = resizeRef.current;
-    if (!state) {
+    const resize = resizeRef.current;
+    if (!resize) {
       return;
     }
 
-    const delta = getStageDelta(event.clientX - state.startX, event.clientY - state.startY);
+    const delta = getStageDelta(event.clientX - resize.startX, event.clientY - resize.startY);
     if (!delta) {
       return;
     }
 
-    const deltaX = delta.x;
-    const deltaY = delta.y;
-    const minWidth = 240;
+    const minWidth = resize.startLayer.kind === "image" ? 60 : 140;
+    const minHeight = resize.startLayer.kind === "image" ? 60 : 48;
 
-    updateLayout((current) => {
-      const minHeight = Math.max(40, current.font_size + 16);
-      switch (state.mode) {
-        case "left": {
-          const rightEdge = state.startLeft + state.startWidth;
-          const nextLeft = clamp(Math.round(state.startLeft + deltaX), 0, rightEdge - minWidth);
-          return {
-            ...current,
-            name_x: nextLeft,
-            name_max_width: Math.max(minWidth, Math.round(rightEdge - nextLeft)),
-          };
-        }
-        case "right": {
-          const nextWidth = clamp(
-            Math.round(state.startWidth + deltaX),
-            minWidth,
-            current.page_width - state.startLeft,
-          );
-          return {
-            ...current,
-            name_max_width: nextWidth,
-          };
-        }
-        case "top": {
-          const bottomEdge = state.startTop + state.startHeight;
-          const nextTop = clamp(Math.round(state.startTop + deltaY), 0, bottomEdge - minHeight);
-          return {
-            ...current,
-            name_y: bottomEdge,
-            name_box_height: Math.round(bottomEdge - nextTop),
-          };
-        }
-        case "bottom": {
-          const nextHeight = clamp(
-            Math.round(state.startHeight + deltaY),
-            minHeight,
-            current.page_height - state.startTop,
-          );
-          return {
-            ...current,
-            name_box_height: nextHeight,
-            name_y: Math.round(state.startTop + nextHeight),
-          };
-        }
-        case "top-left": {
-          const rightEdge = state.startLeft + state.startWidth;
-          const nextLeft = clamp(Math.round(state.startLeft + deltaX), 0, rightEdge - minWidth);
-          const bottomEdge = state.startTop + state.startHeight;
-          const nextTop = clamp(Math.round(state.startTop + deltaY), 0, bottomEdge - minHeight);
-          return {
-            ...current,
-            name_x: nextLeft,
-            name_max_width: Math.max(minWidth, Math.round(rightEdge - nextLeft)),
-            name_y: bottomEdge,
-            name_box_height: Math.round(bottomEdge - nextTop),
-          };
-        }
-        case "top-right": {
-          const nextWidth = clamp(
-            Math.round(state.startWidth + deltaX),
-            minWidth,
-            current.page_width - state.startLeft,
-          );
-          const bottomEdge = state.startTop + state.startHeight;
-          const nextTop = clamp(Math.round(state.startTop + deltaY), 0, bottomEdge - minHeight);
-          return {
-            ...current,
-            name_max_width: nextWidth,
-            name_y: bottomEdge,
-            name_box_height: Math.round(bottomEdge - nextTop),
-          };
-        }
-        case "bottom-left": {
-          const rightEdge = state.startLeft + state.startWidth;
-          const nextLeft = clamp(Math.round(state.startLeft + deltaX), 0, rightEdge - minWidth);
-          const nextHeight = clamp(
-            Math.round(state.startHeight + deltaY),
-            minHeight,
-            current.page_height - state.startTop,
-          );
-          return {
-            ...current,
-            name_x: nextLeft,
-            name_max_width: Math.max(minWidth, Math.round(rightEdge - nextLeft)),
-            name_box_height: nextHeight,
-            name_y: Math.round(state.startTop + nextHeight),
-          };
-        }
-        case "bottom-right": {
-          const nextWidth = clamp(
-            Math.round(state.startWidth + deltaX),
-            minWidth,
-            current.page_width - state.startLeft,
-          );
-          const nextHeight = clamp(
-            Math.round(state.startHeight + deltaY),
-            minHeight,
-            current.page_height - state.startTop,
-          );
-          return {
-            ...current,
-            name_max_width: nextWidth,
-            name_box_height: nextHeight,
-            name_y: Math.round(state.startTop + nextHeight),
-          };
-        }
-      }
-    });
+    updateCanvas((current) =>
+      updateCanvasLayers(current, (layers) =>
+        layers.map((layer) => {
+          if (layer.id !== resize.layerId) {
+            return layer;
+          }
+
+          const start = resize.startLayer;
+          let nextLayer = { ...layer };
+          const rightEdge = start.x + start.width;
+          const bottomEdge = start.y + start.height;
+
+          switch (resize.mode) {
+            case "left": {
+              const nextLeft = clamp(Math.round(start.x + delta.x), 0, rightEdge - minWidth);
+              nextLayer = {
+                ...nextLayer,
+                x: nextLeft,
+                width: Math.max(minWidth, Math.round(rightEdge - nextLeft)),
+              };
+              break;
+            }
+            case "right": {
+              nextLayer = {
+                ...nextLayer,
+                width: clamp(
+                  Math.round(start.width + delta.x),
+                  minWidth,
+                  layoutRef.current.page_width - start.x,
+                ),
+              };
+              break;
+            }
+            case "top": {
+              const nextTop = clamp(Math.round(start.y + delta.y), 0, bottomEdge - minHeight);
+              nextLayer = {
+                ...nextLayer,
+                y: nextTop,
+                height: Math.max(minHeight, Math.round(bottomEdge - nextTop)),
+              };
+              break;
+            }
+            case "bottom": {
+              nextLayer = {
+                ...nextLayer,
+                height: clamp(
+                  Math.round(start.height + delta.y),
+                  minHeight,
+                  layoutRef.current.page_height - start.y,
+                ),
+              };
+              break;
+            }
+            case "top-left": {
+              const nextLeft = clamp(Math.round(start.x + delta.x), 0, rightEdge - minWidth);
+              const nextTop = clamp(Math.round(start.y + delta.y), 0, bottomEdge - minHeight);
+              nextLayer = {
+                ...nextLayer,
+                x: nextLeft,
+                y: nextTop,
+                width: Math.max(minWidth, Math.round(rightEdge - nextLeft)),
+                height: Math.max(minHeight, Math.round(bottomEdge - nextTop)),
+              };
+              break;
+            }
+            case "top-right": {
+              const nextTop = clamp(Math.round(start.y + delta.y), 0, bottomEdge - minHeight);
+              nextLayer = {
+                ...nextLayer,
+                y: nextTop,
+                width: clamp(
+                  Math.round(start.width + delta.x),
+                  minWidth,
+                  layoutRef.current.page_width - start.x,
+                ),
+                height: Math.max(minHeight, Math.round(bottomEdge - nextTop)),
+              };
+              break;
+            }
+            case "bottom-left": {
+              const nextLeft = clamp(Math.round(start.x + delta.x), 0, rightEdge - minWidth);
+              nextLayer = {
+                ...nextLayer,
+                x: nextLeft,
+                width: Math.max(minWidth, Math.round(rightEdge - nextLeft)),
+                height: clamp(
+                  Math.round(start.height + delta.y),
+                  minHeight,
+                  layoutRef.current.page_height - start.y,
+                ),
+              };
+              break;
+            }
+            case "bottom-right": {
+              nextLayer = {
+                ...nextLayer,
+                width: clamp(
+                  Math.round(start.width + delta.x),
+                  minWidth,
+                  layoutRef.current.page_width - start.x,
+                ),
+                height: clamp(
+                  Math.round(start.height + delta.y),
+                  minHeight,
+                  layoutRef.current.page_height - start.y,
+                ),
+              };
+              break;
+            }
+          }
+
+          return clampLayerToLayout(nextLayer, layoutRef.current);
+        }),
+      ),
+    );
   }
 
   function handleResizeUp(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -617,400 +690,313 @@ export function TemplateLayoutEditor({
     }
   }
 
-  const dragBoxHeight = getNameBoxHeight(layout);
-  const dragBoxTop = Math.max(0, layout.name_y - dragBoxHeight);
-  const dragBoxWidth = Math.min(layout.page_width, Math.max(240, layout.name_max_width));
-  const dragBoxLeftPercent = (layout.name_x / layout.page_width) * 100;
-  const dragBoxTopPercent = (dragBoxTop / layout.page_height) * 100;
-  const dragBoxWidthPercent = (dragBoxWidth / layout.page_width) * 100;
-  const dragBoxHeightPercent = (dragBoxHeight / layout.page_height) * 100;
-  const previewTextMetrics = buildSourceOverlayMetrics(layout, previewName, pdfDiagnostics);
-  const debugRows = buildPreviewDebugRows(previewTextMetrics, pdfDiagnostics);
-  const debugDeltaRows = buildPreviewDebugDeltaRows(previewTextMetrics, pdfDiagnostics);
-  const usingBackendOverlay = previewTextMetrics.source !== "local";
+  function handleStagePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.target === event.currentTarget) {
+      setSelectedLayerId(legacyLayer?.id ?? "");
+    }
+  }
+
+  function handleAddTextLayer() {
+    updateCanvas((current) =>
+      updateCanvasLayers(current, (layers) => [
+        ...layers,
+        createTextCanvasLayer(layoutRef.current),
+      ]),
+    );
+    setMessage("Added a new text layer.");
+  }
+
+  function handleUploadImage(mode: "add" | "replace", layerId?: string) {
+    setImageAction({ mode, layerId });
+    imageInputRef.current?.click();
+  }
+
+  async function handleImagePicked(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !imageAction) {
+      return;
+    }
+
+    const src = await readFileAsDataUrl(file);
+    if (!src) {
+      setMessage("Image upload failed.");
+      return;
+    }
+
+    if (imageAction.mode === "add") {
+      updateCanvas((current) =>
+        updateCanvasLayers(current, (layers) => [
+          ...layers,
+          createImageCanvasLayer(layoutRef.current, src, file.name),
+        ]),
+      );
+      setMessage(`Added image layer ${file.name}.`);
+    } else if (imageAction.layerId) {
+      setSelectedLayerId(imageAction.layerId);
+      updateCanvas((current) =>
+        updateCanvasLayers(current, (layers) =>
+          layers.map((layer) =>
+            layer.id === imageAction.layerId
+              ? {
+                  ...layer,
+                  image: layer.image
+                    ? {
+                        ...layer.image,
+                        src,
+                      }
+                    : null,
+                }
+              : layer,
+          ),
+        ),
+      );
+      setMessage(`Replaced image layer ${file.name}.`);
+    }
+
+    setImageAction(null);
+  }
+
+  function handleDeleteLayer(layer: TemplateCanvasLayer) {
+    if (isLegacyNameLayer(layer)) {
+      setMessage("Legacy participant name layer cannot be removed.");
+      return;
+    }
+
+    updateCanvas((current) =>
+      updateCanvasLayers(current, (layers) => layers.filter((item) => item.id !== layer.id)),
+    );
+    setSelectedLayerId(legacyLayer?.id ?? "");
+  }
 
   return (
-    <section className="rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+    <section className="rounded-[2rem] border border-white/10 bg-panel/95 p-4 backdrop-blur-xl sm:p-5">
       {showHeader ? (
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-4">
+          <div className="max-w-3xl">
             <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
-              Layout editor
+              Canvas editor
             </p>
-            <h2 className="mt-3 text-2xl font-black text-white">{template.template.name}</h2>
-            <p className="mt-2 text-sm text-white/60">
-              Drag the name box on top of the source preview, then refine the exact position and
-              typography in the control panel.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/70">
-              {template.template.source_kind.toUpperCase()}
-            </div>
-            <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/70">
-              {layout.page_width} × {layout.page_height}
-            </div>
-            <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/70">
-              Overlay: {usingBackendOverlay ? "backend" : "local"}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
-              Layout editor
-            </p>
-            <p className="mt-3 max-w-2xl text-sm text-white/60">
-              Replace the source asset if needed, then position the participant name directly on the
-              persisted template.
+            <h2 className="mt-3 text-3xl font-black text-white">{template.template.name}</h2>
+            <p className="mt-2 text-sm leading-6 text-white/60">
+              Fullscreen Figma-like canvas with text and image layers. The legacy participant name
+              layer still mirrors into the old export fields and server PDF preview.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/70">
-              {template.template.source_kind.toUpperCase()}
-            </div>
-            <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/70">
-              {layout.page_width} × {layout.page_height}
-            </div>
-            <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/70">
-              Overlay: {usingBackendOverlay ? "backend" : "local"}
-            </div>
-          </div>
-        </div>
-      )}
 
-      <form className="mt-6 space-y-6" onSubmit={(event) => void handleSave(event)}>
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_360px]">
+          <div className="flex flex-wrap items-center gap-2">
+            <TopPill>{template.template.source_kind.toUpperCase()}</TopPill>
+            <TopPill>
+              {layout.page_width} × {layout.page_height}
+            </TopPill>
+            <TopPill>{canvas.layers.length} layers</TopPill>
+          </div>
+        </div>
+      ) : null}
+
+      <form className="mt-4 space-y-4" onSubmit={(event) => void handleSave(event)}>
+        <div className="flex flex-wrap items-center gap-2 rounded-[1.5rem] border border-white/10 bg-black/20 p-3">
+          <ToolbarButton onClick={handleAddTextLayer}>
+            <Type className="size-4" />
+            Add text
+          </ToolbarButton>
+          <ToolbarButton onClick={() => handleUploadImage("add")}>
+            <FileImage className="size-4" />
+            Add image
+          </ToolbarButton>
+          <ToolbarButton onClick={() => void renderPreview()}>
+            {isRendering ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <WandSparkles className="size-4" />
+            )}
+            Server preview
+          </ToolbarButton>
+          <button className="btn-hero glow-primary rounded-2xl bg-white/[0.05]" type="submit">
+            {isSaving ? (
+              <>
+                <LoaderCircle className="size-4 animate-spin" />
+                Saving
+              </>
+            ) : (
+              <>
+                <Save className="size-4" />
+                Save canvas
+              </>
+            )}
+          </button>
+
+          <div className="ml-auto rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/65">
+            Legacy export layer: synced
+          </div>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)_360px]">
+          <aside className="space-y-4 rounded-[1.75rem] border border-white/10 bg-black/20 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-white/55">
+                <Layers3 className="size-4 text-primary" />
+                Layers
+              </div>
+              <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] text-white/55">
+                {canvas.layers.length}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {canvas.layers.map((layer, index) => (
+                <div
+                  key={layer.id}
+                  className={cn(
+                    "rounded-[1.2rem] border px-3 py-3 transition",
+                    selectedLayer?.id === layer.id
+                      ? "border-primary/35 bg-primary/10"
+                      : "border-white/10 bg-white/[0.03] hover:border-primary/20 hover:bg-white/[0.05]",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <button
+                      className="min-w-0 flex-1 text-left"
+                      type="button"
+                      onClick={() => setSelectedLayerId(layer.id)}
+                    >
+                      <p className="truncate text-sm font-medium text-white">
+                        {getCanvasLayerLabel(layer)}
+                      </p>
+                      <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-white/42">
+                        {layer.kind}
+                        {isLegacyNameLayer(layer) ? " · legacy export" : ""}
+                      </p>
+                    </button>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        className="rounded-full border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-white/60"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          updateCanvas((current) => moveLayerBackward(current, layer.id));
+                        }}
+                      >
+                        -
+                      </button>
+                      <button
+                        className="rounded-full border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-white/60"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          updateCanvas((current) => moveLayerForward(current, layer.id));
+                        }}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-white/55">
+                      {index + 1}
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-white/55">
+                      {layer.width} × {layer.height}
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-white/55">
+                      {layer.x}, {layer.y}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </aside>
+
           <div className="space-y-4">
-            <div className="rounded-[1.75rem] border border-white/10 bg-black/25 p-4">
+            <div className="rounded-[1.75rem] border border-white/10 bg-black/20 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-white/55">
                   <Sparkles className="size-4 text-primary" />
-                  Source preview
+                  Canvas stage
                 </div>
                 <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/65">
                   <MoveDiagonal2 className="size-3.5" />
-                  Drag the box
+                  Drag, resize, inspect
                 </div>
               </div>
 
-              <div
-                ref={stageRef}
-                className="relative mt-4 overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#0a0a0f]"
-                style={{
-                  aspectRatio: `${layout.page_width} / ${layout.page_height}`,
-                }}
-              >
-                {sourceState === "loading" ? (
-                  <div className="flex h-full items-center justify-center px-6 text-center text-sm text-white/55">
-                    Loading template source...
-                  </div>
-                ) : sourceState === "error" ? (
-                  <div className="flex h-full items-center justify-center px-6 text-center text-sm leading-6 text-white/55">
-                    Could not load the source preview.
-                  </div>
-                ) : sourceUrl ? (
-                  <div className="absolute inset-0">
-                    {sourceMime.includes("application/pdf") ? (
-                      <iframe
-                        className="h-full w-full border-0"
-                        src={sourceUrl}
-                        title={`${template.template.name} source preview`}
-                      />
-                    ) : (
-                      <img alt="" className="h-full w-full object-fill" src={sourceUrl} />
-                    )}
-                  </div>
-                ) : null}
-
-                <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.06)_1px,transparent_1px)] bg-[size:48px_48px] opacity-20" />
-                {snapGuides.y ? (
-                  <div className="pointer-events-none absolute inset-x-0 top-1/2 z-0 h-0 border-t border-dashed border-sky-300/90" />
-                ) : null}
-                {snapGuides.x ? (
-                  <div className="pointer-events-none absolute inset-y-0 left-1/2 z-0 w-0 border-l border-dashed border-sky-300/90" />
-                ) : null}
-
-                <button
-                  aria-label="Drag the name area"
-                  className="absolute z-10 cursor-grab overflow-hidden rounded-[1rem] border border-sky-400/80 bg-transparent px-0 py-0 text-left shadow-[0_0_0_1px_rgba(96,165,250,0.1)] transition hover:border-sky-300/90 active:cursor-grabbing"
+              <div className="mt-4 rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(140,216,18,0.08),_transparent_32%),linear-gradient(180deg,#090A0F_0%,#0E1017_100%)] p-4">
+                <div
+                  ref={stageRef}
+                  className="relative mx-auto overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#0b0b12] shadow-[0_30px_80px_rgba(0,0,0,0.45)]"
                   style={{
-                    left: `${dragBoxLeftPercent}%`,
-                    top: `${dragBoxTopPercent}%`,
-                    width: `${dragBoxWidthPercent}%`,
-                    height: `${dragBoxHeightPercent}%`,
+                    aspectRatio: `${layout.page_width} / ${layout.page_height}`,
+                    maxHeight: "calc(100vh - 19rem)",
                   }}
-                  type="button"
-                  onPointerDown={handlePointerDown}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={handlePointerUp}
+                  onPointerDown={handleStagePointerDown}
                 >
-                  <span className="sr-only">Editable name area</span>
-                  <svg
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-0 h-full w-full overflow-hidden"
-                    preserveAspectRatio="none"
-                    viewBox={`0 0 ${dragBoxWidth} ${dragBoxHeight}`}
-                  >
-                    <text
-                      fill={layout.font_color_hex}
-                      fontFamily={previewTextMetrics.fontFamily}
-                      fontSize={previewTextMetrics.fontSize}
-                      fontWeight="400"
-                      textAnchor="start"
-                      x={previewTextMetrics.textLeft}
-                      y={previewTextMetrics.baselineTop}
-                    >
-                      {previewName || " "}
-                    </text>
-                  </svg>
-                </button>
+                  {sourceState === "loading" ? (
+                    <div className="flex h-full items-center justify-center px-6 text-center text-sm text-white/55">
+                      Loading template source...
+                    </div>
+                  ) : sourceState === "error" ? (
+                    <div className="flex h-full items-center justify-center px-6 text-center text-sm leading-6 text-white/55">
+                      Could not load the source preview.
+                    </div>
+                  ) : sourceUrl ? (
+                    <div className="absolute inset-0">
+                      {sourceMime.includes("application/pdf") ? (
+                        <iframe
+                          className="h-full w-full border-0"
+                          src={sourceUrl}
+                          title={`${template.template.name} source preview`}
+                        />
+                      ) : (
+                        <img alt="" className="h-full w-full object-fill" src={sourceUrl} />
+                      )}
+                    </div>
+                  ) : null}
 
-                <ResizeHandle
-                  ariaLabel="Resize from left edge"
-                  className="cursor-ew-resize"
-                  style={{
-                    left: `${dragBoxLeftPercent}%`,
-                    top: `${dragBoxTopPercent + dragBoxHeightPercent / 2}%`,
-                    width: "14px",
-                    height: `${Math.max(28, stageSize.height * (dragBoxHeightPercent / 100) - 16)}px`,
-                    transform: "translate(-50%, -50%)",
-                  }}
-                  onPointerDown={(event) => beginResize("left", event)}
-                  onPointerMove={handleResizeMove}
-                  onPointerUp={handleResizeUp}
-                />
-                <ResizeHandle
-                  ariaLabel="Resize from right edge"
-                  className="cursor-ew-resize"
-                  style={{
-                    left: `${dragBoxLeftPercent + dragBoxWidthPercent}%`,
-                    top: `${dragBoxTopPercent + dragBoxHeightPercent / 2}%`,
-                    width: "14px",
-                    height: `${Math.max(28, stageSize.height * (dragBoxHeightPercent / 100) - 16)}px`,
-                    transform: "translate(-50%, -50%)",
-                  }}
-                  onPointerDown={(event) => beginResize("right", event)}
-                  onPointerMove={handleResizeMove}
-                  onPointerUp={handleResizeUp}
-                />
-                <ResizeHandle
-                  ariaLabel="Resize from top edge"
-                  className="cursor-ns-resize"
-                  style={{
-                    left: `${dragBoxLeftPercent + dragBoxWidthPercent / 2}%`,
-                    top: `${dragBoxTopPercent}%`,
-                    width: `${Math.max(28, stageSize.width * (dragBoxWidthPercent / 100) - 16)}px`,
-                    height: "14px",
-                    transform: "translate(-50%, -50%)",
-                  }}
-                  onPointerDown={(event) => beginResize("top", event)}
-                  onPointerMove={handleResizeMove}
-                  onPointerUp={handleResizeUp}
-                />
-                <ResizeHandle
-                  ariaLabel="Resize from bottom edge"
-                  className="cursor-ns-resize"
-                  style={{
-                    left: `${dragBoxLeftPercent + dragBoxWidthPercent / 2}%`,
-                    top: `${dragBoxTopPercent + dragBoxHeightPercent}%`,
-                    width: `${Math.max(28, stageSize.width * (dragBoxWidthPercent / 100) - 16)}px`,
-                    height: "14px",
-                    transform: "translate(-50%, -50%)",
-                  }}
-                  onPointerDown={(event) => beginResize("bottom", event)}
-                  onPointerMove={handleResizeMove}
-                  onPointerUp={handleResizeUp}
-                />
-                <ResizeHandle
-                  ariaLabel="Resize from top left corner"
-                  className="cursor-nwse-resize"
-                  style={{
-                    left: `${dragBoxLeftPercent}%`,
-                    top: `${dragBoxTopPercent}%`,
-                    width: "18px",
-                    height: "18px",
-                    transform: "translate(-50%, -50%)",
-                  }}
-                  onPointerDown={(event) => beginResize("top-left", event)}
-                  onPointerMove={handleResizeMove}
-                  onPointerUp={handleResizeUp}
-                />
-                <ResizeHandle
-                  ariaLabel="Resize from top right corner"
-                  className="cursor-nesw-resize"
-                  style={{
-                    left: `${dragBoxLeftPercent + dragBoxWidthPercent}%`,
-                    top: `${dragBoxTopPercent}%`,
-                    width: "18px",
-                    height: "18px",
-                    transform: "translate(-50%, -50%)",
-                  }}
-                  onPointerDown={(event) => beginResize("top-right", event)}
-                  onPointerMove={handleResizeMove}
-                  onPointerUp={handleResizeUp}
-                />
-                <ResizeHandle
-                  ariaLabel="Resize from bottom left corner"
-                  className="cursor-nesw-resize"
-                  style={{
-                    left: `${dragBoxLeftPercent}%`,
-                    top: `${dragBoxTopPercent + dragBoxHeightPercent}%`,
-                    width: "18px",
-                    height: "18px",
-                    transform: "translate(-50%, -50%)",
-                  }}
-                  onPointerDown={(event) => beginResize("bottom-left", event)}
-                  onPointerMove={handleResizeMove}
-                  onPointerUp={handleResizeUp}
-                />
-                <ResizeHandle
-                  ariaLabel="Resize from bottom right corner"
-                  className="cursor-nwse-resize"
-                  style={{
-                    left: `${dragBoxLeftPercent + dragBoxWidthPercent}%`,
-                    top: `${dragBoxTopPercent + dragBoxHeightPercent}%`,
-                    width: "18px",
-                    height: "18px",
-                    transform: "translate(-50%, -50%)",
-                  }}
-                  onPointerDown={(event) => beginResize("bottom-right", event)}
-                  onPointerMove={handleResizeMove}
-                  onPointerUp={handleResizeUp}
-                />
-              </div>
+                  <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.06)_1px,transparent_1px)] bg-[size:48px_48px] opacity-20" />
+                  {snapGuides.y ? (
+                    <div className="pointer-events-none absolute inset-x-0 top-1/2 z-0 h-0 border-t border-dashed border-sky-300/90" />
+                  ) : null}
+                  {snapGuides.x ? (
+                    <div className="pointer-events-none absolute inset-y-0 left-1/2 z-0 w-0 border-l border-dashed border-sky-300/90" />
+                  ) : null}
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[1.25rem] border border-white/10 bg-black/20 p-3">
-                  <p className="mb-2 text-xs uppercase tracking-[0.18em] text-white/45">
-                    Horizontal
-                  </p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(["left", "center", "right"] as const).map((align) => (
-                      <button
-                        key={align}
-                        className={cn(
-                          "rounded-2xl border px-3 py-3 text-xs uppercase tracking-[0.18em] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                          layout.text_align === align
-                            ? "border-primary/35 bg-primary/10 text-primary"
-                            : "border-white/10 bg-black/20 text-white/70 hover:border-primary/25 hover:bg-white/[0.04]",
-                        )}
-                        type="button"
-                        onClick={() =>
-                          updateLayout((current) => ({
-                            ...current,
-                            text_align: align,
-                          }))
-                        }
-                      >
-                        {align}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="rounded-[1.25rem] border border-white/10 bg-black/20 p-3">
-                  <p className="mb-2 text-xs uppercase tracking-[0.18em] text-white/45">Vertical</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(["top", "center", "bottom"] as const).map((align) => (
-                      <button
-                        key={align}
-                        className={cn(
-                          "rounded-2xl border px-3 py-3 text-xs uppercase tracking-[0.18em] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                          layout.vertical_align === align
-                            ? "border-primary/35 bg-primary/10 text-primary"
-                            : "border-white/10 bg-black/20 text-white/70 hover:border-primary/25 hover:bg-white/[0.04]",
-                        )}
-                        type="button"
-                        onClick={() =>
-                          updateLayout((current) => ({
-                            ...current,
-                            vertical_align: align,
-                          }))
-                        }
-                      >
-                        {align}
-                      </button>
-                    ))}
-                  </div>
+                  {canvas.layers.map((layer) => (
+                    <CanvasLayerView
+                      key={layer.id}
+                      isSelected={selectedLayer?.id === layer.id}
+                      layer={layer}
+                      layout={layout}
+                      legacyPreviewMetrics={legacyPreviewMetrics}
+                      previewName={previewName}
+                      onPointerDown={beginLayerDrag}
+                      onPointerMove={handleLayerPointerMove}
+                      onPointerUp={handleLayerPointerUp}
+                      onResizeDown={beginResize}
+                      onResizeMove={handleResizeMove}
+                      onResizeUp={handleResizeUp}
+                      onSelect={setSelectedLayerId}
+                    />
+                  ))}
                 </div>
               </div>
-            </div>
 
-            <div className="rounded-[1.75rem] border border-white/10 bg-black/25 p-4">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-white/50">
-                <Sparkles className="size-4 text-primary" />
-                Live PDF preview
-              </div>
-              <div className="mt-4 overflow-hidden rounded-[1.25rem] border border-white/10 bg-black/30">
-                {previewUrl ? (
-                  <iframe
-                    className="h-[520px] w-full"
-                    src={previewUrl}
-                    title={`${template.template.name} preview`}
-                  />
-                ) : (
-                  <div className="flex h-[520px] items-center justify-center px-6 text-center text-sm leading-6 text-white/55">
-                    Render a preview to inspect the generated PDF here.
-                  </div>
-                )}
+              <div className="mt-4 flex flex-wrap gap-2 text-xs text-white/58">
+                <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5">
+                  Main stage preview includes all text and image layers.
+                </span>
+                <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5">
+                  Server PDF preview still exports only the legacy participant name layer.
+                </span>
               </div>
             </div>
           </div>
 
-          <div className="space-y-4">
-            <ControlBlock title="Typography">
-              <FontFamilyField
-                label="Font family"
-                value={layout.font_family}
-                onChange={(value) =>
-                  updateLayout((current) => ({
-                    ...current,
-                    font_family: value,
-                  }))
-                }
-                options={fontFamilies}
-              />
-              <ColorField
-                label="Font color"
-                value={layout.font_color_hex}
-                onChange={(value) =>
-                  updateLayout((current) => ({
-                    ...current,
-                    font_color_hex: value,
-                  }))
-                }
-              />
-
-              <RangeField
-                max={120}
-                min={16}
-                step={1}
-                value={layout.font_size}
-                onChange={(value) => updateLayout((current) => ({ ...current, font_size: value }))}
-                label="Font size"
-              />
-
-              <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/25 px-4 py-4 text-sm text-white/75">
-                <input
-                  checked={layout.auto_shrink}
-                  className="size-4 rounded border-white/20 bg-black/20 text-primary focus:ring-primary/50"
-                  type="checkbox"
-                  onChange={(event) =>
-                    updateLayout((current) => ({
-                      ...current,
-                      auto_shrink: event.target.checked,
-                    }))
-                  }
-                />
-                Auto shrink font
-              </label>
-            </ControlBlock>
-
+          <aside className="space-y-4 rounded-[1.75rem] border border-white/10 bg-black/20 p-4">
             <ControlBlock title="Preview">
               <label className="block text-sm font-medium text-white/72" htmlFor="preview-name">
-                Preview name
+                Preview participant name
                 <input
                   id="preview-name"
                   className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
@@ -1019,8 +1005,123 @@ export function TemplateLayoutEditor({
                 />
               </label>
 
+              <div className="rounded-2xl border border-sky-400/15 bg-sky-400/10 p-3 text-xs leading-5 text-sky-50/90">
+                Main canvas preview is instant. Server preview remains available below so the old
+                participant name export can still be verified before issuance.
+              </div>
+            </ControlBlock>
+
+            {selectedLayer ? (
+              <ControlBlock title="Layer inspector">
+                <label className="block text-sm font-medium text-white/72">
+                  Layer name
+                  <input
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+                    value={selectedLayer.name}
+                    onChange={(event) =>
+                      updateSelectedLayer((layer) => ({
+                        ...layer,
+                        name: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <NumberField
+                    label="X"
+                    value={selectedLayer.x}
+                    onChange={(value) =>
+                      updateSelectedLayer((layer) => ({
+                        ...layer,
+                        x: value,
+                      }))
+                    }
+                  />
+                  <NumberField
+                    label="Y"
+                    value={selectedLayer.y}
+                    onChange={(value) =>
+                      updateSelectedLayer((layer) => ({
+                        ...layer,
+                        y: value,
+                      }))
+                    }
+                  />
+                  <NumberField
+                    label="Width"
+                    value={selectedLayer.width}
+                    onChange={(value) =>
+                      updateSelectedLayer((layer) => ({
+                        ...layer,
+                        width: value,
+                      }))
+                    }
+                  />
+                  <NumberField
+                    label="Height"
+                    value={selectedLayer.height}
+                    onChange={(value) =>
+                      updateSelectedLayer((layer) => ({
+                        ...layer,
+                        height: value,
+                      }))
+                    }
+                  />
+                </div>
+
+                <RangeField
+                  label="Opacity"
+                  value={selectedLayer.opacity}
+                  min={0}
+                  max={100}
+                  step={1}
+                  onChange={(value) =>
+                    updateSelectedLayer((layer) => ({
+                      ...layer,
+                      opacity: value,
+                    }))
+                  }
+                />
+
+                {selectedLayer.kind === "text" && selectedLayer.text ? (
+                  <TextLayerInspector
+                    layer={selectedLayer}
+                    onLayerChange={updateSelectedLayer}
+                    options={fontFamilies}
+                  />
+                ) : null}
+
+                {selectedLayer.kind === "image" && selectedLayer.image ? (
+                  <ImageLayerInspector
+                    layer={selectedLayer}
+                    onReplace={() => handleUploadImage("replace", selectedLayer.id)}
+                    onLayerChange={updateSelectedLayer}
+                  />
+                ) : null}
+
+                <div className="flex flex-wrap gap-2">
+                  {!isLegacyNameLayer(selectedLayer) ? (
+                    <button
+                      className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-100 transition hover:border-red-400/30 hover:bg-red-500/15"
+                      type="button"
+                      onClick={() => handleDeleteLayer(selectedLayer)}
+                    >
+                      <Trash2 className="size-3.5" />
+                      Delete layer
+                    </button>
+                  ) : (
+                    <div className="rounded-full border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary">
+                      Legacy export layer
+                    </div>
+                  )}
+                </div>
+              </ControlBlock>
+            ) : null}
+
+            <ControlBlock title="Server PDF preview">
               <button
-                className="btn-hero mt-4 w-full rounded-2xl border border-white/10 bg-white/[0.04]"
+                className="btn-hero w-full rounded-2xl border border-white/10 bg-white/[0.04]"
                 type="button"
                 onClick={() => void renderPreview()}
               >
@@ -1031,37 +1132,30 @@ export function TemplateLayoutEditor({
                   </>
                 ) : (
                   <>
-                    <WandSparkles className="size-4" />
-                    Refresh preview
+                    <Eye className="size-4" />
+                    Refresh PDF preview
                   </>
                 )}
               </button>
-              <p className="text-xs leading-5 text-white/45">
-                Preview updates automatically after the test name changes. Saving layout also
-                refreshes the PDF preview.
-              </p>
-            </ControlBlock>
 
-            <button
-              className="btn-hero glow-primary w-full rounded-2xl bg-white/[0.05]"
-              type="submit"
-            >
-              {isSaving ? (
-                <>
-                  <LoaderCircle className="size-4 animate-spin" />
-                  Saving
-                </>
-              ) : (
-                <>
-                  <Save className="size-4" />
-                  Save layout
-                </>
-              )}
-            </button>
+              <div className="overflow-hidden rounded-[1.25rem] border border-white/10 bg-black/30">
+                {previewUrl ? (
+                  <iframe
+                    className="h-[320px] w-full"
+                    src={previewUrl}
+                    title={`${template.template.name} preview`}
+                  />
+                ) : (
+                  <div className="flex h-[320px] items-center justify-center px-6 text-center text-sm leading-6 text-white/55">
+                    Render preview to inspect the server PDF export.
+                  </div>
+                )}
+              </div>
+            </ControlBlock>
 
             <details className="rounded-[1.5rem] border border-white/10 bg-black/25 p-4 text-sm text-white/72">
               <summary className="cursor-pointer list-none font-pixel text-[10px] uppercase tracking-[0.2em] text-primary">
-                Render diagnostics
+                Legacy diagnostics
               </summary>
               <div className="mt-4 space-y-4">
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
@@ -1114,10 +1208,519 @@ export function TemplateLayoutEditor({
             <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/70">
               {message}
             </div>
-          </div>
+          </aside>
         </div>
       </form>
+
+      <input
+        ref={imageInputRef}
+        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+        className="hidden"
+        type="file"
+        onChange={(event) => void handleImagePicked(event)}
+      />
     </section>
+  );
+}
+
+function CanvasLayerView({
+  layer,
+  layout,
+  previewName,
+  legacyPreviewMetrics,
+  isSelected,
+  onSelect,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onResizeDown,
+  onResizeMove,
+  onResizeUp,
+}: {
+  layer: TemplateCanvasLayer;
+  layout: TemplateLayoutData;
+  previewName: string;
+  legacyPreviewMetrics: TemplatePreviewTextMetrics;
+  isSelected: boolean;
+  onSelect: (layerId: string) => void;
+  onPointerDown: (layer: TemplateCanvasLayer, event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onResizeDown: (
+    layer: TemplateCanvasLayer,
+    mode: ResizeMode,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) => void;
+  onResizeMove: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onResizeUp: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+}) {
+  if (!layer.visible) {
+    return null;
+  }
+
+  return (
+    <div
+      className={cn(
+        "absolute z-10 overflow-hidden rounded-[1rem] border transition",
+        isSelected
+          ? "border-sky-300/90 shadow-[0_0_0_1px_rgba(125,211,252,0.18)]"
+          : "border-transparent hover:border-sky-400/45",
+      )}
+      style={{
+        left: `${(layer.x / layout.page_width) * 100}%`,
+        top: `${(layer.y / layout.page_height) * 100}%`,
+        width: `${(layer.width / layout.page_width) * 100}%`,
+        height: `${(layer.height / layout.page_height) * 100}%`,
+        opacity: layer.opacity / 100,
+      }}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        onSelect(layer.id);
+        onPointerDown(layer, event);
+      }}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+    >
+      {isLegacyNameLayer(layer) ? (
+        <svg
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full overflow-hidden"
+          preserveAspectRatio="none"
+          viewBox={`0 0 ${layer.width} ${layer.height}`}
+        >
+          <text
+            fill={layout.font_color_hex}
+            fontFamily={legacyPreviewMetrics.fontFamily}
+            fontSize={legacyPreviewMetrics.fontSize}
+            fontWeight="400"
+            textAnchor="start"
+            x={legacyPreviewMetrics.textLeft}
+            y={legacyPreviewMetrics.baselineTop}
+          >
+            {previewName || " "}
+          </text>
+        </svg>
+      ) : layer.kind === "text" && layer.text ? (
+        <div
+          className="flex h-full w-full whitespace-pre-wrap break-words px-4 py-3"
+          style={{
+            color: layer.text.font_color_hex,
+            fontFamily: layer.text.font_family,
+            fontSize: `${layer.text.font_size}px`,
+            fontWeight: layer.text.font_weight,
+            letterSpacing: `${layer.text.letter_spacing}px`,
+            lineHeight: `${layer.text.line_height}%`,
+            backgroundColor: layer.text.background_color_hex || "transparent",
+            justifyContent: resolveHorizontalAlign(layer.text.text_align),
+            alignItems: resolveVerticalAlign(layer.text.vertical_align),
+            textAlign: layer.text.text_align as CSSProperties["textAlign"],
+          }}
+        >
+          {getCanvasLayerDisplayText(layer, previewName)}
+        </div>
+      ) : layer.kind === "image" && layer.image?.src ? (
+        <img
+          alt=""
+          className="h-full w-full"
+          src={layer.image.src}
+          style={{
+            objectFit: layer.image.fit,
+            borderRadius: `${layer.image.border_radius}px`,
+          }}
+        />
+      ) : (
+        <div className="flex h-full items-center justify-center text-xs uppercase tracking-[0.16em] text-white/35">
+          Empty layer
+        </div>
+      )}
+
+      {isSelected ? (
+        <>
+          <ResizeHandle
+            ariaLabel="Resize from left edge"
+            className="cursor-ew-resize"
+            style={{
+              left: 0,
+              top: "50%",
+              width: "14px",
+              height: "calc(100% - 18px)",
+              transform: "translate(-50%, -50%)",
+            }}
+            onPointerDown={(event) => onResizeDown(layer, "left", event)}
+            onPointerMove={onResizeMove}
+            onPointerUp={onResizeUp}
+          />
+          <ResizeHandle
+            ariaLabel="Resize from right edge"
+            className="cursor-ew-resize"
+            style={{
+              right: 0,
+              top: "50%",
+              width: "14px",
+              height: "calc(100% - 18px)",
+              transform: "translate(50%, -50%)",
+            }}
+            onPointerDown={(event) => onResizeDown(layer, "right", event)}
+            onPointerMove={onResizeMove}
+            onPointerUp={onResizeUp}
+          />
+          <ResizeHandle
+            ariaLabel="Resize from top edge"
+            className="cursor-ns-resize"
+            style={{
+              left: "50%",
+              top: 0,
+              width: "calc(100% - 18px)",
+              height: "14px",
+              transform: "translate(-50%, -50%)",
+            }}
+            onPointerDown={(event) => onResizeDown(layer, "top", event)}
+            onPointerMove={onResizeMove}
+            onPointerUp={onResizeUp}
+          />
+          <ResizeHandle
+            ariaLabel="Resize from bottom edge"
+            className="cursor-ns-resize"
+            style={{
+              left: "50%",
+              bottom: 0,
+              width: "calc(100% - 18px)",
+              height: "14px",
+              transform: "translate(-50%, 50%)",
+            }}
+            onPointerDown={(event) => onResizeDown(layer, "bottom", event)}
+            onPointerMove={onResizeMove}
+            onPointerUp={onResizeUp}
+          />
+          <ResizeHandle
+            ariaLabel="Resize from top left corner"
+            className="cursor-nwse-resize"
+            style={{
+              left: 0,
+              top: 0,
+              width: "18px",
+              height: "18px",
+              transform: "translate(-50%, -50%)",
+            }}
+            onPointerDown={(event) => onResizeDown(layer, "top-left", event)}
+            onPointerMove={onResizeMove}
+            onPointerUp={onResizeUp}
+          />
+          <ResizeHandle
+            ariaLabel="Resize from top right corner"
+            className="cursor-nesw-resize"
+            style={{
+              right: 0,
+              top: 0,
+              width: "18px",
+              height: "18px",
+              transform: "translate(50%, -50%)",
+            }}
+            onPointerDown={(event) => onResizeDown(layer, "top-right", event)}
+            onPointerMove={onResizeMove}
+            onPointerUp={onResizeUp}
+          />
+          <ResizeHandle
+            ariaLabel="Resize from bottom left corner"
+            className="cursor-nesw-resize"
+            style={{
+              left: 0,
+              bottom: 0,
+              width: "18px",
+              height: "18px",
+              transform: "translate(-50%, 50%)",
+            }}
+            onPointerDown={(event) => onResizeDown(layer, "bottom-left", event)}
+            onPointerMove={onResizeMove}
+            onPointerUp={onResizeUp}
+          />
+          <ResizeHandle
+            ariaLabel="Resize from bottom right corner"
+            className="cursor-nwse-resize"
+            style={{
+              right: 0,
+              bottom: 0,
+              width: "18px",
+              height: "18px",
+              transform: "translate(50%, 50%)",
+            }}
+            onPointerDown={(event) => onResizeDown(layer, "bottom-right", event)}
+            onPointerMove={onResizeMove}
+            onPointerUp={onResizeUp}
+          />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function TextLayerInspector({
+  layer,
+  options,
+  onLayerChange,
+}: {
+  layer: TemplateCanvasLayer;
+  options: FontFamilyOption[];
+  onLayerChange: (updater: (layer: TemplateCanvasLayer) => TemplateCanvasLayer) => void;
+}) {
+  const text = layer.text as TemplateCanvasTextLayer;
+  const isBoundName = text.binding === "participant.full_name";
+
+  return (
+    <>
+      {!isBoundName ? (
+        <label className="block text-sm font-medium text-white/72">
+          Text content
+          <textarea
+            className="mt-2 min-h-28 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+            value={text.content}
+            onChange={(event) =>
+              onLayerChange((current) => ({
+                ...current,
+                text: current.text
+                  ? {
+                      ...current.text,
+                      content: event.target.value,
+                    }
+                  : current.text,
+              }))
+            }
+          />
+        </label>
+      ) : (
+        <div className="rounded-2xl border border-primary/20 bg-primary/10 p-3 text-xs leading-5 text-primary">
+          This layer stays bound to `participant.full_name` so the old export fix remains intact.
+        </div>
+      )}
+
+      <FontFamilyField
+        label="Font family"
+        value={text.font_family}
+        options={options}
+        onChange={(value) =>
+          onLayerChange((current) => ({
+            ...current,
+            text: current.text
+              ? {
+                  ...current.text,
+                  font_family: value,
+                }
+              : current.text,
+          }))
+        }
+      />
+
+      <ColorField
+        label="Font color"
+        value={text.font_color_hex}
+        onChange={(value) =>
+          onLayerChange((current) => ({
+            ...current,
+            text: current.text
+              ? {
+                  ...current.text,
+                  font_color_hex: value,
+                }
+              : current.text,
+          }))
+        }
+      />
+
+      <RangeField
+        label="Font size"
+        value={text.font_size}
+        min={12}
+        max={160}
+        step={1}
+        onChange={(value) =>
+          onLayerChange((current) => ({
+            ...current,
+            text: current.text
+              ? {
+                  ...current.text,
+                  font_size: value,
+                }
+              : current.text,
+          }))
+        }
+      />
+
+      <RangeField
+        label="Weight"
+        value={text.font_weight}
+        min={300}
+        max={900}
+        step={100}
+        onChange={(value) =>
+          onLayerChange((current) => ({
+            ...current,
+            text: current.text
+              ? {
+                  ...current.text,
+                  font_weight: value,
+                }
+              : current.text,
+          }))
+        }
+      />
+
+      <RangeField
+        label="Line height %"
+        value={text.line_height}
+        min={80}
+        max={220}
+        step={5}
+        onChange={(value) =>
+          onLayerChange((current) => ({
+            ...current,
+            text: current.text
+              ? {
+                  ...current.text,
+                  line_height: value,
+                }
+              : current.text,
+          }))
+        }
+      />
+
+      <RangeField
+        label="Letter spacing"
+        value={text.letter_spacing}
+        min={-8}
+        max={24}
+        step={1}
+        onChange={(value) =>
+          onLayerChange((current) => ({
+            ...current,
+            text: current.text
+              ? {
+                  ...current.text,
+                  letter_spacing: value,
+                }
+              : current.text,
+          }))
+        }
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <AlignButtons
+          active={text.text_align}
+          label="Horizontal"
+          options={["left", "center", "right"]}
+          onSelect={(value) =>
+            onLayerChange((current) => ({
+              ...current,
+              text: current.text
+                ? {
+                    ...current.text,
+                    text_align: value,
+                  }
+                : current.text,
+            }))
+          }
+        />
+        <AlignButtons
+          active={text.vertical_align}
+          label="Vertical"
+          options={["top", "center", "bottom"]}
+          onSelect={(value) =>
+            onLayerChange((current) => ({
+              ...current,
+              text: current.text
+                ? {
+                    ...current.text,
+                    vertical_align: value,
+                  }
+                : current.text,
+            }))
+          }
+        />
+      </div>
+
+      <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/25 px-4 py-4 text-sm text-white/75">
+        <input
+          checked={text.auto_shrink}
+          className="size-4 rounded border-white/20 bg-black/20 text-primary focus:ring-primary/50"
+          type="checkbox"
+          onChange={(event) =>
+            onLayerChange((current) => ({
+              ...current,
+              text: current.text
+                ? {
+                    ...current.text,
+                    auto_shrink: event.target.checked,
+                  }
+                : current.text,
+            }))
+          }
+        />
+        Auto shrink font
+      </label>
+    </>
+  );
+}
+
+function ImageLayerInspector({
+  layer,
+  onReplace,
+  onLayerChange,
+}: {
+  layer: TemplateCanvasLayer;
+  onReplace: () => void;
+  onLayerChange: (updater: (layer: TemplateCanvasLayer) => TemplateCanvasLayer) => void;
+}) {
+  const image = layer.image;
+  if (!image) {
+    return null;
+  }
+
+  return (
+    <>
+      <button
+        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/72 transition hover:border-primary/30 hover:text-white"
+        type="button"
+        onClick={onReplace}
+      >
+        <Upload className="size-3.5" />
+        Replace image
+      </button>
+
+      <RangeField
+        label="Border radius"
+        value={image.border_radius}
+        min={0}
+        max={48}
+        step={1}
+        onChange={(value) =>
+          onLayerChange((current) => ({
+            ...current,
+            image: current.image
+              ? {
+                  ...current.image,
+                  border_radius: value,
+                }
+              : current.image,
+          }))
+        }
+      />
+
+      <AlignButtons
+        active={image.fit}
+        label="Image fit"
+        options={["contain", "cover"]}
+        onSelect={(value) =>
+          onLayerChange((current) => ({
+            ...current,
+            image: current.image
+              ? {
+                  ...current.image,
+                  fit: value as "contain" | "cover",
+                }
+              : current.image,
+          }))
+        }
+      />
+    </>
   );
 }
 
@@ -1140,7 +1743,7 @@ function ResizeHandle({
     <button
       aria-label={ariaLabel}
       className={cn(
-        "absolute z-20 bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+        "absolute z-20 rounded-full border border-sky-300/90 bg-sky-300 shadow-[0_0_0_2px_rgba(8,10,15,0.95)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300",
         className,
       )}
       style={style}
@@ -1149,6 +1752,32 @@ function ResizeHandle({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     />
+  );
+}
+
+function TopPill({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/70">
+      {children}
+    </div>
+  );
+}
+
+function ToolbarButton({
+  children,
+  onClick,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-white/75 transition hover:border-primary/30 hover:text-white"
+      type="button"
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -1179,6 +1808,28 @@ function DebugRow({
       <p className="text-[11px] uppercase tracking-[0.16em] text-white/42">{label}</p>
       <p className="mt-1 font-mono text-xs text-white/78">{value}</p>
     </div>
+  );
+}
+
+function NumberField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block rounded-2xl border border-white/10 bg-black/20 p-4">
+      <span className="text-sm font-medium text-white/72">{label}</span>
+      <input
+        className="mt-2 w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-sm text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+        type="number"
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
   );
 }
 
@@ -1213,6 +1864,41 @@ function RangeField({
         onChange={(event) => onChange(Number(event.target.value))}
       />
     </label>
+  );
+}
+
+function AlignButtons({
+  label,
+  active,
+  options,
+  onSelect,
+}: {
+  label: string;
+  active: string;
+  options: string[];
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <div className="rounded-[1.25rem] border border-white/10 bg-black/20 p-3">
+      <p className="mb-2 text-xs uppercase tracking-[0.18em] text-white/45">{label}</p>
+      <div className={`grid gap-2 ${options.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+        {options.map((option) => (
+          <button
+            key={option}
+            className={cn(
+              "rounded-2xl border px-3 py-3 text-xs uppercase tracking-[0.18em] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+              active === option
+                ? "border-primary/35 bg-primary/10 text-primary"
+                : "border-white/10 bg-black/20 text-white/70 hover:border-primary/25 hover:bg-white/[0.04]",
+            )}
+            type="button"
+            onClick={() => onSelect(option)}
+          >
+            {option}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1283,9 +1969,6 @@ function FontFamilyField({
             ))}
           </div>
         ) : null}
-        <p className="mt-2 text-xs leading-5 text-white/40">
-          Suggestions come from the backend list of supported fonts.
-        </p>
       </div>
     </div>
   );
@@ -1368,57 +2051,8 @@ function normalizeHexColor(value: string) {
   return `#${trimmed.slice(1).toUpperCase()}`;
 }
 
-function getNameBoxHeight(layout: TemplateLayoutData) {
-  return Math.max(40, toInt(layout.name_box_height, DEFAULT_LAYOUT.name_box_height));
-}
-
-function sanitizeLayout(layout?: Partial<TemplateLayoutData> | null): TemplateLayoutData {
-  const source = layout ?? DEFAULT_LAYOUT;
-  const pageWidth = toInt(source.page_width, DEFAULT_LAYOUT.page_width);
-  const pageHeight = toInt(source.page_height, DEFAULT_LAYOUT.page_height);
-  const boxHeight = Math.max(40, toInt(source.name_box_height, DEFAULT_LAYOUT.name_box_height));
-  const nameX = clamp(toInt(source.name_x, DEFAULT_LAYOUT.name_x), 0, Math.max(0, pageWidth - 240));
-  const nameWidth = clamp(
-    toInt(source.name_max_width, DEFAULT_LAYOUT.name_max_width),
-    240,
-    Math.max(240, pageWidth - nameX),
-  );
-  const nameY = clamp(toInt(source.name_y, DEFAULT_LAYOUT.name_y), boxHeight, pageHeight);
-  return {
-    page_width: pageWidth,
-    page_height: pageHeight,
-    name_x: nameX,
-    name_y: nameY,
-    name_max_width: nameWidth,
-    name_box_height: boxHeight,
-    font_family:
-      typeof source.font_family === "string" && source.font_family.trim()
-        ? source.font_family
-        : DEFAULT_LAYOUT.font_family,
-    font_size: clamp(toInt(source.font_size, DEFAULT_LAYOUT.font_size), 16, 120),
-    font_color_hex:
-      typeof source.font_color_hex === "string" && source.font_color_hex.trim()
-        ? normalizeHexColor(source.font_color_hex)
-        : DEFAULT_LAYOUT.font_color_hex,
-    text_align:
-      source.text_align === "left" ||
-      source.text_align === "center" ||
-      source.text_align === "right"
-        ? source.text_align
-        : DEFAULT_LAYOUT.text_align,
-    vertical_align:
-      source.vertical_align === "top" ||
-      source.vertical_align === "center" ||
-      source.vertical_align === "bottom"
-        ? source.vertical_align
-        : DEFAULT_LAYOUT.vertical_align,
-    auto_shrink:
-      typeof source.auto_shrink === "boolean" ? source.auto_shrink : DEFAULT_LAYOUT.auto_shrink,
-  };
-}
-
-function toInt(value: unknown, fallback: number) {
-  return typeof value === "number" && Number.isFinite(value) ? Math.round(value) : fallback;
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function getSnapThreshold(pageSize: number, stageSize: number) {
@@ -1429,147 +2063,60 @@ function getSnapThreshold(pageSize: number, stageSize: number) {
   return Math.max(6, (14 / stageSize) * pageSize);
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
+function buildLegacyPreviewSignature(layout: TemplateLayoutData) {
+  return [
+    layout.page_width,
+    layout.page_height,
+    layout.name_x,
+    layout.name_y,
+    layout.name_max_width,
+    layout.name_box_height,
+    layout.font_family,
+    layout.font_size,
+    layout.font_color_hex,
+    layout.text_align,
+    layout.vertical_align,
+    layout.auto_shrink ? 1 : 0,
+  ].join(":");
 }
 
-function computePreviewFontSize(layout: TemplateLayoutData, text: string) {
-  let size = Math.max(1, layout.font_size);
-  if (!layout.auto_shrink) {
-    return size;
-  }
-  const widthLimit = Math.max(
-    1,
-    Math.min(layout.name_max_width - NAME_BOX_INSET * 2, layout.page_width - 96),
-  );
-  const estimated = estimateTextWidth(text, size, resolvePdfFontFamily(layout.font_family));
-  if (estimated > widthLimit) {
-    const ratio = widthLimit / estimated;
-    size = Math.min(Math.max(size * ratio, 1), layout.font_size);
-  }
-
-  return size;
-}
-
-function computePreviewTextMetrics(layout: TemplateLayoutData, text: string): PreviewTextMetrics {
-  const pdfFontFamily = resolvePdfFontFamily(layout.font_family);
-  const previewFontFamily = resolvePreviewFontFamily(pdfFontFamily);
-  const pdfFontSize = computePreviewFontSize(layout, text);
-  const boxWidth = Math.min(layout.page_width, Math.max(240, layout.name_max_width));
-  const boxHeight = getNameBoxHeight(layout);
-  const textWidth = roundToHundredths(estimateTextWidth(text, pdfFontSize, pdfFontFamily));
-  const ascentRatio = resolvePdfTextAscentRatio(pdfFontFamily);
-  const textTop = roundToHundredths(
-    computePreviewTextTop(layout, boxHeight, pdfFontSize, ascentRatio),
-  );
-
-  return {
-    textLeft: roundToHundredths(resolvePreviewTextLeft(layout.text_align, boxWidth, textWidth)),
-    textTop,
-    baselineTop: roundToHundredths(textTop + ascentRatio * pdfFontSize),
-    textWidth,
-    fontSize: roundToHundredths(pdfFontSize),
-    fontFamily: previewFontFamily,
-    ascentRatio,
-    pdfFontFamily,
-    source: "local",
-  };
-}
-
-function buildSourceOverlayMetrics(
-  layout: TemplateLayoutData,
-  text: string,
-  diagnostics: PdfPreviewDiagnostics | null,
-) {
-  const localMetrics = computePreviewTextMetrics(layout, text);
-  if (!diagnostics || !diagnosticsMatchLayout(diagnostics, layout, text)) {
-    return localMetrics;
-  }
-
-  return {
-    textLeft: roundToHundredths(diagnostics.text_left_in_box),
-    textTop: roundToHundredths(diagnostics.text_top_in_box),
-    baselineTop: roundToHundredths(diagnostics.baseline_top - diagnostics.box_top),
-    textWidth: roundToHundredths(diagnostics.text_width),
-    fontSize: roundToHundredths(diagnostics.font_size),
-    fontFamily: resolvePreviewFontFamily(diagnostics.pdf_font_family),
-    ascentRatio: diagnostics.ascent_ratio,
-    pdfFontFamily: diagnostics.pdf_font_family,
-    source: "backend" as const,
-  };
-}
-
-function computePreviewTextTop(
-  layout: TemplateLayoutData,
-  boxHeight: number,
-  fontSize: number,
-  ascentRatio: number,
-) {
-  switch (layout.vertical_align) {
-    case "top":
-      return NAME_BOX_INSET;
-    case "bottom":
-      return boxHeight - fontSize - NAME_BOX_INSET;
-    default:
-      return boxHeight / 2 + fontSize * (0.35 - ascentRatio);
-  }
-}
-
-function resolvePreviewTextLeft(textAlign: string, boxWidth: number, textWidth: number) {
-  switch (textAlign) {
+function resolveHorizontalAlign(value: string) {
+  switch (value) {
     case "center":
-      return boxWidth / 2 - textWidth / 2;
+      return "center";
     case "right":
-      return boxWidth - textWidth - NAME_BOX_INSET;
+      return "flex-end";
     default:
-      return NAME_BOX_INSET;
+      return "flex-start";
   }
 }
 
-function estimateTextWidth(text: string, fontSize: number, fontFamily: string) {
-  return estimateTextUnits(text, fontFamily) * fontSize;
+function resolveVerticalAlign(value: string) {
+  switch (value) {
+    case "center":
+      return "center";
+    case "bottom":
+      return "flex-end";
+    default:
+      return "flex-start";
+  }
 }
 
-function roundToHundredths(value: number) {
-  return Math.round(value * 100) / 100;
-}
-
-function parsePdfPreviewDiagnostics(value: string | null): PdfPreviewDiagnostics | null {
+function parsePdfPreviewDiagnostics(value: string | null): TemplatePdfPreviewDiagnostics | null {
   if (!value) {
     return null;
   }
 
   try {
-    return JSON.parse(value) as PdfPreviewDiagnostics;
+    return JSON.parse(value) as TemplatePdfPreviewDiagnostics;
   } catch {
     return null;
   }
 }
 
-function diagnosticsMatchLayout(
-  diagnostics: PdfPreviewDiagnostics,
-  layout: TemplateLayoutData,
-  previewName: string,
-) {
-  const boxHeight = getNameBoxHeight(layout);
-  const boxTop = Math.max(0, layout.name_y - boxHeight);
-
-  return (
-    roundToHundredths(diagnostics.page_width) === roundToHundredths(layout.page_width) &&
-    roundToHundredths(diagnostics.page_height) === roundToHundredths(layout.page_height) &&
-    roundToHundredths(diagnostics.box_left) === roundToHundredths(layout.name_x) &&
-    roundToHundredths(diagnostics.box_top) === roundToHundredths(boxTop) &&
-    roundToHundredths(diagnostics.box_width) === roundToHundredths(layout.name_max_width) &&
-    roundToHundredths(diagnostics.box_height) === roundToHundredths(boxHeight) &&
-    diagnostics.text_align === layout.text_align &&
-    diagnostics.vertical_align === layout.vertical_align &&
-    diagnostics.preview_name === previewName.trim()
-  );
-}
-
 function buildPreviewDebugRows(
-  sourceMetrics: PreviewTextMetrics,
-  diagnostics: PdfPreviewDiagnostics | null,
+  sourceMetrics: TemplatePreviewTextMetrics,
+  diagnostics: TemplatePdfPreviewDiagnostics | null,
 ) {
   return {
     source: [
@@ -1601,8 +2148,8 @@ function buildPreviewDebugRows(
 }
 
 function buildPreviewDebugDeltaRows(
-  sourceMetrics: PreviewTextMetrics,
-  diagnostics: PdfPreviewDiagnostics | null,
+  sourceMetrics: TemplatePreviewTextMetrics,
+  diagnostics: TemplatePdfPreviewDiagnostics | null,
 ) {
   if (!diagnostics) {
     return [];
@@ -1635,126 +2182,14 @@ function buildPreviewDebugDeltaRows(
 }
 
 function formatMetric(value: number) {
-  return roundToHundredths(value).toFixed(2);
+  return (Math.round(value * 100) / 100).toFixed(2);
 }
 
-function estimateTextUnits(text: string, fontFamily: string) {
-  const normalized = fontFamily.toLowerCase();
-  const familyFactor =
-    normalized === "times-roman"
-      ? 0.85
-      : normalized === "courier"
-        ? 0.62
-        : normalized === "symbol" || normalized === "zapfdingbats"
-          ? 0.7
-          : 1;
-
-  let units = 0;
-  for (const char of text.trim()) {
-    units += estimateCharUnit(char);
-  }
-
-  return Math.max(1, units * familyFactor);
-}
-
-function estimateCharUnit(char: string) {
-  if (char === " ") {
-    return 0.33;
-  }
-
-  if ("ilI|!'`.,".includes(char)) {
-    return 0.3;
-  }
-
-  if ("fjrt()[]{}:;".includes(char)) {
-    return 0.4;
-  }
-
-  if ("mwMW@%&".includes(char)) {
-    return 0.92;
-  }
-
-  if (/[A-Z]/.test(char)) {
-    return 0.72;
-  }
-
-  if (/[0-9]/.test(char)) {
-    return 0.62;
-  }
-
-  return 0.56;
-}
-
-function resolvePdfFontFamily(fontFamily: string) {
-  const normalized = fontFamily.trim().toLowerCase();
-
-  switch (normalized) {
-    case "outfit":
-    case "arial":
-    case "helvetica":
-    case "helvetica neue":
-    case "verdana":
-    case "trebuchet ms":
-    case "impact":
-    case "arial black":
-      return "Helvetica";
-    case "times new roman":
-    case "times":
-    case "georgia":
-      return "Times-Roman";
-    case "courier new":
-    case "courier":
-      return "Courier";
-    case "symbol":
-      return "Symbol";
-    case "zapf dingbats":
-      return "ZapfDingbats";
-    default:
-      return "Helvetica";
-  }
-}
-
-function resolvePreviewFontFamily(fontFamily: string) {
-  const normalized = fontFamily.trim().toLowerCase();
-
-  switch (normalized) {
-    case "helvetica":
-    case "helvetica-bold":
-    case "outfit":
-    case "arial":
-    case "helvetica neue":
-    case "verdana":
-    case "trebuchet ms":
-    case "impact":
-    case "arial black":
-      return '"Arial", "Helvetica Neue", Helvetica, sans-serif';
-    case "times-roman":
-    case "times new roman":
-    case "times":
-    case "georgia":
-      return '"Times New Roman", Times, Georgia, serif';
-    case "courier":
-    case "courier new":
-      return '"Courier New", Courier, monospace';
-    case "symbol":
-      return "Symbol, sans-serif";
-    case "zapf dingbats":
-      return '"Zapf Dingbats", "Apple Symbols", sans-serif';
-    default:
-      return '"Arial", "Helvetica Neue", Helvetica, sans-serif';
-  }
-}
-
-function resolvePdfTextAscentRatio(fontFamily: string) {
-  switch (fontFamily) {
-    case "Times-Roman":
-      return 0.9;
-    case "Courier":
-      return 0.83;
-    case "Symbol":
-    case "ZapfDingbats":
-      return 0.88;
-    default:
-      return 0.93;
-  }
+async function readFileAsDataUrl(file: File) {
+  return new Promise<string | null>((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
 }

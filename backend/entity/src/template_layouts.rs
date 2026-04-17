@@ -18,6 +18,7 @@ pub struct Model {
     pub text_align: String,
     pub vertical_align: String,
     pub auto_shrink: bool,
+    pub canvas_data: Option<Json>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
 }

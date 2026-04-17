@@ -66,6 +66,8 @@ pub struct TemplateLayoutRequest {
     #[validate(length(min = 1))]
     pub vertical_align: String,
     pub auto_shrink: bool,
+    #[serde(default)]
+    pub canvas: Option<templates::TemplateCanvasData>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -421,6 +423,7 @@ async fn save_template_layout(
             text_align: payload.text_align.clone(),
             vertical_align: payload.vertical_align.clone(),
             auto_shrink: payload.auto_shrink,
+            canvas: payload.canvas.clone(),
         },
     )
     .await?;
@@ -482,6 +485,7 @@ async fn preview_template(
                 text_align: layout.text_align.clone(),
                 vertical_align: layout.vertical_align.clone(),
                 auto_shrink: layout.auto_shrink,
+                canvas: layout.canvas.clone(),
             }),
     )
     .await?;
