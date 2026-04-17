@@ -1,6 +1,7 @@
 "use client";
 
-import { Layers3, LoaderCircle, PencilLine } from "lucide-react";
+import { ArrowRight, Layers3, LoaderCircle, PencilLine } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useState } from "react";
 
@@ -23,7 +24,6 @@ export default function TemplateDetailPage({ params }: Props) {
   const [template, setTemplate] = useState<TemplateDetail | null>(null);
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [message, setMessage] = useState("Loading template...");
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -38,9 +38,6 @@ export default function TemplateDetailPage({ params }: Props) {
       if (data) {
         setTemplate(data);
         setName(data.template.name);
-        setMessage("Template loaded.");
-      } else {
-        setMessage("Template not found.");
       }
     }
 
@@ -52,7 +49,6 @@ export default function TemplateDetailPage({ params }: Props) {
 
   async function handleSave() {
     if (!name.trim()) {
-      setMessage("Template name is required.");
       return;
     }
 
@@ -63,12 +59,10 @@ export default function TemplateDetailPage({ params }: Props) {
     }
 
     setIsSaving(true);
-    setMessage(file ? "Saving template and replacing asset..." : "Saving template...");
 
     try {
       const { response, data } = await updateTemplate(id, form);
       if (!response.ok || !data) {
-        setMessage("Template update failed.");
         setIsSaving(false);
         return;
       }
@@ -76,13 +70,7 @@ export default function TemplateDetailPage({ params }: Props) {
       setTemplate(data);
       setName(data.template.name);
       setFile(null);
-      setMessage(
-        file
-          ? "Template source updated. The editor below now uses the saved asset."
-          : "Template saved.",
-      );
     } catch {
-      setMessage("Template update failed.");
     } finally {
       setIsSaving(false);
     }
@@ -92,7 +80,6 @@ export default function TemplateDetailPage({ params }: Props) {
     const { data } = await activateTemplate(id);
     if (data) {
       setTemplate(data);
-      setMessage("Template activated.");
     }
   }
 
@@ -103,7 +90,6 @@ export default function TemplateDetailPage({ params }: Props) {
 
     const { response } = await deleteTemplate(id);
     if (response.ok) {
-      setMessage("Template deleted.");
       router.replace("/admin/templates");
     }
   }
@@ -111,7 +97,7 @@ export default function TemplateDetailPage({ params }: Props) {
   if (!template) {
     return (
       <section className="rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 text-sm text-white/65 backdrop-blur-xl">
-        {message}
+        Loading template...
       </section>
     );
   }
@@ -133,9 +119,36 @@ export default function TemplateDetailPage({ params }: Props) {
         </p>
       </div>
 
-      <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/68">
-        {message}
-      </div>
+      <Link
+        className="group block rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-primary/30 hover:bg-white/[0.04] sm:p-6"
+        href={`/admin/participants?event_code=${template.template.id}`}
+      >
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
+              Participant roster
+            </p>
+            <h2 className="mt-3 text-2xl font-black text-white">Quick stats</h2>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs text-primary transition group-hover:border-primary/35 group-hover:bg-primary/15">
+              Редактировать список участников
+            </span>
+            <ArrowRight className="size-5 text-primary/85 transition group-hover:translate-x-0.5" />
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <MetricTile
+            label="Добавлено участников"
+            value={formatCount(template.template.participant_count)}
+          />
+          <MetricTile
+            label="Получили сертификат"
+            value={formatCount(template.template.issued_count)}
+          />
+        </div>
+      </Link>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
         <div className="rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
@@ -242,7 +255,6 @@ export default function TemplateDetailPage({ params }: Props) {
                 }
               : current,
           );
-          setMessage("Layout saved.");
         }}
       />
     </section>
@@ -258,4 +270,17 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       </span>
     </div>
   );
+}
+
+function MetricTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-4">
+      <p className="text-xs uppercase tracking-[0.18em] text-white/45">{label}</p>
+      <p className="mt-3 text-2xl font-black text-white">{value}</p>
+    </div>
+  );
+}
+
+function formatCount(value: number) {
+  return new Intl.NumberFormat("ru-RU").format(value);
 }

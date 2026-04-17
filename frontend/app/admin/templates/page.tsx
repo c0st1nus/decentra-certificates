@@ -14,7 +14,6 @@ import {
 
 export default function AdminTemplatesPage() {
   const [templates, setTemplates] = useState<TemplateDetail[]>([]);
-  const [message, setMessage] = useState("Loading templates...");
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -27,12 +26,10 @@ export default function AdminTemplatesPage() {
           return;
         }
         setTemplates(data ?? []);
-        setMessage(data?.length ? "Templates loaded." : "No templates uploaded yet.");
       } catch {
         if (!isMounted) {
           return;
         }
-        setMessage("Could not load templates.");
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -60,7 +57,6 @@ export default function AdminTemplatesPage() {
         },
       })),
     );
-    setMessage(`Template ${data.template.name} activated.`);
   }
 
   async function handleDelete(id: string) {
@@ -71,12 +67,10 @@ export default function AdminTemplatesPage() {
 
     const { response } = await deleteTemplate(id);
     if (!response.ok) {
-      setMessage("Could not delete template.");
       return;
     }
 
     setTemplates((current) => current.filter((template) => template.template.id !== id));
-    setMessage("Template deleted.");
   }
 
   return (
@@ -95,15 +89,10 @@ export default function AdminTemplatesPage() {
         </p>
       </div>
 
-      <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/68">
-        {message}
-      </div>
-
       <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
         <TemplateUploadForm
           onSaved={(template) => {
             setTemplates((current) => [template, ...current]);
-            setMessage(`Template ${template.template.name} uploaded.`);
           }}
         />
 

@@ -58,6 +58,8 @@ export interface TemplateSummary {
   source_kind: string;
   is_active: boolean;
   has_layout: boolean;
+  participant_count: number;
+  issued_count: number;
   created_at: string;
   updated_at: string;
 }

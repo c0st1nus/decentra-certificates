@@ -4,12 +4,15 @@ use std::path::Path;
 use anyhow::Context;
 use chrono::Utc;
 use entity::{
+    certificate_issues,
     certificate_templates,
     prelude::{CertificateTemplates, TemplateLayouts},
+    participants,
     template_layouts,
 };
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, Set,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -66,6 +69,8 @@ pub struct TemplateSummary {
     pub source_kind: String,
     pub is_active: bool,
     pub has_layout: bool,
+    pub participant_count: u64,
+    pub issued_count: u64,
     pub created_at: chrono::DateTime<Utc>,
     pub updated_at: chrono::DateTime<Utc>,
 }
@@ -74,6 +79,12 @@ pub struct TemplateSummary {
 pub struct TemplateDetail {
     pub template: TemplateSummary,
     pub layout: Option<TemplateLayoutData>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct TemplateStats {
+    pub participant_count: u64,
+    pub issued_count: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -108,7 +119,8 @@ pub async fn list_templates(db: &DatabaseConnection) -> Result<Vec<TemplateDetai
     let mut details = Vec::with_capacity(templates.len());
     for template in templates {
         let layout = layouts_by_template_id.get(&template.id);
-        details.push(to_detail(template, layout));
+        let stats = load_template_stats(db, &template).await?;
+        details.push(to_detail(template, layout, stats));
     }
 
     Ok(details)
@@ -125,8 +137,9 @@ pub async fn get_template(db: &DatabaseConnection, id: Uuid) -> Result<TemplateD
         .one(db)
         .await
         .map_err(|err| AppError::Internal(err.into()))?;
+    let stats = load_template_stats(db, &template).await?;
 
-    Ok(to_detail(template, layout.as_ref()))
+    Ok(to_detail(template, layout.as_ref(), stats))
 }
 
 pub fn available_font_families() -> Vec<FontFamilyOption> {
@@ -514,6 +527,7 @@ fn build_preview_layout_model(
 fn to_detail(
     template: certificate_templates::Model,
     layout: Option<&template_layouts::Model>,
+    stats: TemplateStats,
 ) -> TemplateDetail {
     TemplateDetail {
         template: TemplateSummary {
@@ -522,11 +536,35 @@ fn to_detail(
             source_kind: template.source_kind,
             is_active: template.is_active,
             has_layout: layout.is_some(),
+            participant_count: stats.participant_count,
+            issued_count: stats.issued_count,
             created_at: template.created_at,
             updated_at: template.updated_at,
         },
         layout: layout.map(to_layout_data),
     }
+}
+
+async fn load_template_stats(
+    db: &DatabaseConnection,
+    template: &certificate_templates::Model,
+) -> Result<TemplateStats, AppError> {
+    let event_code = template.id.to_string();
+    let participant_count = participants::Entity::find()
+        .filter(participants::Column::EventCode.eq(&event_code))
+        .count(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?;
+    let issued_count = certificate_issues::Entity::find()
+        .filter(certificate_issues::Column::TemplateId.eq(template.id))
+        .count(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?;
+
+    Ok(TemplateStats {
+        participant_count,
+        issued_count,
+    })
 }
 
 fn to_layout_data(layout: &template_layouts::Model) -> TemplateLayoutData {

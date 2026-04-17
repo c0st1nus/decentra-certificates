@@ -2,3 +2,4 @@ pub mod m20260415_000001_create_initial_schema;
 pub mod m20260415_000002_convert_timestamps_to_timestamptz;
 pub mod m20260416_000003_add_ops_hardening;
 pub mod m20260416_000004_add_layout_box_geometry;
+pub mod m20260417_000005_add_template_roster_indexes;
