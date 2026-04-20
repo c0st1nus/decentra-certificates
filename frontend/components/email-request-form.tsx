@@ -13,12 +13,21 @@ import {
 import type { FormEvent, ReactNode } from "react";
 import { useState } from "react";
 
-import { type CertificateRequestSuccess, buildApiUrl, requestCertificate } from "@/lib/api";
+import {
+  type AvailableCertificate,
+  type AvailableCertificatesResponse,
+  type CertificateRequestSuccess,
+  buildApiUrl,
+  checkCertificates,
+  requestCertificate,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type RequestState =
   | { kind: "idle" }
-  | { kind: "loading" }
+  | { kind: "checking" }
+  | { kind: "select"; certificates: AvailableCertificate[]; full_name: string | null }
+  | { kind: "requesting"; certificate: AvailableCertificate }
   | { kind: "success"; payload: CertificateRequestSuccess }
   | { kind: "issuance_disabled"; message: string }
   | { kind: "not_found"; message: string }
@@ -26,7 +35,7 @@ type RequestState =
   | { kind: "error"; message: string };
 
 const initialMessage =
-  "Введите e-mail, который использовался при регистрации. Мы покажем результат только после серверной проверки.";
+  "Введите e-mail, который использовался при регистрации. Мы покажем все доступные сертификаты после проверки.";
 
 export function EmailRequestForm() {
   const [email, setEmail] = useState("");
@@ -41,10 +50,58 @@ export function EmailRequestForm() {
       return;
     }
 
-    setState({ kind: "loading" });
+    setState({ kind: "checking" });
 
     try {
-      const { data, response } = await requestCertificate(normalizedEmail);
+      const { data, response } = await checkCertificates(normalizedEmail);
+
+      if (!response.ok || !data) {
+        if (response.status === 403) {
+          setState({
+            kind: "issuance_disabled",
+            message: "Выдача сертификатов еще не открыта.",
+          });
+          return;
+        }
+
+        if (response.status === 429) {
+          setState({
+            kind: "rate_limited",
+            message: "Слишком много запросов. Подождите немного и попробуйте снова.",
+          });
+          return;
+        }
+
+        const message =
+          data && "message" in data && typeof data.message === "string"
+            ? data.message
+            : "Произошла ошибка. Попробуйте позже.";
+        setState({ kind: "error", message });
+        return;
+      }
+
+      if (data.certificates.length === 0) {
+        setState({
+          kind: "not_found",
+          message: "Данный e-mail не найден в базе участников.",
+        });
+        return;
+      }
+
+      setState({ kind: "select", certificates: data.certificates, full_name: data.full_name });
+    } catch {
+      setState({
+        kind: "error",
+        message: "Не удалось связаться с сервером. Проверьте подключение и попробуйте снова.",
+      });
+    }
+  }
+
+  async function handleRequestCertificate(certificate: AvailableCertificate) {
+    setState({ kind: "requesting", certificate });
+
+    try {
+      const { data, response } = await requestCertificate(email.trim(), certificate.template_id);
 
       if (response.ok && data && "status" in data) {
         setState({ kind: "success", payload: data });
@@ -52,7 +109,9 @@ export function EmailRequestForm() {
       }
 
       const message =
-        data && "message" in data ? data.message : "Произошла ошибка. Попробуйте позже.";
+        data && "message" in data && typeof data.message === "string"
+          ? data.message
+          : "Произошла ошибка. Попробуйте позже.";
 
       if (response.status === 403) {
         setState({
@@ -65,15 +124,7 @@ export function EmailRequestForm() {
       if (response.status === 404) {
         setState({
           kind: "not_found",
-          message: "Данный e-mail не найден в базе участников.",
-        });
-        return;
-      }
-
-      if (response.status === 429) {
-        setState({
-          kind: "rate_limited",
-          message: "Слишком много запросов. Подождите немного и попробуйте снова.",
+          message: "Сертификат не найден.",
         });
         return;
       }
@@ -106,7 +157,9 @@ export function EmailRequestForm() {
     }
   }
 
-  const isLoading = state.kind === "loading";
+  const isChecking = state.kind === "checking";
+  const isRequesting = state.kind === "requesting";
+  const isLoading = isChecking || isRequesting;
 
   return (
     <section className="panel-glow rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
@@ -153,14 +206,14 @@ export function EmailRequestForm() {
         </div>
 
         <button className="btn-hero glow-primary w-full rounded-2xl bg-white/[0.05]" type="submit">
-          {isLoading ? (
+          {isChecking ? (
             <>
               <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
               Проверяем e-mail
             </>
           ) : (
             <>
-              <span>Забрать сертификат</span>
+              <span>Найти сертификаты</span>
               <ArrowRight />
             </>
           )}
@@ -172,7 +225,9 @@ export function EmailRequestForm() {
         className={cn(
           "mt-5 rounded-[1.5rem] border p-4",
           state.kind === "idle" && "border-white/10 bg-white/[0.03] text-white/70",
-          state.kind === "loading" && "border-primary/25 bg-primary/[0.08] text-white/75",
+          state.kind === "checking" && "border-primary/25 bg-primary/[0.08] text-white/75",
+          state.kind === "select" && "border-primary/30 bg-primary/10 text-white",
+          state.kind === "requesting" && "border-primary/25 bg-primary/[0.08] text-white/75",
           state.kind === "success" && "border-primary/30 bg-primary/10 text-white",
           state.kind === "issuance_disabled" &&
             "border-amber-500/25 bg-amber-500/10 text-amber-100",
@@ -183,7 +238,19 @@ export function EmailRequestForm() {
       >
         {state.kind === "idle" && <StatusIdle message={initialMessage} />}
 
-        {state.kind === "loading" && <StatusLoading />}
+        {state.kind === "checking" && <StatusLoading />}
+
+        {state.kind === "select" && (
+          <CertificateSelector
+            certificates={state.certificates}
+            full_name={state.full_name}
+            onSelect={(cert) => void handleRequestCertificate(cert)}
+          />
+        )}
+
+        {state.kind === "requesting" && (
+          <StatusRequesting templateName={state.certificate.template_name} />
+        )}
 
         {state.kind === "success" && <StatusSuccess data={state.payload} />}
 
@@ -253,6 +320,76 @@ export function EmailRequestForm() {
   );
 }
 
+function CertificateSelector({
+  certificates,
+  full_name,
+  onSelect,
+}: {
+  certificates: AvailableCertificate[];
+  full_name: string | null;
+  onSelect: (certificate: AvailableCertificate) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-3">
+        <BadgeCheck aria-hidden="true" className="mt-0.5 size-5 text-primary" />
+        <div className="min-w-0">
+          <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">Found</p>
+          <p className="mt-2 text-base font-semibold text-white">
+            {full_name ? `Сертификаты для ${full_name}` : "Доступные сертификаты"}
+          </p>
+          <p className="mt-1 text-sm leading-6 text-white/70">
+            Выберите сертификат для скачивания. Если сертификат уже выпущен, он сразу доступен.
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {certificates.map((cert) => (
+          <div
+            key={cert.template_id}
+            className="rounded-2xl border border-white/10 bg-black/25 p-4"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white">{cert.template_name}</h3>
+                {cert.category && (
+                  <p className="text-xs text-white/50">Категория: {cert.category}</p>
+                )}
+                {cert.already_issued && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] font-pixel uppercase tracking-[0.14em] text-primary">
+                    <BadgeCheck className="size-3" />
+                    Already issued
+                  </span>
+                )}
+              </div>
+
+              {cert.already_issued && cert.download_url ? (
+                <a
+                  className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-2 text-xs text-primary transition hover:border-primary/40 hover:bg-primary/15"
+                  href={buildApiUrl(cert.download_url)}
+                >
+                  <Download className="size-3.5" />
+                  Download
+                </a>
+              ) : (
+                <button
+                  className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-2 text-xs text-primary transition hover:border-primary/40 hover:bg-primary/15"
+                  type="button"
+                  onClick={() => onSelect(cert)}
+                >
+                  <ArrowRight className="size-3.5" />
+                  {cert.already_issued ? "Get certificate" : "Issue certificate"}
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StatusIdle({ message }: { message: string }) {
   return (
     <div className="space-y-3">
@@ -275,6 +412,26 @@ function StatusLoading() {
         <div className="h-3 w-3/4 animate-pulse rounded-full bg-white/[0.08]" />
         <div className="h-3 w-2/3 animate-pulse rounded-full bg-white/[0.08]" />
         <div className="h-3 w-1/2 animate-pulse rounded-full bg-white/[0.08]" />
+      </div>
+    </div>
+  );
+}
+
+function StatusRequesting({ templateName }: { templateName: string }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 text-primary">
+        <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
+        <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">
+          Generating certificate
+        </p>
+      </div>
+      <p className="text-sm text-white/70">
+        Создаём PDF для шаблона &quot;{templateName}&quot;. Это может занять несколько секунд.
+      </p>
+      <div className="space-y-2">
+        <div className="h-3 w-3/4 animate-pulse rounded-full bg-white/[0.08]" />
+        <div className="h-3 w-2/3 animate-pulse rounded-full bg-white/[0.08]" />
       </div>
     </div>
   );

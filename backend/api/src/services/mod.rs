@@ -1,5 +1,6 @@
 pub mod audit;
 pub mod auth;
+pub mod categories;
 pub mod certificates;
 pub mod fonts;
 pub mod font_loader;

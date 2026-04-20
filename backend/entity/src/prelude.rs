@@ -5,4 +5,5 @@ pub use crate::certificate_issues::Entity as CertificateIssues;
 pub use crate::certificate_templates::Entity as CertificateTemplates;
 pub use crate::participants::Entity as Participants;
 pub use crate::refresh_sessions::Entity as RefreshSessions;
+pub use crate::template_categories::Entity as TemplateCategories;
 pub use crate::template_layouts::Entity as TemplateLayouts;

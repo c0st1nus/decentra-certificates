@@ -112,8 +112,6 @@ export function createTextCanvasLayer(layout: TemplateLayoutData): TemplateCanva
   };
 }
 
-
-
 export function createImageCanvasLayer(
   layout: TemplateLayoutData,
   src: string,
@@ -132,8 +130,14 @@ export function createImageCanvasLayer(
     name: fileName?.replace(/\.[^.]+$/, "") || "Image asset",
     kind: "image",
     role: null,
-    x: Math.max(0, Math.min(Math.round(layout.page_width * 0.62), layout.page_width - fittedSize.width)),
-    y: Math.max(0, Math.min(Math.round(layout.page_height * 0.18), layout.page_height - fittedSize.height)),
+    x: Math.max(
+      0,
+      Math.min(Math.round(layout.page_width * 0.62), layout.page_width - fittedSize.width),
+    ),
+    y: Math.max(
+      0,
+      Math.min(Math.round(layout.page_height * 0.18), layout.page_height - fittedSize.height),
+    ),
     width: fittedSize.width,
     height: fittedSize.height,
     rotation: 0,
@@ -179,8 +183,6 @@ export function updateCanvasLayers(
     ),
   };
 }
-
-
 
 export function getCanvasLayerLabel(layer: TemplateCanvasLayer) {
   if (layer.role === LEGACY_NAME_ROLE) {
@@ -231,8 +233,6 @@ export function resolveCanvasLayerText(
 
   return content;
 }
-
-
 
 export function clampLayerToLayout(
   layer: TemplateCanvasLayer,

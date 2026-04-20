@@ -9,6 +9,22 @@ export interface CertificateRequestSuccess {
   template_name: string;
 }
 
+export interface AvailableCertificate {
+  template_id: string;
+  template_name: string;
+  full_name: string;
+  category: string | null;
+  already_issued: boolean;
+  certificate_id: string | null;
+  download_url: string | null;
+  verification_url: string | null;
+}
+
+export interface AvailableCertificatesResponse {
+  full_name: string | null;
+  certificates: AvailableCertificate[];
+}
+
 export interface ApiErrorBody {
   error: string;
   message: string;
@@ -22,9 +38,9 @@ export function buildApiUrl(path: string) {
   return new URL(path, API_BASE_URL).toString();
 }
 
-export async function requestCertificate(email: string) {
+export async function requestCertificate(email: string, templateId?: string) {
   const response = await fetch(buildApiUrl("/api/v1/public/certificates/request"), {
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, template_id: templateId }),
     headers: {
       "Content-Type": "application/json",
     },
@@ -32,6 +48,23 @@ export async function requestCertificate(email: string) {
   });
 
   const data = await parseJson<ResponseBody>(response);
+
+  return {
+    data,
+    response,
+  };
+}
+
+export async function checkCertificates(email: string) {
+  const response = await fetch(buildApiUrl("/api/v1/public/certificates/check"), {
+    body: JSON.stringify({ email }),
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  const data = await parseJson<AvailableCertificatesResponse>(response);
 
   return {
     data,

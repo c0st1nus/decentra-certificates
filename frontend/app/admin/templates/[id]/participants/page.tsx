@@ -1,8 +1,8 @@
 "use client";
 
-import { Search, Users } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { ArrowLeft, Search, Trash2, Users } from "lucide-react";
+import Link from "next/link";
+import { use, useEffect, useState } from "react";
 
 import { ParticipantsImportForm } from "@/components/participants-import-form";
 import {
@@ -10,22 +10,21 @@ import {
   type TemplateDetail,
   deleteParticipants,
   fetchParticipants,
-  fetchTemplates,
+  fetchTemplate,
 } from "@/lib/admin-api";
 
 type ParticipantFilters = {
   category: string;
   email: string;
-  eventCode: string;
 };
 
 const PARTICIPANTS_PAGE_SIZE = 20;
 
-async function loadParticipants(filters: ParticipantFilters, page: number) {
+async function loadParticipants(templateId: string, filters: ParticipantFilters, page: number) {
   const { data } = await fetchParticipants({
     category: filters.category || undefined,
     email: filters.email || undefined,
-    eventCode: filters.eventCode,
+    eventCode: templateId,
     page,
     pageSize: PARTICIPANTS_PAGE_SIZE,
   });
@@ -33,112 +32,75 @@ async function loadParticipants(filters: ParticipantFilters, page: number) {
   return data ?? null;
 }
 
-export default function AdminParticipantsPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const [templates, setTemplates] = useState<TemplateDetail[]>([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+type Props = {
+  params: Promise<{ id: string }>;
+};
+
+export default function TemplateParticipantsPage({ params }: Props) {
+  const { id } = use(params);
+  const [template, setTemplate] = useState<TemplateDetail | null>(null);
   const [email, setEmail] = useState("");
   const [category, setCategory] = useState("");
   const [participants, setParticipants] = useState<ParticipantListResponse | null>(null);
   const [page, setPage] = useState(1);
-  const [initialEventCode] = useState(() => searchParams.get("event_code") ?? "");
-
-  const selectedTemplate =
-    templates.find((template) => template.template.id === selectedTemplateId) ?? null;
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
 
-    async function loadTemplates() {
+    async function load() {
       try {
-        const { data } = await fetchTemplates();
-        if (!isMounted) {
-          return;
-        }
-
-        const nextTemplates = data ?? [];
-        setTemplates(nextTemplates);
-        setSelectedTemplateId((current) => {
-          if (current && nextTemplates.some((template) => template.template.id === current)) {
-            return current;
-          }
-
-          if (
-            initialEventCode &&
-            nextTemplates.some((template) => template.template.id === initialEventCode)
-          ) {
-            return initialEventCode;
-          }
-
-          return (
-            nextTemplates.find((template) => template.template.is_active)?.template.id ??
-            nextTemplates[0]?.template.id ??
-            ""
-          );
-        });
+        const { data } = await fetchTemplate(id);
+        if (!isMounted) return;
+        setTemplate(data ?? null);
       } catch {
-        if (!isMounted) {
-          return;
-        }
+        if (!isMounted) return;
+      } finally {
+        if (isMounted) setIsLoading(false);
       }
     }
 
-    void loadTemplates();
-
+    void load();
     return () => {
       isMounted = false;
     };
-  }, [initialEventCode]);
+  }, [id]);
 
   useEffect(() => {
-    if (!selectedTemplateId) {
-      setParticipants(null);
-      return;
-    }
+    if (!id) return;
 
     let isMounted = true;
 
-    void loadParticipants({ category, email, eventCode: selectedTemplateId }, page)
+    void loadParticipants(id, { category, email }, page)
       .then((data) => {
-        if (!isMounted) {
-          return;
-        }
-
+        if (!isMounted) return;
         setParticipants(data);
       })
       .catch(() => {
-        if (!isMounted) {
-          return;
-        }
+        if (!isMounted) return;
       });
 
     return () => {
       isMounted = false;
     };
-  }, [category, email, page, selectedTemplateId]);
+  }, [category, email, page, id]);
 
   async function handleDeleteRoster() {
-    if (!selectedTemplateId) {
-      return;
-    }
+    if (!id) return;
 
     if (
       !window.confirm(
-        `Delete all participants linked to ${selectedTemplate?.template.name ?? "the selected template"}?`,
+        `Delete all participants linked to ${template?.template.name ?? "this template"}?`,
       )
     ) {
       return;
     }
 
-    const { response } = await deleteParticipants(selectedTemplateId);
+    const { response } = await deleteParticipants(id);
     if (response.ok) {
       setParticipants((current) => (current ? { ...current, items: [], total: 0 } : current));
       if (page === 1) {
-        const refreshed = await loadParticipants(
-          { category, email, eventCode: selectedTemplateId },
-          1,
-        );
+        const refreshed = await loadParticipants(id, { category, email }, 1);
         setParticipants(refreshed);
       } else {
         setPage(1);
@@ -146,15 +108,25 @@ export default function AdminParticipantsPage() {
     }
   }
 
-  function handleTemplateSelect(templateId: string) {
-    setSelectedTemplateId(templateId);
-    setPage(1);
-    router.replace(`/admin/participants?event_code=${encodeURIComponent(templateId)}`);
+  if (isLoading || !template) {
+    return (
+      <section className="rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 text-sm text-white/65 backdrop-blur-xl">
+        Loading participants...
+      </section>
+    );
   }
 
   return (
     <section className="space-y-6">
       <div className="max-w-3xl space-y-4">
+        <Link
+          className="inline-flex items-center gap-2 text-sm text-white/60 hover:text-white transition"
+          href={`/admin/templates/${id}`}
+        >
+          <ArrowLeft className="size-4" />
+          Back to template
+        </Link>
+
         <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5">
           <Users className="size-4 text-primary" />
           <span className="font-pixel text-[10px] uppercase tracking-[0.2em] text-primary">
@@ -162,26 +134,18 @@ export default function AdminParticipantsPage() {
           </span>
         </div>
 
-        <h1 className="heading-hero text-gradient text-left">База участников.</h1>
+        <h1 className="heading-hero text-gradient text-left">{template.template.name}</h1>
         <p className="max-w-2xl text-sm leading-6 text-white/68 sm:text-base">
-          Pick a template first. Participants are imported, filtered and deleted inside that
-          template roster.
+          Импорт, фильтры и список участников для этого шаблона.
         </p>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
         <ParticipantsImportForm
-          templateId={selectedTemplateId || null}
-          templateName={selectedTemplate?.template.name ?? null}
+          templateId={id}
+          templateName={template.template.name}
           onImported={async () => {
-            if (!selectedTemplateId) {
-              return;
-            }
-
-            const refreshed = await loadParticipants(
-              { category, email, eventCode: selectedTemplateId },
-              page,
-            );
+            const refreshed = await loadParticipants(id, { category, email }, page);
             setParticipants(refreshed);
           }}
         />
@@ -218,18 +182,13 @@ export default function AdminParticipantsPage() {
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
-                className="btn-hero rounded-2xl border border-red-500/20 bg-red-500/10 text-red-100 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!selectedTemplateId}
+                className="btn-hero rounded-2xl border border-red-500/20 bg-red-500/10 text-red-100"
                 type="button"
                 onClick={() => void handleDeleteRoster()}
               >
-                Delete template roster
+                <Trash2 className="size-4" />
+                Delete roster
               </button>
-              <span className="text-sm text-white/52">
-                {selectedTemplate
-                  ? `Current template: ${selectedTemplate.template.name}`
-                  : "Select a template to enable actions."}
-              </span>
             </div>
           </div>
 
@@ -256,7 +215,7 @@ export default function AdminParticipantsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedTemplateId && participants?.items.length ? (
+                  {participants?.items.length ? (
                     participants.items.map((participant) => (
                       <tr key={participant.id} className="border-t border-white/10">
                         <td className="px-4 py-3 text-white/72">{participant.email}</td>
@@ -267,9 +226,7 @@ export default function AdminParticipantsPage() {
                   ) : (
                     <tr>
                       <td className="px-4 py-8 text-center text-white/55" colSpan={3}>
-                        {selectedTemplateId
-                          ? "No rows loaded yet."
-                          : "Select a template to load participants."}
+                        No rows loaded yet.
                       </td>
                     </tr>
                   )}

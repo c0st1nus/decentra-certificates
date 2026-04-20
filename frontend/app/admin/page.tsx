@@ -126,17 +126,12 @@ export default function AdminPage() {
               <QuickLink
                 href="/admin/templates"
                 title="Manage templates"
-                text="Upload, activate and edit layouts."
+                text="Upload assets, edit layouts and manage template-local categories."
               />
               <QuickLink
-                href="/admin/participants"
+                href="/admin/templates"
                 title="Import participants"
                 text="Load CSV and inspect validation output."
-              />
-              <QuickLink
-                href="/admin/issuance"
-                title="Control issuance"
-                text="Enable or disable public issuance."
               />
             </div>
           </div>
@@ -149,6 +144,9 @@ export default function AdminPage() {
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <div className="rounded-full border border-primary/25 bg-primary/10 px-3 py-1.5 text-xs text-primary">
                   {activeTemplate.template.name}
+                </div>
+                <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-white/70">
+                  {activeTemplate.template.category_count} categories
                 </div>
                 <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-white/70">
                   {activeTemplate.template.source_kind.toUpperCase()}

@@ -5,7 +5,7 @@ use anyhow::Context;
 use chrono::Utc;
 use entity::{
     certificate_issues, certificate_templates, participants,
-    prelude::{CertificateTemplates, TemplateLayouts},
+    prelude::{CertificateTemplates, TemplateCategories, TemplateLayouts}, template_categories,
     template_layouts,
 };
 use sea_orm::{
@@ -131,6 +131,7 @@ pub struct TemplateSummary {
     pub source_kind: String,
     pub is_active: bool,
     pub has_layout: bool,
+    pub category_count: u64,
     pub participant_count: u64,
     pub issued_count: u64,
     pub created_at: chrono::DateTime<Utc>,
@@ -141,10 +142,12 @@ pub struct TemplateSummary {
 pub struct TemplateDetail {
     pub template: TemplateSummary,
     pub layout: Option<TemplateLayoutData>,
+    pub categories: Vec<crate::services::categories::CategorySummary>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct TemplateStats {
+    pub category_count: u64,
     pub participant_count: u64,
     pub issued_count: u64,
 }
@@ -177,12 +180,22 @@ pub async fn list_templates(db: &DatabaseConnection) -> Result<Vec<TemplateDetai
         .into_iter()
         .map(|layout| (layout.template_id, layout))
         .collect::<HashMap<_, _>>();
+    let categories = TemplateCategories::find()
+        .all(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?
+        .into_iter()
+        .fold(HashMap::<Uuid, Vec<template_categories::Model>>::new(), |mut acc, category| {
+            acc.entry(category.template_id).or_default().push(category);
+            acc
+        });
 
     let mut details = Vec::with_capacity(templates.len());
     for template in templates {
         let layout = layouts_by_template_id.get(&template.id);
         let stats = load_template_stats(db, &template).await?;
-        details.push(to_detail(template, layout, stats));
+        let template_categories = categories.get(&template.id).map(Vec::as_slice).unwrap_or(&[]);
+        details.push(to_detail(template, template_categories, layout, stats));
     }
 
     Ok(details)
@@ -199,9 +212,16 @@ pub async fn get_template(db: &DatabaseConnection, id: Uuid) -> Result<TemplateD
         .one(db)
         .await
         .map_err(|err| AppError::Internal(err.into()))?;
+    let categories = TemplateCategories::find()
+        .filter(template_categories::Column::TemplateId.eq(id))
+        .order_by_desc(template_categories::Column::IsActive)
+        .order_by_asc(template_categories::Column::Name)
+        .all(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?;
     let stats = load_template_stats(db, &template).await?;
 
-    Ok(to_detail(template, layout.as_ref(), stats))
+    Ok(to_detail(template, &categories, layout.as_ref(), stats))
 }
 
 pub fn available_font_families() -> Vec<FontFamilyOption> {
@@ -299,6 +319,7 @@ pub async fn update_template(
     storage: &StorageService,
     id: Uuid,
     name: Option<String>,
+    source_kind: Option<String>,
     file_name: Option<String>,
     file_bytes: Option<Vec<u8>>,
 ) -> Result<TemplateDetail, AppError> {
@@ -312,11 +333,18 @@ pub async fn update_template(
     if let Some(name) = name {
         active_model.name = Set(name);
     }
+    if let Some(source_kind) = source_kind {
+        active_model.source_kind = Set(source_kind);
+    }
 
     if let Some(file_bytes) = file_bytes {
         if let Some(file_name) = file_name {
             let new_source_key = storage.template_file_key(&id.to_string(), &file_name);
-            let content_type = template_source_content_type(&new_source_key, &model.source_kind);
+            let effective_source_kind = active_model
+                .source_kind
+                .as_ref()
+                .clone();
+            let content_type = template_source_content_type(&new_source_key, &effective_source_kind);
             storage
                 .put_object(&new_source_key, file_bytes, Some(&content_type))
                 .await
@@ -535,9 +563,11 @@ pub async fn preview_template_asset(
 
 fn to_detail(
     template: certificate_templates::Model,
+    categories: &[template_categories::Model],
     layout: Option<&template_layouts::Model>,
     stats: TemplateStats,
 ) -> TemplateDetail {
+    let template_name = template.name.clone();
     TemplateDetail {
         template: TemplateSummary {
             id: template.id,
@@ -545,12 +575,17 @@ fn to_detail(
             source_kind: template.source_kind,
             is_active: template.is_active,
             has_layout: layout.is_some(),
+            category_count: stats.category_count,
             participant_count: stats.participant_count,
             issued_count: stats.issued_count,
             created_at: template.created_at,
             updated_at: template.updated_at,
         },
         layout: layout.map(model_to_layout_data),
+        categories: categories
+            .iter()
+            .map(|c| crate::services::categories::to_summary(c.clone(), &template_name))
+            .collect(),
     }
 }
 
@@ -559,6 +594,11 @@ async fn load_template_stats(
     template: &certificate_templates::Model,
 ) -> Result<TemplateStats, AppError> {
     let event_code = template.id.to_string();
+    let category_count = TemplateCategories::find()
+        .filter(template_categories::Column::TemplateId.eq(template.id))
+        .count(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?;
     let participant_count = participants::Entity::find()
         .filter(participants::Column::EventCode.eq(&event_code))
         .count(db)
@@ -571,6 +611,7 @@ async fn load_template_stats(
         .map_err(|err| AppError::Internal(err.into()))?;
 
     Ok(TemplateStats {
+        category_count,
         participant_count,
         issued_count,
     })
@@ -687,6 +728,7 @@ fn template_source_content_type(source_path: &str, source_kind: &str) -> String 
         },
     }
 }
+
 
 pub fn build_preview_binding_values(
     template: &certificate_templates::Model,

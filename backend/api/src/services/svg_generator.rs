@@ -240,6 +240,6 @@ mod tests {
             background_color_hex: None,
         };
         
-        assert_eq!(resolve_text_content(&text, &bindings), "John Doe");
+        assert_eq!(resolve_text_content(&text, &bindings), "Hello John Doe");
     }
 }

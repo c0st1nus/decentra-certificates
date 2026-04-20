@@ -19,7 +19,7 @@ use crate::{
     services::{
         audit,
         auth::{AuthService, RefreshTokenRequest, SessionResponse},
-        participants as participant_service, settings,
+        categories as category_service, participants as participant_service, settings,
         templates::{self, TemplateLayoutData},
     },
     state::AppState,
@@ -88,6 +88,15 @@ pub struct ParticipantListQuery {
 #[derive(Debug, Deserialize)]
 pub struct DeleteParticipantsQuery {
     pub event_code: String,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct CategoryUpsertRequest {
+    #[validate(length(min = 1, max = 120))]
+    pub name: String,
+    #[validate(length(max = 1000))]
+    pub description: Option<String>,
+    pub is_active: bool,
 }
 
 #[derive(Default)]
@@ -322,17 +331,24 @@ async fn update_template(
 ) -> Result<HttpResponse, AppError> {
     let form = collect_multipart(payload).await?;
     let template_id = path.into_inner();
+    let file = required_file(&form.files, "file").ok();
+    let explicit_source_kind = form.fields.get("source_kind").map(String::as_str);
+    let inferred_source_kind = file.and_then(|item| {
+        item.file_name.as_deref().and_then(|file_name| {
+            infer_source_kind(explicit_source_kind, item.content_type.as_deref(), file_name).ok()
+        })
+    });
     let template = templates::update_template(
         &state.db,
         &state.storage,
         template_id,
         form.fields.get("name").cloned(),
-        required_file(&form.files, "file")
-            .ok()
-            .and_then(|file| file.file_name.clone()),
-        required_file(&form.files, "file")
-            .ok()
-            .map(|file| file.bytes.clone()),
+        explicit_source_kind
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .or(inferred_source_kind),
+        file.and_then(|item| item.file_name.clone()),
+        file.map(|item| item.bytes.clone()),
     )
     .await?;
 
@@ -604,6 +620,129 @@ async fn list_fonts() -> Result<HttpResponse, AppError> {
     Ok(HttpResponse::Ok().json(templates::available_font_families()))
 }
 
+#[get("/templates/{id}/categories")]
+async fn list_categories(
+    state: web::Data<AppState>,
+    path: web::Path<Uuid>,
+) -> Result<HttpResponse, AppError> {
+    let categories = category_service::list_categories(&state.db, path.into_inner()).await?;
+    Ok(HttpResponse::Ok().json(categories))
+}
+
+#[get("/categories")]
+async fn list_all_categories(
+    state: web::Data<AppState>,
+) -> Result<HttpResponse, AppError> {
+    let categories = category_service::list_all_categories(&state.db).await?;
+    Ok(HttpResponse::Ok().json(categories))
+}
+
+#[post("/templates/{id}/categories")]
+async fn create_category(
+    state: web::Data<AppState>,
+    auth: AdminAuth,
+    path: web::Path<Uuid>,
+    payload: web::Json<CategoryUpsertRequest>,
+) -> Result<HttpResponse, AppError> {
+    payload
+        .validate()
+        .map_err(|err| AppError::BadRequest(err.to_string()))?;
+
+    let category = category_service::create_category(
+        &state.db,
+        path.into_inner(),
+        category_service::UpsertCategoryInput {
+            name: payload.name.clone(),
+            description: payload.description.clone(),
+            is_active: payload.is_active,
+        },
+    )
+    .await?;
+
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "category.create",
+        "category",
+        Some(category.id.to_string()),
+        serde_json::json!({
+            "template_id": category.template_id,
+            "name": &category.name,
+            "slug": &category.slug,
+            "is_active": category.is_active,
+        }),
+    )
+    .await;
+
+    Ok(HttpResponse::Ok().json(category))
+}
+
+#[patch("/templates/{id}/categories/{category_id}")]
+async fn update_category(
+    state: web::Data<AppState>,
+    auth: AdminAuth,
+    path: web::Path<(Uuid, Uuid)>,
+    payload: web::Json<CategoryUpsertRequest>,
+) -> Result<HttpResponse, AppError> {
+    payload
+        .validate()
+        .map_err(|err| AppError::BadRequest(err.to_string()))?;
+
+    let (template_id, category_id) = path.into_inner();
+    let category = category_service::update_category(
+        &state.db,
+        template_id,
+        category_id,
+        category_service::UpsertCategoryInput {
+            name: payload.name.clone(),
+            description: payload.description.clone(),
+            is_active: payload.is_active,
+        },
+    )
+    .await?;
+
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "category.update",
+        "category",
+        Some(category.id.to_string()),
+        serde_json::json!({
+            "template_id": category.template_id,
+            "name": &category.name,
+            "slug": &category.slug,
+            "is_active": category.is_active,
+        }),
+    )
+    .await;
+
+    Ok(HttpResponse::Ok().json(category))
+}
+
+#[delete("/templates/{id}/categories/{category_id}")]
+async fn delete_category(
+    state: web::Data<AppState>,
+    auth: AdminAuth,
+    path: web::Path<(Uuid, Uuid)>,
+) -> Result<HttpResponse, AppError> {
+    let (template_id, category_id) = path.into_inner();
+    category_service::delete_category(&state.db, template_id, category_id).await?;
+
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "category.delete",
+        "category",
+        Some(category_id.to_string()),
+        serde_json::json!({
+            "template_id": template_id,
+        }),
+    )
+    .await;
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })))
+}
+
 pub fn configure_public_auth(cfg: &mut web::ServiceConfig) {
     cfg.service(login).service(refresh);
 }
@@ -622,6 +761,11 @@ pub fn configure_protected(cfg: &mut web::ServiceConfig) {
         .service(delete_template)
         .service(save_template_layout)
         .service(preview_template)
+        .service(list_all_categories)
+        .service(list_categories)
+        .service(create_category)
+        .service(update_category)
+        .service(delete_category)
         .service(list_fonts)
         .service(import_participants)
         .service(list_participants)

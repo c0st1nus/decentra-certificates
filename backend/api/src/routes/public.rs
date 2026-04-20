@@ -1,11 +1,19 @@
 use actix_web::{HttpResponse, get, http::header, post, web};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 use validator::Validate;
 
 use crate::{error::AppError, services::certificates, state::AppState};
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct CertificateRequest {
+    #[validate(email(message = "invalid email format"))]
+    pub email: String,
+    pub template_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct CheckCertificatesRequest {
     #[validate(email(message = "invalid email format"))]
     pub email: String,
 }
@@ -30,7 +38,21 @@ async fn request_certificate(
         .validate()
         .map_err(|err| AppError::BadRequest(err.to_string()))?;
 
-    let response = certificates::issue_certificate(&state, &payload.email).await?;
+    let response = certificates::issue_certificate(&state, &payload.email, payload.template_id).await?;
+
+    Ok(HttpResponse::Ok().json(response))
+}
+
+#[post("/certificates/check")]
+async fn check_certificates(
+    state: web::Data<AppState>,
+    payload: web::Json<CheckCertificatesRequest>,
+) -> Result<HttpResponse, AppError> {
+    payload
+        .validate()
+        .map_err(|err| AppError::BadRequest(err.to_string()))?;
+
+    let response = certificates::check_available_certificates(&state.db, &payload.email).await?;
 
     Ok(HttpResponse::Ok().json(response))
 }
@@ -73,6 +95,7 @@ async fn verify_certificate(
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(request_certificate)
+        .service(check_certificates)
         .service(download_certificate)
         .service(verify_certificate);
 }

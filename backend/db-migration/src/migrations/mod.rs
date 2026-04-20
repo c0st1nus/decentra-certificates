@@ -4,3 +4,5 @@ pub mod m20260416_000003_add_ops_hardening;
 pub mod m20260416_000004_add_layout_box_geometry;
 pub mod m20260417_000005_add_template_roster_indexes;
 pub mod m20260417_000006_add_template_canvas_data;
+pub mod m20260420_000007_add_categories_and_template_category;
+pub mod m20260420_000008_fix_categories_to_be_template_scoped;

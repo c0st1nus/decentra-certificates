@@ -42,9 +42,28 @@ pub struct VerificationResponse {
     pub issued_at: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct AvailableCertificate {
+    pub template_id: String,
+    pub template_name: String,
+    pub full_name: String,
+    pub category: Option<String>,
+    pub already_issued: bool,
+    pub certificate_id: Option<String>,
+    pub download_url: Option<String>,
+    pub verification_url: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct AvailableCertificatesResponse {
+    pub full_name: Option<String>,
+    pub certificates: Vec<AvailableCertificate>,
+}
+
 pub async fn issue_certificate(
     state: &crate::state::AppState,
     email: &str,
+    template_id: Option<uuid::Uuid>,
 ) -> Result<PublicCertificateResponse, AppError> {
     let issuance =
         settings::get_issuance_setting(&state.db, state.settings.issuance_enabled_default)
@@ -57,8 +76,18 @@ pub async fn issue_certificate(
         ));
     }
 
-    let template = find_active_template(&state.db).await?;
     let normalized_email = normalize_email(email);
+
+    let template = if let Some(id) = template_id {
+        CertificateTemplates::find_by_id(id)
+            .one(&state.db)
+            .await
+            .map_err(|err| AppError::Internal(err.into()))?
+            .ok_or_else(|| AppError::NotFound("template not found".to_owned()))?
+    } else {
+        find_active_template(&state.db).await?
+    };
+
     let participant =
         find_participant_for_template(&state.db, &normalized_email, template.id).await?;
     let layout = find_layout_for_template(&state.db, template.id).await?;
@@ -66,6 +95,81 @@ pub async fn issue_certificate(
     let issue = find_or_create_issue(state, &participant, &template, &layout).await?;
 
     Ok(build_public_response(participant, template, issue))
+}
+
+pub async fn check_available_certificates(
+    db: &DatabaseConnection,
+    email: &str,
+) -> Result<AvailableCertificatesResponse, AppError> {
+    let normalized_email = normalize_email(email);
+
+    let participants = Participants::find()
+        .filter(participants::Column::EmailNormalized.eq(&normalized_email))
+        .all(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?;
+
+    if participants.is_empty() {
+        return Ok(AvailableCertificatesResponse {
+            full_name: None,
+            certificates: vec![],
+        });
+    }
+
+    let template_ids: Vec<uuid::Uuid> = participants.iter().map(|p| {
+        p.event_code.parse::<uuid::Uuid>().unwrap_or(uuid::Uuid::nil())
+    }).filter(|id| !id.is_nil()).collect();
+
+    let templates = if template_ids.is_empty() {
+        vec![]
+    } else {
+        CertificateTemplates::find()
+            .filter(certificate_templates::Column::Id.is_in(template_ids))
+            .all(db)
+            .await
+            .map_err(|err| AppError::Internal(err.into()))?
+    };
+
+    let existing_issues = if participants.is_empty() {
+        vec![]
+    } else {
+        let participant_ids: Vec<uuid::Uuid> = participants.iter().map(|p| p.id).collect();
+        CertificateIssues::find()
+            .filter(certificate_issues::Column::ParticipantId.is_in(participant_ids))
+            .all(db)
+            .await
+            .map_err(|err| AppError::Internal(err.into()))?
+    };
+
+    let issue_map: std::collections::HashMap<(uuid::Uuid, uuid::Uuid), &certificate_issues::Model> =
+        existing_issues.iter()
+            .map(|i| ((i.participant_id, i.template_id), i))
+            .collect();
+
+    let full_name = participants.first().map(|p| p.full_name.clone());
+
+    let certificates: Vec<AvailableCertificate> = templates.into_iter().map(|template| {
+        let participant = participants.iter()
+            .find(|p| p.event_code == template.id.to_string());
+
+        let issue = participant.and_then(|p| issue_map.get(&(p.id, template.id)));
+
+        AvailableCertificate {
+            template_id: template.id.to_string(),
+            template_name: template.name.clone(),
+            full_name: participant.map(|p| p.full_name.clone()).unwrap_or_else(|| full_name.clone().unwrap_or_default()),
+            category: participant.and_then(|p| p.category.clone()),
+            already_issued: issue.is_some(),
+            certificate_id: issue.map(|i| i.certificate_id.clone()),
+            download_url: issue.map(|i| format!("/api/v1/public/certificates/{}/download", i.certificate_id)),
+            verification_url: issue.map(|i| format!("/api/v1/public/certificates/verify/{}", i.verification_code)),
+        }
+    }).collect();
+
+    Ok(AvailableCertificatesResponse {
+        full_name,
+        certificates,
+    })
 }
 
 fn build_public_response(
@@ -213,14 +317,16 @@ async fn find_or_create_issue(
             .await
             .unwrap_or(false)
         {
-            spawn_write_certificate_pdf(
-                state.clone(),
-                existing.generated_pdf_path.clone(),
-                participant.clone(),
-                template.clone(),
-                layout.clone(),
-                existing.clone(),
-            );
+            write_certificate_pdf(
+                state,
+                &existing.generated_pdf_path,
+                participant,
+                template,
+                layout,
+                &existing,
+            )
+            .await
+            .map_err(|e| AppError::Internal(e))?;
         }
 
         return Ok(existing);
@@ -251,40 +357,18 @@ async fn find_or_create_issue(
         Err(err) => return Err(AppError::Internal(err.into())),
     };
 
-    spawn_write_certificate_pdf(
-        state.clone(),
-        output_key,
-        participant.clone(),
-        template.clone(),
-        layout.clone(),
-        issue.clone(),
-    );
+    write_certificate_pdf(
+        state,
+        &output_key,
+        participant,
+        template,
+        layout,
+        &issue,
+    )
+    .await
+    .map_err(|e| AppError::Internal(e))?;
 
     Ok(issue)
-}
-
-fn spawn_write_certificate_pdf(
-    state: crate::state::AppState,
-    output_key: String,
-    participant: participants::Model,
-    template: certificate_templates::Model,
-    layout: template_layouts::Model,
-    issue: certificate_issues::Model,
-) {
-    tokio::spawn(async move {
-        if let Err(err) = write_certificate_pdf(
-            &state,
-            &output_key,
-            &participant,
-            &template,
-            &layout,
-            &issue,
-        )
-        .await
-        {
-            tracing::error!("Failed to write certificate PDF in background: {err}");
-        }
-    });
 }
 
 async fn find_existing_issue(

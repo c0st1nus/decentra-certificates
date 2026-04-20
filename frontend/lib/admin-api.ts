@@ -97,6 +97,7 @@ export interface TemplateSummary {
   source_kind: string;
   is_active: boolean;
   has_layout: boolean;
+  category_count: number;
   participant_count: number;
   issued_count: number;
   created_at: string;
@@ -106,6 +107,18 @@ export interface TemplateSummary {
 export interface TemplateDetail {
   template: TemplateSummary;
   layout: TemplateLayoutData | null;
+  categories: CategorySummary[];
+}
+
+export interface CategorySummary {
+  id: string;
+  template_id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ParticipantSummary {
@@ -270,6 +283,61 @@ export async function updateIssuanceStatus(enabled: boolean) {
 
 export async function fetchTemplates() {
   return adminRequestJson<TemplateDetail[]>("/api/v1/admin/templates");
+}
+
+export async function fetchTemplateCategories(templateId: string) {
+  return adminRequestJson<CategorySummary[]>(`/api/v1/admin/templates/${templateId}/categories`);
+}
+
+export async function fetchAllCategories() {
+  return adminRequestJson<CategorySummary[]>("/api/v1/admin/categories");
+}
+
+export async function createTemplateCategory(
+  templateId: string,
+  payload: {
+    name: string;
+    description?: string | null;
+    is_active: boolean;
+  },
+) {
+  return adminRequestJson<CategorySummary>(`/api/v1/admin/templates/${templateId}/categories`, {
+    body: JSON.stringify(payload),
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+}
+
+export async function updateTemplateCategory(
+  templateId: string,
+  categoryId: string,
+  payload: {
+    name: string;
+    description?: string | null;
+    is_active: boolean;
+  },
+) {
+  return adminRequestJson<CategorySummary>(
+    `/api/v1/admin/templates/${templateId}/categories/${categoryId}`,
+    {
+      body: JSON.stringify(payload),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      method: "PATCH",
+    },
+  );
+}
+
+export async function deleteTemplateCategory(templateId: string, categoryId: string) {
+  return adminRequestJson<{ status: string }>(
+    `/api/v1/admin/templates/${templateId}/categories/${categoryId}`,
+    {
+      method: "DELETE",
+    },
+  );
 }
 
 export async function fetchTemplate(id: string) {

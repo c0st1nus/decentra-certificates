@@ -6,4 +6,5 @@ pub mod certificate_templates;
 pub mod participants;
 pub mod prelude;
 pub mod refresh_sessions;
+pub mod template_categories;
 pub mod template_layouts;

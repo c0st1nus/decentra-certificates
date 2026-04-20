@@ -44,6 +44,23 @@ pub fn build_cors(origins: &[String]) -> Cors {
         .allow_any_header()
         .allow_any_method()
         .expose_headers(["Content-Disposition"])
+        .allowed_origin_fn(|origin, _req_head| {
+            let Ok(origin) = origin.to_str() else {
+                return false;
+            };
+
+            let Some(host) = origin
+                .strip_prefix("http://")
+                .or_else(|| origin.strip_prefix("https://"))
+            else {
+                return false;
+            };
+
+            let host = host.split('/').next().unwrap_or(host);
+            let hostname = host.split(':').next().unwrap_or(host);
+
+            matches!(hostname, "localhost" | "127.0.0.1")
+        })
         .supports_credentials();
 
     for origin in origins {

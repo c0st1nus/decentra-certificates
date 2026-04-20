@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, ArrowRight, Layers3, ScanLine, Trash2 } from "lucide-react";
+import { Activity, ArrowRight, Layers3, ScanLine, Trash2, Users } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -146,6 +146,11 @@ function TemplateCard({
             {template.template.source_kind.toUpperCase()} asset · layout{" "}
             {template.template.has_layout ? "ready" : "missing"}
           </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[10px] font-pixel uppercase tracking-[0.18em] text-white/70">
+              {template.template.category_count} categories
+            </span>
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -156,6 +161,13 @@ function TemplateCard({
             <Activity className="size-3.5" />
             Template
             <ArrowRight className="size-3.5" />
+          </Link>
+          <Link
+            className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-2 text-xs text-primary transition hover:border-primary/40 hover:bg-primary/15"
+            href={`/admin/templates/${template.template.id}/participants`}
+          >
+            <Users className="size-3.5" />
+            Participants
           </Link>
           <Link
             className="inline-flex items-center gap-2 rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-2 text-xs text-sky-100 transition hover:border-sky-300/35 hover:bg-sky-400/15"

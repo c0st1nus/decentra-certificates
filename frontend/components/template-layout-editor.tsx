@@ -19,11 +19,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import type {
-  FormEvent,
-  PointerEvent as ReactPointerEvent,
-  ReactNode,
-} from "react";
+import type { FormEvent, ReactNode, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 
 const FONT_PRELOAD_URLS = [
@@ -36,9 +32,9 @@ import {
   type TemplateCanvasTextLayer,
   type TemplateDetail,
   type TemplateLayoutData,
+  fetchTemplateSource,
   previewTemplate,
   saveTemplateLayout,
-  fetchTemplateSource,
 } from "@/lib/admin-api";
 import {
   clampLayerToLayout,
@@ -152,9 +148,7 @@ export function TemplateLayoutEditor({
 
   const [layout, setLayout] = useState<TemplateLayoutData>(initialLayout);
   const [canvas, setCanvas] = useState<TemplateCanvasData>(initialCanvas);
-  const [selectedLayerId, setSelectedLayerId] = useState<string>(
-    initialCanvas.layers[0]?.id ?? "",
-  );
+  const [selectedLayerId, setSelectedLayerId] = useState<string>(initialCanvas.layers[0]?.id ?? "");
   const [previewName, setPreviewName] = useState("Preview Participant");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null);
@@ -185,16 +179,11 @@ export function TemplateLayoutEditor({
   const layoutRef = useRef(layout);
   const canvasRef = useRef(canvas);
 
-  const selectedLayer =
-    canvas.layers.find((layer) => layer.id === selectedLayerId) ?? null;
+  const selectedLayer = canvas.layers.find((layer) => layer.id === selectedLayerId) ?? null;
   const selectedTextLayer =
-    selectedLayer?.kind === "text" && selectedLayer.text
-      ? selectedLayer.text
-      : null;
+    selectedLayer?.kind === "text" && selectedLayer.text ? selectedLayer.text : null;
   const selectedImageLayer =
-    selectedLayer?.kind === "image" && selectedLayer.image
-      ? selectedLayer.image
-      : null;
+    selectedLayer?.kind === "image" && selectedLayer.image ? selectedLayer.image : null;
 
   useEffect(() => {
     for (const href of FONT_PRELOAD_URLS) {
@@ -221,9 +210,7 @@ export function TemplateLayoutEditor({
       return null;
     });
     setPreviewState("idle");
-    setPreviewMessage(
-      'Layers render instantly. Click "Preview" to generate PNG.',
-    );
+    setPreviewMessage('Layers render instantly. Click "Preview" to generate PNG.');
 
     // Load source image immediately
     void loadSourceImage();
@@ -307,7 +294,7 @@ export function TemplateLayoutEditor({
     if (selectedLayer?.kind !== "text") {
       setIsTextSettingsOpen(false);
     }
-  }, [selectedLayer?.id, selectedLayer?.kind]);
+  }, [selectedLayer?.kind]);
 
   useEffect(() => {
     if (!isTextSettingsOpen) {
@@ -332,22 +319,16 @@ export function TemplateLayoutEditor({
     setLayout(nextLayout);
     setCanvas(normalizedCanvas);
 
-    if (
-      !normalizedCanvas.layers.some((layer) => layer.id === selectedLayerId)
-    ) {
+    if (!normalizedCanvas.layers.some((layer) => layer.id === selectedLayerId)) {
       setSelectedLayerId(normalizedCanvas.layers[0]?.id ?? "");
     }
   }
 
-  function updateCanvas(
-    updater: (current: TemplateCanvasData) => TemplateCanvasData,
-  ) {
+  function updateCanvas(updater: (current: TemplateCanvasData) => TemplateCanvasData) {
     applyCanvas(updater(canvasRef.current));
   }
 
-  function updateSelectedLayer(
-    updater: (layer: TemplateCanvasLayer) => TemplateCanvasLayer,
-  ) {
+  function updateSelectedLayer(updater: (layer: TemplateCanvasLayer) => TemplateCanvasLayer) {
     if (!selectedLayer) {
       return;
     }
@@ -399,10 +380,7 @@ export function TemplateLayoutEditor({
     };
   }
 
-  function beginLayerDrag(
-    layer: TemplateCanvasLayer,
-    event: ReactPointerEvent<HTMLButtonElement>,
-  ) {
+  function beginLayerDrag(layer: TemplateCanvasLayer, event: ReactPointerEvent<HTMLButtonElement>) {
     const point = getStagePoint(event.clientX, event.clientY);
     if (!point) {
       return;
@@ -516,10 +494,7 @@ export function TemplateLayoutEditor({
       return;
     }
 
-    const delta = getStageDelta(
-      event.clientX - resize.startX,
-      event.clientY - resize.startY,
-    );
+    const delta = getStageDelta(event.clientX - resize.startX, event.clientY - resize.startY);
     if (!delta) {
       return;
     }
@@ -539,11 +514,7 @@ export function TemplateLayoutEditor({
 
           switch (resize.mode) {
             case "left": {
-              const nextX = clampToRange(
-                resize.startLayer.x + delta.x,
-                0,
-                rightEdge - minWidth,
-              );
+              const nextX = clampToRange(resize.startLayer.x + delta.x, 0, rightEdge - minWidth);
               return {
                 ...layer,
                 x: Math.round(nextX),
@@ -559,11 +530,7 @@ export function TemplateLayoutEditor({
               return { ...layer, width: Math.round(nextWidth) };
             }
             case "top": {
-              const nextY = clampToRange(
-                resize.startLayer.y + delta.y,
-                0,
-                bottomEdge - minHeight,
-              );
+              const nextY = clampToRange(resize.startLayer.y + delta.y, 0, bottomEdge - minHeight);
               return {
                 ...layer,
                 y: Math.round(nextY),
@@ -579,16 +546,8 @@ export function TemplateLayoutEditor({
               return { ...layer, height: Math.round(nextHeight) };
             }
             case "top-left": {
-              const nextX = clampToRange(
-                resize.startLayer.x + delta.x,
-                0,
-                rightEdge - minWidth,
-              );
-              const nextY = clampToRange(
-                resize.startLayer.y + delta.y,
-                0,
-                bottomEdge - minHeight,
-              );
+              const nextX = clampToRange(resize.startLayer.x + delta.x, 0, rightEdge - minWidth);
+              const nextY = clampToRange(resize.startLayer.y + delta.y, 0, bottomEdge - minHeight);
               return {
                 ...layer,
                 x: Math.round(nextX),
@@ -603,11 +562,7 @@ export function TemplateLayoutEditor({
                 minWidth,
                 layoutRef.current.page_width - resize.startLayer.x,
               );
-              const nextY = clampToRange(
-                resize.startLayer.y + delta.y,
-                0,
-                bottomEdge - minHeight,
-              );
+              const nextY = clampToRange(resize.startLayer.y + delta.y, 0, bottomEdge - minHeight);
               return {
                 ...layer,
                 y: Math.round(nextY),
@@ -616,11 +571,7 @@ export function TemplateLayoutEditor({
               };
             }
             case "bottom-left": {
-              const nextX = clampToRange(
-                resize.startLayer.x + delta.x,
-                0,
-                rightEdge - minWidth,
-              );
+              const nextX = clampToRange(resize.startLayer.x + delta.x, 0, rightEdge - minWidth);
               const nextHeight = clampToRange(
                 resize.startLayer.height + delta.y,
                 minHeight,
@@ -684,7 +635,10 @@ export function TemplateLayoutEditor({
   function addNameLayer() {
     const layer = createTextCanvasLayer(layoutRef.current);
     layer.name = "Participant name";
-    const baseText = layer.text!;
+    const baseText = layer.text;
+    if (!baseText) {
+      return;
+    }
     layer.text = {
       content: "{{participant.full_name}}",
       binding: null,
@@ -766,9 +720,7 @@ export function TemplateLayoutEditor({
     });
   }
 
-  async function handleImageFileChange(
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) {
+  async function handleImageFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
 
@@ -800,11 +752,7 @@ export function TemplateLayoutEditor({
       setSelectedLayerId(layer.id);
     } else if (imageTarget.layerId) {
       const nextSize = imageMetrics
-        ? getFittedImageLayerSize(
-            layoutRef.current,
-            imageMetrics.width,
-            imageMetrics.height,
-          )
+        ? getFittedImageLayerSize(layoutRef.current, imageMetrics.width, imageMetrics.height)
         : null;
       updateCanvas((current) =>
         updateCanvasLayers(current, (layers) =>
@@ -815,12 +763,8 @@ export function TemplateLayoutEditor({
                     ...layer,
                     ...(nextSize
                       ? {
-                          x: Math.round(
-                            layer.x + (layer.width - nextSize.width) / 2,
-                          ),
-                          y: Math.round(
-                            layer.y + (layer.height - nextSize.height) / 2,
-                          ),
+                          x: Math.round(layer.x + (layer.width - nextSize.width) / 2),
+                          y: Math.round(layer.y + (layer.height - nextSize.height) / 2),
                           width: nextSize.width,
                           height: nextSize.height,
                         }
@@ -858,10 +802,7 @@ export function TemplateLayoutEditor({
         ...layoutRef.current,
         canvas: canvasRef.current,
       });
-      const { response, data } = await saveTemplateLayout(
-        template.template.id,
-        payload,
-      );
+      const { response, data } = await saveTemplateLayout(template.template.id, payload);
       if (!response.ok || !data) {
         setPreviewState("error");
         setPreviewMessage("Layout save failed.");
@@ -876,9 +817,7 @@ export function TemplateLayoutEditor({
       canvasRef.current = nextCanvas;
       onSaved?.(nextLayout);
       setPreviewState((current) => (current === "error" ? "idle" : current));
-      setPreviewMessage(
-        "Layout saved. Generate preview when you want to check the server render.",
-      );
+      setPreviewMessage("Layout saved. Generate preview when you want to check the server render.");
     } catch {
       setPreviewState("error");
       setPreviewMessage("Layout save failed.");
@@ -902,11 +841,7 @@ export function TemplateLayoutEditor({
         ...layoutRef.current,
         canvas: canvasRef.current,
       });
-      const response = await previewTemplate(
-        template.template.id,
-        previewName,
-        requestLayout,
-      );
+      const response = await previewTemplate(template.template.id, previewName, requestLayout);
       if (requestId !== previewRequestRef.current) {
         return;
       }
@@ -971,9 +906,7 @@ export function TemplateLayoutEditor({
               <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
                 Layout editor
               </p>
-              <h2 className="mt-3 text-2xl font-black text-white">
-                {template.template.name}
-              </h2>
+              <h2 className="mt-3 text-2xl font-black text-white">{template.template.name}</h2>
             </div>
             <div className="flex flex-wrap items-center gap-2 self-start">
               <Pill>
@@ -1017,9 +950,7 @@ export function TemplateLayoutEditor({
 
               <div className="absolute inset-0">
                 {previewBoxStyles.map((box) => {
-                  const layer = canvas.layers.find(
-                    (item) => item.id === box.id,
-                  );
+                  const layer = canvas.layers.find((item) => item.id === box.id);
                   if (!layer) {
                     return null;
                   }
@@ -1083,10 +1014,7 @@ export function TemplateLayoutEditor({
                               {resolveCanvasLayerText(
                                 layer.text,
                                 previewName,
-                                buildPreviewBindingValues(
-                                  previewName,
-                                  template,
-                                ),
+                                buildPreviewBindingValues(previewName, template),
                               )}
                             </span>
                           </span>
@@ -1127,33 +1055,25 @@ export function TemplateLayoutEditor({
                         <>
                           <ResizeHandle
                             position="top-left"
-                            onPointerDown={(e) =>
-                              beginResize(layer, "top-left", e)
-                            }
+                            onPointerDown={(e) => beginResize(layer, "top-left", e)}
                             onPointerMove={handleResizeMove}
                             onPointerUp={endResize}
                           />
                           <ResizeHandle
                             position="top-right"
-                            onPointerDown={(e) =>
-                              beginResize(layer, "top-right", e)
-                            }
+                            onPointerDown={(e) => beginResize(layer, "top-right", e)}
                             onPointerMove={handleResizeMove}
                             onPointerUp={endResize}
                           />
                           <ResizeHandle
                             position="bottom-left"
-                            onPointerDown={(e) =>
-                              beginResize(layer, "bottom-left", e)
-                            }
+                            onPointerDown={(e) => beginResize(layer, "bottom-left", e)}
                             onPointerMove={handleResizeMove}
                             onPointerUp={endResize}
                           />
                           <ResizeHandle
                             position="bottom-right"
-                            onPointerDown={(e) =>
-                              beginResize(layer, "bottom-right", e)
-                            }
+                            onPointerDown={(e) => beginResize(layer, "bottom-right", e)}
                             onPointerMove={handleResizeMove}
                             onPointerUp={endResize}
                           />
@@ -1165,9 +1085,7 @@ export function TemplateLayoutEditor({
                           />
                           <ResizeHandle
                             position="bottom"
-                            onPointerDown={(e) =>
-                              beginResize(layer, "bottom", e)
-                            }
+                            onPointerDown={(e) => beginResize(layer, "bottom", e)}
                             onPointerMove={handleResizeMove}
                             onPointerUp={endResize}
                           />
@@ -1179,9 +1097,7 @@ export function TemplateLayoutEditor({
                           />
                           <ResizeHandle
                             position="right"
-                            onPointerDown={(e) =>
-                              beginResize(layer, "right", e)
-                            }
+                            onPointerDown={(e) => beginResize(layer, "right", e)}
                             onPointerMove={handleResizeMove}
                             onPointerUp={endResize}
                           />
@@ -1262,11 +1178,7 @@ export function TemplateLayoutEditor({
                 ) : (
                   <Sparkles className="size-4 text-primary" />
                 )}
-                {previewState === "loading"
-                  ? "Rendering..."
-                  : hasProof
-                    ? "Regenerate"
-                    : "Generate"}
+                {previewState === "loading" ? "Rendering..." : hasProof ? "Regenerate" : "Generate"}
               </button>
             </div>
 
@@ -1287,15 +1199,10 @@ export function TemplateLayoutEditor({
 
               <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/25">
                 {hasProof && previewUrl ? (
-                  <img
-                    alt="Server proof preview"
-                    className="h-auto w-full"
-                    src={previewUrl}
-                  />
+                  <img alt="Server proof preview" className="h-auto w-full" src={previewUrl} />
                 ) : (
                   <div className="flex min-h-72 items-center justify-center px-6 py-10 text-center text-sm leading-6 text-white/52">
-                    Generate preview to compare the live editor with the backend
-                    output.
+                    Generate preview to compare the live editor with the backend output.
                   </div>
                 )}
               </div>
@@ -1316,39 +1223,34 @@ export function TemplateLayoutEditor({
                   <div
                     key={layer.id}
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 cursor-pointer",
+                      "flex w-full items-center gap-3 rounded-2xl border px-3 py-3 transition",
                       layer.id === selectedLayerId
                         ? "border-primary/35 bg-primary/10"
                         : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.04]",
                     )}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => selectLayer(layer.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        selectLayer(layer.id);
-                      }
-                    }}
                   >
-                    <GripVertical className="size-4 shrink-0 text-white/35" />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate text-sm font-medium text-white">
-                          {layer.name}
+                    <button
+                      className="flex min-h-12 min-w-0 flex-1 items-center gap-3 rounded-[1rem] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                      type="button"
+                      onClick={() => selectLayer(layer.id)}
+                    >
+                      <GripVertical className="size-4 shrink-0 text-white/35" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-medium text-white">{layer.name}</p>
+                          {layer.role === "legacy_name" ? (
+                            <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-primary">
+                              Name
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 truncate text-xs text-white/45">
+                          {layer.kind === "text"
+                            ? layer.text?.content
+                            : layer.image?.fit || "image"}
                         </p>
-                        {layer.role === "legacy_name" ? (
-                          <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-primary">
-                            Name
-                          </span>
-                        ) : null}
                       </div>
-                      <p className="mt-1 truncate text-xs text-white/45">
-                        {layer.kind === "text"
-                          ? layer.text?.content
-                          : layer.image?.fit || "image"}
-                      </p>
-                    </div>
+                    </button>
                     <div className="flex items-center gap-1">
                       <IconButton
                         label="Duplicate layer"
@@ -1419,16 +1321,12 @@ export function TemplateLayoutEditor({
                   <NumberField
                     label="X"
                     value={selectedLayer.x}
-                    onChange={(value) =>
-                      updateSelectedLayer((layer) => ({ ...layer, x: value }))
-                    }
+                    onChange={(value) => updateSelectedLayer((layer) => ({ ...layer, x: value }))}
                   />
                   <NumberField
                     label="Y"
                     value={selectedLayer.y}
-                    onChange={(value) =>
-                      updateSelectedLayer((layer) => ({ ...layer, y: value }))
-                    }
+                    onChange={(value) => updateSelectedLayer((layer) => ({ ...layer, y: value }))}
                   />
                   <NumberField
                     label="Width"
@@ -1459,12 +1357,9 @@ export function TemplateLayoutEditor({
                     onClick={() => setIsTextSettingsOpen(true)}
                   >
                     <span>
-                      <span className="block text-sm font-medium text-white">
-                        Text settings
-                      </span>
+                      <span className="block text-sm font-medium text-white">Text settings</span>
                       <span className="mt-1 block text-xs text-white/50">
-                        Font, color, alignment, placeholders and shrink
-                        behavior.
+                        Font, color, alignment, placeholders and shrink behavior.
                       </span>
                     </span>
                     <span className="inline-flex size-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70">
@@ -1523,9 +1418,7 @@ export function TemplateLayoutEditor({
         }}
       />
 
-      {isTextSettingsOpen &&
-      selectedLayer?.kind === "text" &&
-      selectedTextLayer ? (
+      {isTextSettingsOpen && selectedLayer?.kind === "text" && selectedTextLayer ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
           <div className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-[1.75rem] border border-white/10 bg-panel/95 p-5 shadow-2xl sm:p-6">
             <div className="mb-5 flex items-start justify-between gap-4 border-b border-white/10 pb-4">
@@ -1533,12 +1426,9 @@ export function TemplateLayoutEditor({
                 <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">
                   Text settings
                 </p>
-                <h3 className="mt-3 text-xl font-black text-white">
-                  {selectedLayer.name}
-                </h3>
+                <h3 className="mt-3 text-xl font-black text-white">{selectedLayer.name}</h3>
                 <p className="mt-2 text-sm leading-6 text-white/58">
-                  Control typography, alignment and placeholders without
-                  crowding the main sidebar.
+                  Control typography, alignment and placeholders without crowding the main sidebar.
                 </p>
               </div>
               <button
@@ -1551,10 +1441,7 @@ export function TemplateLayoutEditor({
               </button>
             </div>
 
-            <TextLayerEditor
-              text={selectedTextLayer}
-              onChange={updateSelectedLayer}
-            />
+            <TextLayerEditor text={selectedTextLayer} onChange={updateSelectedLayer} />
           </div>
         </div>
       ) : null}
@@ -1567,9 +1454,7 @@ function TextLayerEditor({
   onChange,
 }: {
   text: TemplateCanvasTextLayer;
-  onChange: (
-    updater: (layer: TemplateCanvasLayer) => TemplateCanvasLayer,
-  ) => void;
+  onChange: (updater: (layer: TemplateCanvasLayer) => TemplateCanvasLayer) => void;
 }) {
   return (
     <div className="space-y-5">
@@ -1602,11 +1487,9 @@ function TextLayerEditor({
 
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-xs leading-6 text-white/55">
             Use placeholders directly in the text, for example{" "}
-            <code>{`{{participant.full_name}}`}</code>,{" "}
-            <code>{`{{participant.category}}`}</code>,{" "}
-            <code>{`{{template.name}}`}</code>,{" "}
-            <code>{`{{issue.issue_date}}`}</code>, and{" "}
-            <code>{`{{issue.certificate_id}}`}</code>.
+            <code>{"{{participant.full_name}}"}</code>, <code>{"{{participant.category}}"}</code>,{" "}
+            <code>{"{{template.name}}"}</code>, <code>{"{{issue.issue_date}}"}</code>, and{" "}
+            <code>{"{{issue.certificate_id}}"}</code>.
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -1840,9 +1723,7 @@ function ImageLayerEditor({
   layer: TemplateCanvasLayer;
   image: NonNullable<TemplateCanvasLayer["image"]>;
   onReplace: () => void;
-  onChange: (
-    updater: (layer: TemplateCanvasLayer) => TemplateCanvasLayer,
-  ) => void;
+  onChange: (updater: (layer: TemplateCanvasLayer) => TemplateCanvasLayer) => void;
 }) {
   return (
     <div className="space-y-4 rounded-3xl border border-white/10 bg-black/20 p-4">
@@ -2170,8 +2051,7 @@ function createLayerId() {
 async function fileToDataUrl(file: File) {
   return new Promise<string | null>((resolve) => {
     const reader = new FileReader();
-    reader.onload = () =>
-      resolve(typeof reader.result === "string" ? reader.result : null);
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
     reader.onerror = () => resolve(null);
     reader.readAsDataURL(file);
   });

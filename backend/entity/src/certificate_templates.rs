@@ -16,12 +16,19 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+    #[sea_orm(has_many = "super::template_categories::Entity")]
+    TemplateCategories,
     #[sea_orm(has_one = "super::template_layouts::Entity")]
     TemplateLayout,
     #[sea_orm(has_many = "super::certificate_issues::Entity")]
     CertificateIssues,
 }
 
+impl Related<super::template_categories::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::TemplateCategories.def()
+    }
+}
 impl Related<super::template_layouts::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::TemplateLayout.def()
