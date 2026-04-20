@@ -13,6 +13,10 @@ license = "MIT"
 authors = ["C0st1nus <konstantinkoshevoj99@gmail.com>"]
 
 [workspace.dependencies]
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+regex = "1.10"
+printpdf = "0.8.2"
+rusttype = "0.9.3"
 actix-files = "0.6"
 actix-cors = "0.7"
 actix-governor = "0.8"
@@ -23,6 +27,7 @@ argon2 = "0.5"
 async-trait = "0.1"
 aws-config = "1"
 aws-sdk-s3 = "1"
+base64 = "0.22"
 calamine = "0.34"
 chrono = { version = "0.4", features = ["clock", "serde"] }
 csv = "1.3"

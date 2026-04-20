@@ -11,6 +11,14 @@ name = "seed-admin"
 path = "src/bin/seed_admin.rs"
 
 [dependencies]
+resvg = "0.47"
+usvg = { version = "0.47", features = ["text", "fontdb"] }
+tiny-skia = "0.12"
+fontdb = "0.23"
+reqwest.workspace = true
+regex.workspace = true
+printpdf.workspace = true
+rusttype.workspace = true
 actix-cors.workspace = true
 actix-files.workspace = true
 actix-governor.workspace = true
@@ -20,6 +28,7 @@ anyhow.workspace = true
 argon2.workspace = true
 aws-config.workspace = true
 aws-sdk-s3.workspace = true
+base64.workspace = true
 calamine.workspace = true
 chrono.workspace = true
 dotenvy.workspace = true

@@ -87,13 +87,8 @@ export interface TemplateCanvasTextLayer {
 
 export interface TemplateCanvasImageLayer {
   src: string;
-  fit: "contain" | "cover";
+  fit: "fill" | "contain" | "cover";
   border_radius: number;
-}
-
-export interface FontFamilyOption {
-  label: string;
-  value: string;
 }
 
 export interface TemplateSummary {
@@ -283,10 +278,6 @@ export async function fetchTemplate(id: string) {
 
 export async function fetchTemplateSource(id: string) {
   return adminRequest(`/api/v1/admin/templates/${id}/source`);
-}
-
-export async function fetchFontFamilies() {
-  return adminRequestJson<FontFamilyOption[]>("/api/v1/admin/fonts");
 }
 
 export async function createTemplate(form: FormData) {

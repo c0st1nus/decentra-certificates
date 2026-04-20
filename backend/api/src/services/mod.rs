@@ -1,8 +1,13 @@
 pub mod audit;
 pub mod auth;
 pub mod certificates;
+pub mod fonts;
+pub mod font_loader;
 pub mod participants;
 pub mod redis;
+pub mod scene_renderer;
 pub mod settings;
 pub mod storage;
+pub mod svg_generator;
+pub mod svg_renderer;
 pub mod templates;

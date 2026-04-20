@@ -83,16 +83,28 @@ export function AdminShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <main className="relative isolate min-h-screen overflow-hidden">
+    <main
+      className={cn(
+        "relative isolate min-h-screen overflow-x-hidden",
+        isCanvasEditorRoute && "h-[100dvh] min-h-[100dvh]",
+      )}
+    >
       <GridBackground />
 
       <div
         className={cn(
           "mx-auto flex min-h-screen w-full flex-col px-4 py-4 sm:px-6 sm:py-6 lg:px-8",
-          isCanvasEditorRoute ? "max-w-none" : "max-w-7xl",
+          isCanvasEditorRoute
+            ? "h-full min-h-0 max-w-none px-0 py-0 sm:px-0 sm:py-0 lg:px-0"
+            : "max-w-7xl",
         )}
       >
-        <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
+        <header
+          className={cn(
+            "flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4",
+            isCanvasEditorRoute && "px-4 pb-4 pt-4 sm:px-6 lg:px-8",
+          )}
+        >
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-primary/30 bg-primary/10 shadow-[0_0_24px_rgba(140,216,18,0.16)]">
               <ShieldCheck className="size-5 text-primary" />
@@ -119,7 +131,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </nav>
         </header>
 
-        <div className="flex-1 py-6 sm:py-8">{children}</div>
+        <div
+          className={cn(
+            "flex-1 py-6 sm:py-8",
+            isCanvasEditorRoute && "flex min-h-0 flex-col overflow-hidden px-4 pb-4 pt-0 sm:px-6 sm:pb-6 sm:pt-0 lg:px-8",
+          )}
+        >
+          {children}
+        </div>
       </div>
     </main>
   );

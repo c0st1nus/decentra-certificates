@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useState } from "react";
 
-import { TemplateCurrentPreview } from "@/components/template-current-preview";
 import {
   type TemplateDetail,
   activateTemplate,
@@ -246,8 +245,7 @@ export default function TemplateDetailPage({ params }: Props) {
         </aside>
       </div>
 
-      <TemplateCurrentPreview template={template} />
-    </section>
+      </section>
   );
 }
 

@@ -50,6 +50,7 @@ async fn main() -> io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
+            .app_data(web::JsonConfig::default().limit(5 * 1024 * 1024))
             .wrap(Logger::default())
             .wrap(build_cors(&settings.cors_origins))
             .app_data(web::Data::new(state.clone()))

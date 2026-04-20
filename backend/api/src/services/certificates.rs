@@ -5,22 +5,19 @@ use entity::{
     prelude::{CertificateIssues, CertificateTemplates, Participants, TemplateLayouts},
     template_layouts,
 };
-use flate2::{Compression, write::ZlibEncoder};
-use image::GenericImageView;
+use std::collections::HashMap;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder,
     Set,
 };
 use serde::Serialize;
-use std::io::Write;
 use ulid::Ulid;
 
+use crate::services::fonts::ResolvedFont;
 use crate::{
     error::AppError,
-    services::{settings, storage::StorageService, templates},
+    services::{scene_renderer, settings, storage::StorageService, templates},
 };
-
-const NAME_BOX_INSET: f32 = 16.0;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct PublicCertificateResponse {
@@ -45,36 +42,14 @@ pub struct VerificationResponse {
     pub issued_at: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub struct PreviewRenderDiagnostics {
-    pub preview_name: String,
-    pub page_width: f32,
-    pub page_height: f32,
-    pub box_left: f32,
-    pub box_top: f32,
-    pub box_width: f32,
-    pub box_height: f32,
-    pub text_left: f32,
-    pub text_top: f32,
-    pub text_left_in_box: f32,
-    pub text_top_in_box: f32,
-    pub text_width: f32,
-    pub font_size: f32,
-    pub ascent_ratio: f32,
-    pub baseline_top: f32,
-    pub baseline_y: f32,
-    pub pdf_font_family: String,
-    pub text_align: String,
-    pub vertical_align: String,
-}
-
 pub async fn issue_certificate(
     state: &crate::state::AppState,
     email: &str,
 ) -> Result<PublicCertificateResponse, AppError> {
-    let issuance = settings::get_issuance_setting(&state.db, state.settings.issuance_enabled_default)
-        .await
-        .map_err(AppError::Internal)?;
+    let issuance =
+        settings::get_issuance_setting(&state.db, state.settings.issuance_enabled_default)
+            .await
+            .map_err(AppError::Internal)?;
 
     if !issuance.enabled {
         return Err(AppError::Forbidden(
@@ -84,9 +59,10 @@ pub async fn issue_certificate(
 
     let template = find_active_template(&state.db).await?;
     let normalized_email = normalize_email(email);
-    let participant = find_participant_for_template(&state.db, &normalized_email, template.id).await?;
+    let participant =
+        find_participant_for_template(&state.db, &normalized_email, template.id).await?;
     let layout = find_layout_for_template(&state.db, template.id).await?;
-    
+
     let issue = find_or_create_issue(state, &participant, &template, &layout).await?;
 
     Ok(build_public_response(participant, template, issue))
@@ -231,7 +207,8 @@ async fn find_or_create_issue(
     layout: &template_layouts::Model,
 ) -> Result<certificate_issues::Model, AppError> {
     if let Some(existing) = find_existing_issue(&state.db, participant, template).await? {
-        if !state.storage
+        if !state
+            .storage
             .object_exists(&existing.generated_pdf_path)
             .await
             .unwrap_or(false)
@@ -338,90 +315,61 @@ async fn write_certificate_pdf(
     layout: &template_layouts::Model,
     issue: &certificate_issues::Model,
 ) -> Result<()> {
-    let font_family = templates::resolve_pdf_font_family(&layout.font_family);
-    let pdf =
-        render_certificate_pdf(state, participant, template, layout, &font_family, issue).await?;
-    state.storage
+    let _ = issue;
+    let layout_data = templates::model_to_layout_data(layout);
+    let png = scene_renderer::render_scene_png(
+        state,
+        template,
+        &layout_data,
+        &participant.full_name,
+        build_certificate_binding_values(participant, template, issue),
+    )
+    .await?;
+    let pdf = scene_renderer::build_pdf_from_png(&png, layout.page_width, layout.page_height)?;
+    state
+        .storage
         .put_object(output_key, pdf, Some("application/pdf"))
         .await
         .with_context(|| format!("failed to write generated certificate object: {output_key}"))?;
     Ok(())
 }
 
-fn is_storage_not_found(err: &anyhow::Error) -> bool {
-    let message = err.to_string().to_ascii_lowercase();
-    message.contains("not found") || message.contains("no such key") || message.contains("404")
-}
-
-pub(crate) async fn render_certificate_pdf(
-    state: &crate::state::AppState,
-    participant: &participants::Model,
-    template: &certificate_templates::Model,
-    layout: &template_layouts::Model,
-    font_family: &str,
-    issue: &certificate_issues::Model,
+pub(crate) fn build_pdf_document(
+    page_width: f32,
+    page_height: f32,
+    content: &str,
+    background: Option<&PdfBackground>,
+    resolved_font: &ResolvedFont,
 ) -> Result<Vec<u8>> {
-    let (pdf, _diagnostics) = render_certificate_pdf_with_diagnostics(
-        state,
-        participant,
-        template,
-        layout,
-        font_family,
-        issue,
-    )
-    .await?;
-
-    Ok(pdf)
+    build_pdf(page_width, page_height, content, background, resolved_font)
 }
 
-pub(crate) async fn render_certificate_pdf_with_diagnostics(
-    state: &crate::state::AppState,
+fn is_storage_not_found(err: &anyhow::Error) -> bool {
+  let message = err.to_string().to_ascii_lowercase();
+  message.contains("not found") || message.contains("no such key") || message.contains("404")
+}
+
+fn build_certificate_binding_values(
     participant: &participants::Model,
     template: &certificate_templates::Model,
-    layout: &template_layouts::Model,
-    font_family: &str,
     issue: &certificate_issues::Model,
-) -> Result<(Vec<u8>, PreviewRenderDiagnostics)> {
-    let page_width = layout.page_width.max(1) as f32;
-    let page_height = layout.page_height.max(1) as f32;
-    let name = participant.full_name.trim();
-    let font_color = parse_hex_color(&layout.font_color_hex).unwrap_or((0.05, 0.05, 0.05));
-    let diagnostics =
-        compute_preview_render_diagnostics(name, layout, font_family, page_width, page_height);
-    let background = load_pdf_background(state, template).await?;
-    let content = if background.is_some() {
-        draw_text(
-            &font_family,
-            font_color,
-            diagnostics.font_size,
-            diagnostics.text_left,
-            diagnostics.baseline_y,
-            name,
-        )
-    } else {
-        build_fallback_content(
-            participant,
-            template,
-            issue,
-            &font_family,
-            font_color,
-            diagnostics.text_left,
-            diagnostics.baseline_y,
-            page_width,
-            page_height,
-            diagnostics.font_size,
-        )?
-    };
+) -> HashMap<String, String> {
+    let issue_date = issue.created_at.format("%Y-%m-%d").to_string();
+    let track_name = participant.category.clone().unwrap_or_else(|| "General".to_owned());
 
-    let pdf = build_pdf(
-        page_width,
-        page_height,
-        &content,
-        &font_family,
-        background.as_deref(),
-    )?;
-
-    Ok((pdf, diagnostics))
+    HashMap::from([
+        ("participant.full_name".to_owned(), participant.full_name.clone()),
+        ("full_name".to_owned(), participant.full_name.clone()),
+        ("name".to_owned(), participant.full_name.clone()),
+        ("participant.category".to_owned(), track_name.clone()),
+        ("track_name".to_owned(), track_name),
+        ("template.name".to_owned(), template.name.clone()),
+        ("certificate_type".to_owned(), template.name.clone()),
+        ("issue.certificate_id".to_owned(), issue.certificate_id.clone()),
+        ("certificate_id".to_owned(), issue.certificate_id.clone()),
+        ("issue.issue_date".to_owned(), issue_date),
+        ("issue.verification_code".to_owned(), issue.verification_code.clone()),
+    ])
 }
 
 #[derive(Clone, Debug)]
@@ -432,166 +380,12 @@ pub struct PdfBackground {
     pub bytes: Vec<u8>,
 }
 
-async fn load_pdf_background(
-    state: &crate::state::AppState,
-    template: &certificate_templates::Model,
-) -> Result<Option<std::sync::Arc<PdfBackground>>> {
-    match template.source_kind.to_ascii_lowercase().as_str() {
-        "png" | "jpg" | "jpeg" => {
-            {
-                let cache = state.pdf_backgrounds.read().await;
-                if let Some(cached) = cache.get(&template.id) {
-                    return Ok(Some(cached.clone()));
-                }
-            }
-
-            let bytes = state.storage
-                .get_object(&template.source_path)
-                .await
-                .with_context(|| {
-                    format!(
-                        "failed to load template background: {}",
-                        template.source_path
-                    )
-                })?;
-
-            let image = image::load_from_memory(&bytes).with_context(|| {
-                format!("failed to decode template image: {}", template.source_path)
-            })?;
-            let (width, height) = image.dimensions();
-            let rgb = image.to_rgb8();
-
-            let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-            encoder
-                .write_all(rgb.as_raw())
-                .context("failed to compress template background")?;
-            let compressed = encoder
-                .finish()
-                .context("failed to finalize template background compression")?;
-
-            let background = std::sync::Arc::new(PdfBackground {
-                width,
-                height,
-                filter: "FlateDecode",
-                bytes: compressed,
-            });
-
-            {
-                let mut cache = state.pdf_backgrounds.write().await;
-                cache.insert(template.id, background.clone());
-            }
-
-            Ok(Some(background))
-        }
-        _ => Ok(None),
-    }
-}
-
-fn build_fallback_content(
-    participant: &participants::Model,
-    template: &certificate_templates::Model,
-    issue: &certificate_issues::Model,
-    font_family: &str,
-    font_color: (f32, f32, f32),
-    safe_name_x: f32,
-    safe_name_y: f32,
-    page_width: f32,
-    page_height: f32,
-    name_font_size: f32,
-) -> Result<String> {
-    let title = "Decentrathon Certificate";
-    let subtitle = format!("Template: {}", template.name);
-    let issued_at = issue.created_at.to_rfc3339();
-    let certificate_line = format!("Certificate ID: {}", issue.certificate_id);
-    let verification_line = format!("Verification code: {}", issue.verification_code);
-    let event_line = format!("Event: {}", participant.event_code);
-    let accent = (0.55, 0.85, 0.12);
-    let title_x = 72.0;
-    let title_y = page_height - 90.0;
-    let body_y_start = safe_name_y - 70.0;
-    let name = participant.full_name.trim();
-
-    let mut content = String::new();
-    content.push_str(&draw_line(
-        accent,
-        36.0,
-        page_height - 44.0,
-        page_width - 72.0,
-    ));
-    content.push_str(&draw_text(
-        font_family,
-        (0.0, 0.0, 0.0),
-        16.0,
-        title_x,
-        title_y,
-        title,
-    ));
-    content.push_str(&draw_text(
-        font_family,
-        (0.24, 0.24, 0.24),
-        11.0,
-        title_x,
-        title_y - 22.0,
-        &subtitle,
-    ));
-    content.push_str(&draw_text(
-        font_family,
-        font_color,
-        11.0,
-        title_x,
-        title_y - 48.0,
-        "Issued on the server, signed by Decentrathon.",
-    ));
-    content.push_str(&draw_text(
-        font_family,
-        font_color,
-        name_font_size,
-        safe_name_x,
-        safe_name_y,
-        name,
-    ));
-    content.push_str(&draw_text(
-        font_family,
-        (0.18, 0.18, 0.18),
-        11.0,
-        title_x,
-        body_y_start,
-        &event_line,
-    ));
-    content.push_str(&draw_text(
-        font_family,
-        (0.18, 0.18, 0.18),
-        11.0,
-        title_x,
-        body_y_start - 18.0,
-        &certificate_line,
-    ));
-    content.push_str(&draw_text(
-        font_family,
-        (0.18, 0.18, 0.18),
-        11.0,
-        title_x,
-        body_y_start - 36.0,
-        &verification_line,
-    ));
-    content.push_str(&draw_text(
-        font_family,
-        (0.18, 0.18, 0.18),
-        11.0,
-        title_x,
-        body_y_start - 54.0,
-        &format!("Generated at {}", issued_at),
-    ));
-    content.push_str(&draw_line(accent, 36.0, 72.0, page_width - 72.0));
-    Ok(content)
-}
-
 fn build_pdf(
     page_width: f32,
     page_height: f32,
     content: &str,
-    font_family: &str,
     background: Option<&PdfBackground>,
+    resolved_font: &ResolvedFont,
 ) -> Result<Vec<u8>> {
     let mut content_stream = String::new();
     if background.is_some() {
@@ -625,12 +419,66 @@ fn build_pdf(
             content_stream
         )
         .into_bytes(),
-        format!(
-            "5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /{} >> endobj\n",
-            font_family
-        )
-        .into_bytes(),
     ];
+    let next_id = 6 + background.is_some() as usize;
+    let mut font_objects = vec![];
+    match resolved_font {
+        ResolvedFont::Builtin(b) => {
+            let name = match b {
+                printpdf::BuiltinFont::TimesRoman => "Times-Roman",
+                printpdf::BuiltinFont::Courier => "Courier",
+                printpdf::BuiltinFont::Symbol => "Symbol",
+                printpdf::BuiltinFont::ZapfDingbats => "ZapfDingbats",
+                _ => "Helvetica",
+            };
+            objects.push(
+                format!(
+                    "5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /{} >> endobj\n",
+                    name
+                )
+                .into_bytes(),
+            );
+        }
+        ResolvedFont::External(bytes) => {
+            let widths_id = next_id;
+            let desc_id = next_id + 1;
+            let stream_id = next_id + 2;
+
+            objects.push(format!("5 0 obj << /Type /Font /Subtype /TrueType /BaseFont /CustomFont /FirstChar 32 /LastChar 255 /Widths {} 0 R /FontDescriptor {} 0 R /Encoding /WinAnsiEncoding >> endobj\n", widths_id, desc_id).into_bytes());
+
+            let mut widths = String::from("[");
+            let font = rusttype::Font::try_from_vec(bytes.to_vec()).unwrap();
+            let scale = rusttype::Scale::uniform(1000.0);
+            for char_code in 32..=255 {
+                let w = font
+                    .glyph(char_code as u8 as char)
+                    .scaled(scale)
+                    .h_metrics()
+                    .advance_width;
+                widths.push_str(&format!("{} ", w.round() as i32));
+            }
+            widths.push_str("]");
+
+            font_objects.push(format!("{} 0 obj\n{}\nendobj\n", widths_id, widths).into_bytes());
+
+            let v_metrics = font.v_metrics(scale);
+            let ascent = v_metrics.ascent.round() as i32;
+            let descent = v_metrics.descent.round() as i32;
+
+            font_objects.push(format!("{} 0 obj << /Type /FontDescriptor /FontName /CustomFont /Flags 32 /FontBBox [-500 -500 1500 1500] /ItalicAngle 0 /Ascent {} /Descent {} /CapHeight {} /StemV 80 /FontFile2 {} 0 R >> endobj\n", desc_id, ascent, descent, ascent, stream_id).into_bytes());
+
+            let mut stream_obj = format!(
+                "{} 0 obj << /Length1 {} /Length {} >> stream\n",
+                stream_id,
+                bytes.len(),
+                bytes.len()
+            )
+            .into_bytes();
+            stream_obj.extend_from_slice(bytes.as_ref());
+            stream_obj.extend_from_slice(b"\nendstream endobj\n");
+            font_objects.push(stream_obj);
+        }
+    }
 
     if let Some(background) = background {
         let mut image_object = format!(
@@ -671,273 +519,6 @@ fn build_pdf(
     );
 
     Ok(pdf)
-}
-
-fn draw_text(
-    _font_family: &str,
-    color: (f32, f32, f32),
-    font_size: f32,
-    x: f32,
-    y: f32,
-    text: &str,
-) -> String {
-    format!(
-        "{r:.3} {g:.3} {b:.3} rg\nBT /F1 {size} Tf 1 0 0 1 {x} {y} Tm ({text}) Tj ET\n",
-        r = color.0,
-        g = color.1,
-        b = color.2,
-        size = font_size,
-        x = format_number(x),
-        y = format_number(y),
-        text = escape_pdf_text(text),
-    )
-}
-
-fn draw_line(color: (f32, f32, f32), start_x: f32, start_y: f32, end_x: f32) -> String {
-    format!(
-        "{r:.3} {g:.3} {b:.3} RG\n1.2 w\n{x1} {y} m\n{x2} {y} l\nS\n",
-        r = color.0,
-        g = color.1,
-        b = color.2,
-        x1 = format_number(start_x),
-        x2 = format_number(end_x),
-        y = format_number(start_y),
-    )
-}
-
-fn compute_preview_render_diagnostics(
-    name: &str,
-    layout: &template_layouts::Model,
-    font_family: &str,
-    page_width: f32,
-    page_height: f32,
-) -> PreviewRenderDiagnostics {
-    let font_size = compute_name_font_size(name, layout, font_family);
-    let box_left = layout.name_x.max(0) as f32;
-    let box_width = layout.name_max_width.max(1) as f32;
-    let text_width = estimate_text_width(name, font_size, font_family);
-    let text_left = match layout.text_align.as_str() {
-        "center" => (box_left + box_width / 2.0) - text_width / 2.0,
-        "right" => box_left + box_width - text_width - NAME_BOX_INSET,
-        _ => box_left + NAME_BOX_INSET,
-    };
-    let box_height = compute_name_box_height(layout.name_box_height);
-    let box_top = layout.name_y.max(0) as f32 - box_height;
-    let ascent_ratio = resolve_pdf_text_ascent_ratio(font_family);
-    let text_top = match layout.vertical_align.as_str() {
-        "top" => box_top + NAME_BOX_INSET,
-        "bottom" => box_top + box_height - font_size - NAME_BOX_INSET,
-        _ => box_top + box_height / 2.0 + font_size * (0.35 - ascent_ratio),
-    };
-    let baseline_top = text_top + ascent_ratio * font_size;
-
-    PreviewRenderDiagnostics {
-        preview_name: name.to_owned(),
-        page_width,
-        page_height,
-        box_left,
-        box_top,
-        box_width,
-        box_height,
-        text_left,
-        text_top,
-        text_left_in_box: text_left - box_left,
-        text_top_in_box: text_top - box_top,
-        text_width,
-        font_size,
-        ascent_ratio,
-        baseline_top,
-        baseline_y: page_height - baseline_top,
-        pdf_font_family: font_family.to_owned(),
-        text_align: layout.text_align.clone(),
-        vertical_align: layout.vertical_align.clone(),
-    }
-}
-
-fn compute_name_box_height(name_box_height: i32) -> f32 {
-    name_box_height.max(40) as f32
-}
-
-fn resolve_pdf_text_ascent_ratio(font_family: &str) -> f32 {
-    match font_family {
-        "Times-Roman" => 0.9,
-        "Courier" => 0.83,
-        "Symbol" | "ZapfDingbats" => 0.88,
-        _ => 0.93,
-    }
-}
-
-fn compute_name_font_size(name: &str, layout: &template_layouts::Model, font_family: &str) -> f32 {
-    let mut size = layout.font_size.max(1) as f32;
-    if !layout.auto_shrink {
-        return size;
-    }
-    let width_limit = (layout.name_max_width.max(1) as f32 - NAME_BOX_INSET * 2.0).max(1.0);
-    let estimated = estimate_text_width(name, size, font_family);
-    if estimated > width_limit {
-        let ratio = width_limit / estimated;
-        size = (size * ratio).clamp(1.0, layout.font_size.max(1) as f32);
-    }
-    size
-}
-
-fn estimate_text_width(text: &str, font_size: f32, font_family: &str) -> f32 {
-    estimate_text_units(text, font_family) * font_size
-}
-
-fn estimate_text_units(text: &str, font_family: &str) -> f32 {
-    let normalized = font_family.to_ascii_lowercase();
-    let family_factor = match normalized.as_str() {
-        "times-roman" => 0.85,
-        "courier" => 0.62,
-        "symbol" | "zapfdingbats" => 0.7,
-        _ => 1.0,
-    };
-
-    let units = text
-        .trim()
-        .chars()
-        .map(estimate_char_unit)
-        .sum::<f32>();
-
-    (units * family_factor).max(1.0)
-}
-
-fn estimate_char_unit(ch: char) -> f32 {
-    if ch == ' ' {
-        return 0.33;
-    }
-
-    if "ilI|!'`.,".contains(ch) {
-        return 0.3;
-    }
-
-    if "fjrt()[]{}:;".contains(ch) {
-        return 0.4;
-    }
-
-    if "mwMW@%&".contains(ch) {
-        return 0.92;
-    }
-
-    if ch.is_ascii_uppercase() {
-        return 0.72;
-    }
-
-    if ch.is_ascii_digit() {
-        return 0.62;
-    }
-
-    0.56
-}
-
-fn parse_hex_color(value: &str) -> Option<(f32, f32, f32)> {
-    let hex = value.trim().trim_start_matches('#');
-    if hex.len() != 6 {
-        return None;
-    }
-
-    let red = u8::from_str_radix(&hex[0..2], 16).ok()? as f32 / 255.0;
-    let green = u8::from_str_radix(&hex[2..4], 16).ok()? as f32 / 255.0;
-    let blue = u8::from_str_radix(&hex[4..6], 16).ok()? as f32 / 255.0;
-    Some((red, green, blue))
-}
-
-fn escape_pdf_text(text: &str) -> String {
-    transliterate_to_ascii(text)
-        .chars()
-        .flat_map(|ch| match ch {
-            '\\' => vec!['\\', '\\'],
-            '(' => vec!['\\', '('],
-            ')' => vec!['\\', ')'],
-            '\n' | '\r' => vec![' '],
-            _ => vec![ch],
-        })
-        .collect()
-}
-
-fn transliterate_to_ascii(text: &str) -> String {
-    let mut output = String::with_capacity(text.len());
-    for ch in text.chars() {
-        if ch.is_ascii() {
-            output.push(ch);
-        } else {
-            output.push_str(transliterate_char(ch));
-        }
-    }
-    output
-}
-
-fn transliterate_char(ch: char) -> &'static str {
-    match ch {
-        'А' => "A",
-        'Б' => "B",
-        'В' => "V",
-        'Г' => "G",
-        'Д' => "D",
-        'Е' => "E",
-        'Ё' => "Yo",
-        'Ж' => "Zh",
-        'З' => "Z",
-        'И' => "I",
-        'Й' => "Y",
-        'К' => "K",
-        'Л' => "L",
-        'М' => "M",
-        'Н' => "N",
-        'О' => "O",
-        'П' => "P",
-        'Р' => "R",
-        'С' => "S",
-        'Т' => "T",
-        'У' => "U",
-        'Ф' => "F",
-        'Х' => "Kh",
-        'Ц' => "Ts",
-        'Ч' => "Ch",
-        'Ш' => "Sh",
-        'Щ' => "Shch",
-        'Ъ' => "",
-        'Ы' => "Y",
-        'Ь' => "",
-        'Э' => "E",
-        'Ю' => "Yu",
-        'Я' => "Ya",
-        'а' => "a",
-        'б' => "b",
-        'в' => "v",
-        'г' => "g",
-        'д' => "d",
-        'е' => "e",
-        'ё' => "yo",
-        'ж' => "zh",
-        'з' => "z",
-        'и' => "i",
-        'й' => "y",
-        'к' => "k",
-        'л' => "l",
-        'м' => "m",
-        'н' => "n",
-        'о' => "o",
-        'п' => "p",
-        'р' => "r",
-        'с' => "s",
-        'т' => "t",
-        'у' => "u",
-        'ф' => "f",
-        'х' => "kh",
-        'ц' => "ts",
-        'ч' => "ch",
-        'ш' => "sh",
-        'щ' => "shch",
-        'ъ' => "",
-        'ы' => "y",
-        'ь' => "",
-        'э' => "e",
-        'ю' => "yu",
-        'я' => "ya",
-        _ => "?",
-    }
 }
 
 fn normalize_email(email: &str) -> String {

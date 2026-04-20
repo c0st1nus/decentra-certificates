@@ -1,61 +1,77 @@
 "use client";
 
 import {
-  Eye,
-  FileImage,
-  Layers3,
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  ArrowDown,
+  ArrowUp,
+  Copy,
+  GripVertical,
+  ImagePlus,
   LoaderCircle,
-  MoveDiagonal2,
+  Plus,
   Save,
+  SlidersHorizontal,
   Sparkles,
   Trash2,
   Type,
   Upload,
-  WandSparkles,
+  X,
 } from "lucide-react";
 import type {
-  CSSProperties,
-  ChangeEvent,
   FormEvent,
-  ReactNode,
   PointerEvent as ReactPointerEvent,
+  ReactNode,
 } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+const FONT_PRELOAD_URLS = [
+  "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap",
+];
 
 import {
-  type FontFamilyOption,
   type TemplateCanvasData,
   type TemplateCanvasLayer,
   type TemplateCanvasTextLayer,
   type TemplateDetail,
   type TemplateLayoutData,
-  fetchFontFamilies,
-  fetchTemplateSource,
   previewTemplate,
   saveTemplateLayout,
+  fetchTemplateSource,
 } from "@/lib/admin-api";
 import {
   clampLayerToLayout,
   createImageCanvasLayer,
   createTextCanvasLayer,
-  getCanvasLayerDisplayText,
-  getCanvasLayerLabel,
-  isLegacyNameLayer,
-  moveLayerBackward,
-  moveLayerForward,
+  getFittedImageLayerSize,
+  resolveCanvasLayerText,
   sanitizeTemplateCanvas,
   syncLayoutWithCanvas,
   updateCanvasLayers,
 } from "@/lib/template-canvas";
-import {
-  type TemplatePdfPreviewDiagnostics,
-  type TemplatePreviewTextMetrics,
-  buildTemplateSourceOverlayMetrics,
-  computeTemplatePreviewMetrics,
-  getTemplateNameBoxHeight,
-  sanitizeTemplateLayout,
-} from "@/lib/template-layout";
+import { sanitizeTemplateLayout } from "@/lib/template-layout";
 import { cn } from "@/lib/utils";
+
+function buildPreviewBindingValues(
+  previewName: string,
+  template: TemplateDetail,
+): Record<string, string> {
+  const name = previewName.trim() || "Preview Participant";
+  return {
+    "participant.full_name": name,
+    full_name: name,
+    name,
+    "participant.category": "Preview track",
+    track_name: "Preview track",
+    "template.name": template.template.name,
+    certificate_type: template.template.name,
+    "issue.certificate_id": "cert-preview-0001",
+    certificate_id: "cert-preview-0001",
+    "issue.issue_date": new Date().toISOString().slice(0, 10),
+    "issue.verification_code": "verify-preview-0001",
+  };
+}
 
 type TemplateLayoutEditorProps = {
   template: TemplateDetail;
@@ -73,65 +89,165 @@ type ResizeMode =
   | "bottom-left"
   | "bottom-right";
 
-type LayerDragState = {
+type DragState = {
   layerId: string;
   offsetX: number;
   offsetY: number;
-  width: number;
-  height: number;
+  pointerId: number;
 };
 
-type LayerResizeState = {
+type ResizeState = {
   layerId: string;
   mode: ResizeMode;
+  pointerId: number;
   startX: number;
   startY: number;
   startLayer: TemplateCanvasLayer;
 };
 
-type SnapGuides = {
-  x: boolean;
-  y: boolean;
-};
+type PreviewState = "idle" | "loading" | "ready" | "error";
+
+const SAFE_FONT_OPTIONS = [
+  { label: "Outfit", value: "Outfit" },
+  { label: "Inter", value: "Inter" },
+  { label: "Arial", value: "Arial" },
+  { label: "Helvetica", value: "Helvetica" },
+  { label: "Times New Roman", value: "Times New Roman" },
+  { label: "Georgia", value: "Georgia" },
+  { label: "Courier New", value: "Courier New" },
+];
+
+const BINDING_OPTIONS = [
+  { label: "Free text", value: "", sample: "Preview participant" },
+  {
+    label: "Participant full name",
+    value: "participant.full_name",
+    sample: "Preview participant",
+  },
+  {
+    label: "Track / category",
+    value: "participant.category",
+    sample: "Main track",
+  },
+  {
+    label: "Certificate type",
+    value: "template.name",
+    sample: "Hackathon Certificate",
+  },
+  { label: "Issue date", value: "issue.issue_date", sample: "2026-04-20" },
+  {
+    label: "Certificate ID",
+    value: "issue.certificate_id",
+    sample: "cert-preview-0001",
+  },
+];
 
 export function TemplateLayoutEditor({
   template,
   onSaved,
   showHeader = true,
 }: TemplateLayoutEditorProps) {
-  const initialLayout = useMemo(() => sanitizeTemplateLayout(template.layout), [template.layout]);
-  const initialCanvas = useMemo(() => sanitizeTemplateCanvas(initialLayout), [initialLayout]);
-  const [layout, setLayout] = useState<TemplateLayoutData>({
-    ...initialLayout,
-    canvas: initialCanvas,
-  });
+  const initialLayout = sanitizeTemplateLayout(template.layout);
+  const initialCanvas = sanitizeTemplateCanvas(initialLayout);
+
+  const [layout, setLayout] = useState<TemplateLayoutData>(initialLayout);
   const [canvas, setCanvas] = useState<TemplateCanvasData>(initialCanvas);
-  const [selectedLayerId, setSelectedLayerId] = useState<string>(initialCanvas.layers[0]?.id ?? "");
+  const [selectedLayerId, setSelectedLayerId] = useState<string>(
+    initialCanvas.layers[0]?.id ?? "",
+  );
   const [previewName, setPreviewName] = useState("Preview Participant");
-  const [isSaving, setIsSaving] = useState(false);
-  const [isRendering, setIsRendering] = useState(false);
-  const [message, setMessage] = useState("Canvas is ready. Legacy name export stays in sync.");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
-  const [sourceMime, setSourceMime] = useState<string>("application/octet-stream");
-  const [sourceState, setSourceState] = useState<"loading" | "ready" | "error">("loading");
-  const [fontFamilies, setFontFamilies] = useState<FontFamilyOption[]>([]);
-  const [pdfDiagnostics, setPdfDiagnostics] = useState<TemplatePdfPreviewDiagnostics | null>(null);
-  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
-  const [snapGuides, setSnapGuides] = useState<SnapGuides>({ x: false, y: false });
-  const [imageAction, setImageAction] = useState<{
+  const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null);
+  const [previewState, setPreviewState] = useState<PreviewState>("idle");
+  const [previewMessage, setPreviewMessage] = useState(
+    "Layers render instantly. Generate preview when you want to check the server output.",
+  );
+  const [isSaving, setIsSaving] = useState(false);
+  const [isImagePickerOpen, setIsImagePickerOpen] = useState(false);
+  const [isTextSettingsOpen, setIsTextSettingsOpen] = useState(false);
+  const [imageTarget, setImageTarget] = useState<{
     mode: "add" | "replace";
     layerId?: string;
   } | null>(null);
+  const [snapGuides, setSnapGuides] = useState<{
+    vertical: number | null;
+    horizontal: number | null;
+  }>({
+    vertical: null,
+    horizontal: null,
+  });
+
   const stageRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const dragRef = useRef<LayerDragState | null>(null);
-  const resizeRef = useRef<LayerResizeState | null>(null);
+  const dragRef = useRef<DragState | null>(null);
+  const resizeRef = useRef<ResizeState | null>(null);
   const previewRequestRef = useRef(0);
   const layoutRef = useRef(layout);
   const canvasRef = useRef(canvas);
-  const sourceRevision = `${template.template.id}:${template.template.updated_at}`;
-  const legacyPreviewSignature = buildLegacyPreviewSignature(layout);
+
+  const selectedLayer =
+    canvas.layers.find((layer) => layer.id === selectedLayerId) ?? null;
+  const selectedTextLayer =
+    selectedLayer?.kind === "text" && selectedLayer.text
+      ? selectedLayer.text
+      : null;
+  const selectedImageLayer =
+    selectedLayer?.kind === "image" && selectedLayer.image
+      ? selectedLayer.image
+      : null;
+
+  useEffect(() => {
+    for (const href of FONT_PRELOAD_URLS) {
+      const existing = document.querySelector(`link[href="${href}"]`);
+      if (!existing) {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = href;
+        document.head.appendChild(link);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const nextLayout = sanitizeTemplateLayout(template.layout);
+    const nextCanvas = sanitizeTemplateCanvas(nextLayout);
+    setLayout(nextLayout);
+    setCanvas(nextCanvas);
+    setSelectedLayerId(nextCanvas.layers[0]?.id ?? "");
+    setPreviewUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current);
+      }
+      return null;
+    });
+    setPreviewState("idle");
+    setPreviewMessage(
+      'Layers render instantly. Click "Preview" to generate PNG.',
+    );
+
+    // Load source image immediately
+    void loadSourceImage();
+  }, [template]);
+
+  // Load source image for background
+  async function loadSourceImage() {
+    try {
+      const response = await fetchTemplateSource(template.template.id);
+      if (response.ok) {
+        const blob = await response.blob();
+        const contentType = response.headers.get("Content-Type") || "image/png";
+        const url = URL.createObjectURL(blob);
+        setSourceImageUrl((current) => {
+          if (current) {
+            URL.revokeObjectURL(current);
+          }
+          return url;
+        });
+      }
+    } catch {
+      // Source image loading failed - continue without background
+    }
+  }
 
   useEffect(() => {
     layoutRef.current = layout;
@@ -141,104 +257,43 @@ export function TemplateLayoutEditor({
     canvasRef.current = canvas;
   }, [canvas]);
 
-  useEffect(() => {
-    const nextLayout = sanitizeTemplateLayout(template.layout);
-    const nextCanvas = sanitizeTemplateCanvas(nextLayout);
-    const hydratedLayout = sanitizeTemplateLayout({
-      ...nextLayout,
-      canvas: nextCanvas,
-    });
-    setLayout(hydratedLayout);
-    setCanvas(nextCanvas);
-    setSelectedLayerId(nextCanvas.layers[0]?.id ?? "");
-    setPdfDiagnostics(null);
-    setMessage("Canvas is ready. Legacy name export stays in sync.");
-  }, [template]);
+  // NOTE: renderPreview is now only called manually via "Preview" button
+  // No automatic rendering on changes
 
   useEffect(() => {
-    if (!previewName.trim() || !legacyPreviewSignature) {
-      return;
+    function isEditableTarget(target: EventTarget | null) {
+      if (!(target instanceof HTMLElement)) {
+        return false;
+      }
+
+      return (
+        target.isContentEditable ||
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT"
+      );
     }
 
-    const requestSignature = legacyPreviewSignature;
-    const timer = window.setTimeout(() => {
-      if (requestSignature === buildLegacyPreviewSignature(layoutRef.current)) {
-        void renderPreview({ silent: true });
+    function handleWindowKeyDown(event: KeyboardEvent) {
+      if (isEditableTarget(event.target)) {
+        return;
       }
-    }, 650);
 
-    return () => window.clearTimeout(timer);
-  }, [legacyPreviewSignature, previewName]);
-
-  useEffect(() => {
-    let isMounted = true;
-    let nextUrl: string | null = null;
-
-    setSourceState("loading");
-    setSourceUrl(null);
-    setSourceMime("application/octet-stream");
-
-    async function loadSource() {
-      try {
-        const [templateId] = sourceRevision.split(":");
-        const response = await fetchTemplateSource(templateId);
-        if (!response.ok) {
-          throw new Error("failed to load source");
-        }
-
-        const contentType = response.headers.get("content-type") || "application/octet-stream";
-        const blob = await response.blob();
-        nextUrl = URL.createObjectURL(new Blob([blob], { type: contentType }));
-
-        if (!isMounted) {
-          URL.revokeObjectURL(nextUrl);
-          return;
-        }
-
-        setSourceUrl(nextUrl);
-        setSourceMime(contentType);
-        setSourceState("ready");
-      } catch {
-        if (isMounted) {
-          setSourceState("error");
-        }
+      if (event.key !== "Delete" && event.key !== "Backspace") {
+        return;
       }
+
+      if (!selectedLayerId) {
+        return;
+      }
+
+      event.preventDefault();
+      removeLayer(selectedLayerId);
     }
 
-    void loadSource();
-
-    return () => {
-      isMounted = false;
-      if (nextUrl) {
-        URL.revokeObjectURL(nextUrl);
-      }
-    };
-  }, [sourceRevision]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadFontFamilies() {
-      try {
-        const { response, data } = await fetchFontFamilies();
-        if (!isMounted || !response.ok || !data) {
-          return;
-        }
-
-        setFontFamilies(data);
-      } catch {
-        if (isMounted) {
-          setFontFamilies([]);
-        }
-      }
-    }
-
-    void loadFontFamilies();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+    window.addEventListener("keydown", handleWindowKeyDown);
+    return () => window.removeEventListener("keydown", handleWindowKeyDown);
+  }, [selectedLayerId]);
 
   useEffect(() => {
     return () => {
@@ -249,66 +304,50 @@ export function TemplateLayoutEditor({
   }, [previewUrl]);
 
   useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) {
+    if (selectedLayer?.kind !== "text") {
+      setIsTextSettingsOpen(false);
+    }
+  }, [selectedLayer?.id, selectedLayer?.kind]);
+
+  useEffect(() => {
+    if (!isTextSettingsOpen) {
       return;
     }
 
-    const updateStageSize = () => {
-      const rect = stage.getBoundingClientRect();
-      setStageSize({
-        width: rect.width,
-        height: rect.height,
-      });
-    };
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsTextSettingsOpen(false);
+      }
+    }
 
-    updateStageSize();
-
-    const observer = new ResizeObserver(() => {
-      updateStageSize();
-    });
-    observer.observe(stage);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
-
-  const selectedLayer =
-    canvas.layers.find((layer) => layer.id === selectedLayerId) ?? canvas.layers[0] ?? null;
-  const legacyLayer =
-    canvas.layers.find((layer) => isLegacyNameLayer(layer)) ?? selectedLayer ?? null;
-  const legacyPreviewMetrics = buildTemplateSourceOverlayMetrics(
-    layout,
-    previewName,
-    pdfDiagnostics,
-  );
-  const debugRows = buildPreviewDebugRows(legacyPreviewMetrics, pdfDiagnostics);
-  const debugDeltaRows = buildPreviewDebugDeltaRows(legacyPreviewMetrics, pdfDiagnostics);
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [isTextSettingsOpen]);
 
   function applyCanvas(nextCanvas: TemplateCanvasData) {
     const nextLayout = syncLayoutWithCanvas(layoutRef.current, nextCanvas);
     const normalizedCanvas = sanitizeTemplateCanvas(nextLayout);
-    const hydratedLayout = sanitizeTemplateLayout({
-      ...nextLayout,
-      canvas: normalizedCanvas,
-    });
-
-    layoutRef.current = hydratedLayout;
+    layoutRef.current = nextLayout;
     canvasRef.current = normalizedCanvas;
-    setLayout(hydratedLayout);
+    setLayout(nextLayout);
     setCanvas(normalizedCanvas);
 
-    if (!normalizedCanvas.layers.some((layer) => layer.id === selectedLayerId)) {
+    if (
+      !normalizedCanvas.layers.some((layer) => layer.id === selectedLayerId)
+    ) {
       setSelectedLayerId(normalizedCanvas.layers[0]?.id ?? "");
     }
   }
 
-  function updateCanvas(updater: (current: TemplateCanvasData) => TemplateCanvasData) {
+  function updateCanvas(
+    updater: (current: TemplateCanvasData) => TemplateCanvasData,
+  ) {
     applyCanvas(updater(canvasRef.current));
   }
 
-  function updateSelectedLayer(updater: (layer: TemplateCanvasLayer) => TemplateCanvasLayer) {
+  function updateSelectedLayer(
+    updater: (layer: TemplateCanvasLayer) => TemplateCanvasLayer,
+  ) {
     if (!selectedLayer) {
       return;
     }
@@ -326,104 +365,6 @@ export function TemplateLayoutEditor({
     );
   }
 
-  async function handleSave(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSaving(true);
-    setMessage("Saving canvas...");
-
-    try {
-      const payload = sanitizeTemplateLayout({
-        ...layoutRef.current,
-        canvas: canvasRef.current,
-      });
-      const { response, data } = await saveTemplateLayout(template.template.id, payload);
-      if (!response.ok || !data) {
-        setMessage("Layout save failed.");
-        setIsSaving(false);
-        return;
-      }
-
-      const nextLayout = sanitizeTemplateLayout(data);
-      const nextCanvas = sanitizeTemplateCanvas(nextLayout);
-      const hydratedLayout = sanitizeTemplateLayout({
-        ...nextLayout,
-        canvas: nextCanvas,
-      });
-      setLayout(hydratedLayout);
-      setCanvas(nextCanvas);
-      setMessage("Canvas saved. Legacy PDF export kept intact.");
-      onSaved?.(hydratedLayout);
-      void renderPreview({ silent: false });
-    } catch {
-      setMessage("Layout save failed.");
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  async function renderPreview(options?: { silent?: boolean }) {
-    const requestLayout = sanitizeTemplateLayout(layoutRef.current);
-    const localDiagnosticsForRequest = computeTemplatePreviewMetrics(requestLayout, previewName);
-    const requestId = previewRequestRef.current + 1;
-    previewRequestRef.current = requestId;
-    const shouldShowStatus = !options?.silent || !previewUrl;
-
-    setIsRendering(true);
-    if (shouldShowStatus) {
-      setMessage("Rendering server PDF preview...");
-    }
-
-    try {
-      const response = await previewTemplate(template.template.id, previewName, requestLayout);
-      if (requestId !== previewRequestRef.current) {
-        return;
-      }
-
-      if (!response.ok) {
-        if (shouldShowStatus) {
-          setMessage("Preview render failed.");
-        }
-        setIsRendering(false);
-        return;
-      }
-
-      const nextDiagnostics = parsePdfPreviewDiagnostics(
-        response.headers.get("X-Template-Preview-Diagnostics"),
-      );
-      setPdfDiagnostics(nextDiagnostics);
-      if (nextDiagnostics) {
-        console.info("[template-preview-diagnostics]", {
-          source: localDiagnosticsForRequest,
-          pdf: nextDiagnostics,
-        });
-      }
-
-      const blob = await response.blob();
-      if (requestId !== previewRequestRef.current) {
-        return;
-      }
-
-      const nextUrl = URL.createObjectURL(blob);
-      setPreviewUrl((current) => {
-        if (current) {
-          URL.revokeObjectURL(current);
-        }
-        return nextUrl;
-      });
-      if (shouldShowStatus) {
-        setMessage("Server PDF preview updated.");
-      }
-    } catch {
-      if (requestId === previewRequestRef.current && shouldShowStatus) {
-        setMessage("Preview render failed.");
-      }
-    } finally {
-      if (requestId === previewRequestRef.current) {
-        setIsRendering(false);
-      }
-    }
-  }
-
   function getStagePoint(clientX: number, clientY: number) {
     const stage = stageRef.current;
     if (!stage) {
@@ -431,6 +372,10 @@ export function TemplateLayoutEditor({
     }
 
     const rect = stage.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+
     return {
       x: ((clientX - rect.left) / rect.width) * layoutRef.current.page_width,
       y: ((clientY - rect.top) / rect.height) * layoutRef.current.page_height,
@@ -444,40 +389,73 @@ export function TemplateLayoutEditor({
     }
 
     const rect = stage.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+
     return {
       x: (deltaClientX / rect.width) * layoutRef.current.page_width,
       y: (deltaClientY / rect.height) * layoutRef.current.page_height,
     };
   }
 
-  function beginLayerDrag(layer: TemplateCanvasLayer, event: ReactPointerEvent<HTMLDivElement>) {
-    resizeRef.current = null;
-    setSelectedLayerId(layer.id);
-    setSnapGuides({ x: false, y: false });
+  function beginLayerDrag(
+    layer: TemplateCanvasLayer,
+    event: ReactPointerEvent<HTMLButtonElement>,
+  ) {
     const point = getStagePoint(event.clientX, event.clientY);
     if (!point) {
       return;
     }
 
+    setSelectedLayerId(layer.id);
     dragRef.current = {
       layerId: layer.id,
       offsetX: point.x - layer.x,
       offsetY: point.y - layer.y,
-      width: layer.width,
-      height: layer.height,
+      pointerId: event.pointerId,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
-  function handleLayerPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+  function handleLayerDragMove(event: ReactPointerEvent<HTMLButtonElement>) {
     const drag = dragRef.current;
-    if (!drag) {
+    if (!drag || drag.pointerId !== event.pointerId) {
       return;
     }
 
     const point = getStagePoint(event.clientX, event.clientY);
     if (!point) {
       return;
+    }
+
+    const SNAP_THRESHOLD = 15;
+    const layout = layoutRef.current;
+    const centerX = layout.page_width / 2;
+    const centerY = layout.page_height / 2;
+
+    let nextX = Math.round(point.x - drag.offsetX);
+    let nextY = Math.round(point.y - drag.offsetY);
+
+    const layer = canvasRef.current.layers.find((l) => l.id === drag.layerId);
+    if (layer) {
+      const layerCenterX = nextX + layer.width / 2;
+      const layerCenterY = nextY + layer.height / 2;
+
+      const snapX = Math.abs(layerCenterX - centerX) < SNAP_THRESHOLD;
+      const snapY = Math.abs(layerCenterY - centerY) < SNAP_THRESHOLD;
+
+      if (snapX) {
+        nextX = Math.round(centerX - layer.width / 2);
+      }
+      if (snapY) {
+        nextY = Math.round(centerY - layer.height / 2);
+      }
+
+      setSnapGuides({
+        vertical: snapX ? centerX : null,
+        horizontal: snapY ? centerY : null,
+      });
     }
 
     updateCanvas((current) =>
@@ -486,31 +464,6 @@ export function TemplateLayoutEditor({
           if (layer.id !== drag.layerId) {
             return layer;
           }
-
-          let nextX = clamp(Math.round(point.x - drag.offsetX), 0, layoutRef.current.page_width);
-          let nextY = clamp(Math.round(point.y - drag.offsetY), 0, layoutRef.current.page_height);
-          const snapThresholdX = getSnapThreshold(layoutRef.current.page_width, stageSize.width);
-          const snapThresholdY = getSnapThreshold(layoutRef.current.page_height, stageSize.height);
-          const pageCenterX = layoutRef.current.page_width / 2;
-          const pageCenterY = layoutRef.current.page_height / 2;
-          const layerCenterX = nextX + layer.width / 2;
-          const layerCenterY = nextY + layer.height / 2;
-          const snapX = Math.abs(layerCenterX - pageCenterX) <= snapThresholdX;
-          const snapY = Math.abs(layerCenterY - pageCenterY) <= snapThresholdY;
-
-          if (snapX) {
-            nextX = Math.round(pageCenterX - layer.width / 2);
-          }
-
-          if (snapY) {
-            nextY = Math.round(pageCenterY - layer.height / 2);
-          }
-
-          setSnapGuides((currentGuides) =>
-            currentGuides.x === snapX && currentGuides.y === snapY
-              ? currentGuides
-              : { x: snapX, y: snapY },
-          );
 
           return clampLayerToLayout(
             {
@@ -525,9 +478,14 @@ export function TemplateLayoutEditor({
     );
   }
 
-  function handleLayerPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+  function endLayerDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
     dragRef.current = null;
-    setSnapGuides({ x: false, y: false });
+    setSnapGuides({ vertical: null, horizontal: null });
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -536,14 +494,15 @@ export function TemplateLayoutEditor({
   function beginResize(
     layer: TemplateCanvasLayer,
     mode: ResizeMode,
-    event: ReactPointerEvent<HTMLButtonElement>,
+    event: ReactPointerEvent<HTMLElement>,
   ) {
-    dragRef.current = null;
+    event.preventDefault();
+    event.stopPropagation();
     setSelectedLayerId(layer.id);
-    setSnapGuides({ x: false, y: false });
     resizeRef.current = {
       layerId: layer.id,
       mode,
+      pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
       startLayer: layer,
@@ -551,19 +510,22 @@ export function TemplateLayoutEditor({
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
-  function handleResizeMove(event: ReactPointerEvent<HTMLButtonElement>) {
+  function handleResizeMove(event: ReactPointerEvent<HTMLElement>) {
     const resize = resizeRef.current;
-    if (!resize) {
+    if (!resize || resize.pointerId !== event.pointerId) {
       return;
     }
 
-    const delta = getStageDelta(event.clientX - resize.startX, event.clientY - resize.startY);
+    const delta = getStageDelta(
+      event.clientX - resize.startX,
+      event.clientY - resize.startY,
+    );
     if (!delta) {
       return;
     }
 
-    const minWidth = resize.startLayer.kind === "image" ? 60 : 140;
-    const minHeight = resize.startLayer.kind === "image" ? 60 : 48;
+    const minWidth = resize.startLayer.kind === "image" ? 60 : 180;
+    const minHeight = resize.startLayer.kind === "image" ? 60 : 56;
 
     updateCanvas((current) =>
       updateCanvasLayers(current, (layers) =>
@@ -572,480 +534,900 @@ export function TemplateLayoutEditor({
             return layer;
           }
 
-          const start = resize.startLayer;
-          let nextLayer = { ...layer };
-          const rightEdge = start.x + start.width;
-          const bottomEdge = start.y + start.height;
+          const rightEdge = resize.startLayer.x + resize.startLayer.width;
+          const bottomEdge = resize.startLayer.y + resize.startLayer.height;
 
           switch (resize.mode) {
             case "left": {
-              const nextLeft = clamp(Math.round(start.x + delta.x), 0, rightEdge - minWidth);
-              nextLayer = {
-                ...nextLayer,
-                x: nextLeft,
-                width: Math.max(minWidth, Math.round(rightEdge - nextLeft)),
+              const nextX = clampToRange(
+                resize.startLayer.x + delta.x,
+                0,
+                rightEdge - minWidth,
+              );
+              return {
+                ...layer,
+                x: Math.round(nextX),
+                width: Math.round(rightEdge - nextX),
               };
-              break;
             }
             case "right": {
-              nextLayer = {
-                ...nextLayer,
-                width: clamp(
-                  Math.round(start.width + delta.x),
-                  minWidth,
-                  layoutRef.current.page_width - start.x,
-                ),
-              };
-              break;
+              const nextWidth = clampToRange(
+                resize.startLayer.width + delta.x,
+                minWidth,
+                layoutRef.current.page_width - resize.startLayer.x,
+              );
+              return { ...layer, width: Math.round(nextWidth) };
             }
             case "top": {
-              const nextTop = clamp(Math.round(start.y + delta.y), 0, bottomEdge - minHeight);
-              nextLayer = {
-                ...nextLayer,
-                y: nextTop,
-                height: Math.max(minHeight, Math.round(bottomEdge - nextTop)),
+              const nextY = clampToRange(
+                resize.startLayer.y + delta.y,
+                0,
+                bottomEdge - minHeight,
+              );
+              return {
+                ...layer,
+                y: Math.round(nextY),
+                height: Math.round(bottomEdge - nextY),
               };
-              break;
             }
             case "bottom": {
-              nextLayer = {
-                ...nextLayer,
-                height: clamp(
-                  Math.round(start.height + delta.y),
-                  minHeight,
-                  layoutRef.current.page_height - start.y,
-                ),
-              };
-              break;
+              const nextHeight = clampToRange(
+                resize.startLayer.height + delta.y,
+                minHeight,
+                layoutRef.current.page_height - resize.startLayer.y,
+              );
+              return { ...layer, height: Math.round(nextHeight) };
             }
             case "top-left": {
-              const nextLeft = clamp(Math.round(start.x + delta.x), 0, rightEdge - minWidth);
-              const nextTop = clamp(Math.round(start.y + delta.y), 0, bottomEdge - minHeight);
-              nextLayer = {
-                ...nextLayer,
-                x: nextLeft,
-                y: nextTop,
-                width: Math.max(minWidth, Math.round(rightEdge - nextLeft)),
-                height: Math.max(minHeight, Math.round(bottomEdge - nextTop)),
+              const nextX = clampToRange(
+                resize.startLayer.x + delta.x,
+                0,
+                rightEdge - minWidth,
+              );
+              const nextY = clampToRange(
+                resize.startLayer.y + delta.y,
+                0,
+                bottomEdge - minHeight,
+              );
+              return {
+                ...layer,
+                x: Math.round(nextX),
+                y: Math.round(nextY),
+                width: Math.round(rightEdge - nextX),
+                height: Math.round(bottomEdge - nextY),
               };
-              break;
             }
             case "top-right": {
-              const nextTop = clamp(Math.round(start.y + delta.y), 0, bottomEdge - minHeight);
-              nextLayer = {
-                ...nextLayer,
-                y: nextTop,
-                width: clamp(
-                  Math.round(start.width + delta.x),
-                  minWidth,
-                  layoutRef.current.page_width - start.x,
-                ),
-                height: Math.max(minHeight, Math.round(bottomEdge - nextTop)),
+              const nextWidth = clampToRange(
+                resize.startLayer.width + delta.x,
+                minWidth,
+                layoutRef.current.page_width - resize.startLayer.x,
+              );
+              const nextY = clampToRange(
+                resize.startLayer.y + delta.y,
+                0,
+                bottomEdge - minHeight,
+              );
+              return {
+                ...layer,
+                y: Math.round(nextY),
+                width: Math.round(nextWidth),
+                height: Math.round(bottomEdge - nextY),
               };
-              break;
             }
             case "bottom-left": {
-              const nextLeft = clamp(Math.round(start.x + delta.x), 0, rightEdge - minWidth);
-              nextLayer = {
-                ...nextLayer,
-                x: nextLeft,
-                width: Math.max(minWidth, Math.round(rightEdge - nextLeft)),
-                height: clamp(
-                  Math.round(start.height + delta.y),
-                  minHeight,
-                  layoutRef.current.page_height - start.y,
-                ),
+              const nextX = clampToRange(
+                resize.startLayer.x + delta.x,
+                0,
+                rightEdge - minWidth,
+              );
+              const nextHeight = clampToRange(
+                resize.startLayer.height + delta.y,
+                minHeight,
+                layoutRef.current.page_height - resize.startLayer.y,
+              );
+              return {
+                ...layer,
+                x: Math.round(nextX),
+                width: Math.round(rightEdge - nextX),
+                height: Math.round(nextHeight),
               };
-              break;
             }
             case "bottom-right": {
-              nextLayer = {
-                ...nextLayer,
-                width: clamp(
-                  Math.round(start.width + delta.x),
-                  minWidth,
-                  layoutRef.current.page_width - start.x,
-                ),
-                height: clamp(
-                  Math.round(start.height + delta.y),
-                  minHeight,
-                  layoutRef.current.page_height - start.y,
-                ),
+              const nextWidth = clampToRange(
+                resize.startLayer.width + delta.x,
+                minWidth,
+                layoutRef.current.page_width - resize.startLayer.x,
+              );
+              const nextHeight = clampToRange(
+                resize.startLayer.height + delta.y,
+                minHeight,
+                layoutRef.current.page_height - resize.startLayer.y,
+              );
+              return {
+                ...layer,
+                width: Math.round(nextWidth),
+                height: Math.round(nextHeight),
               };
-              break;
             }
           }
-
-          return clampLayerToLayout(nextLayer, layoutRef.current);
         }),
       ),
     );
   }
 
-  function handleResizeUp(event: ReactPointerEvent<HTMLButtonElement>) {
+  function endResize(event: ReactPointerEvent<HTMLElement>) {
+    const resize = resizeRef.current;
+    if (!resize || resize.pointerId !== event.pointerId) {
+      return;
+    }
+
     resizeRef.current = null;
-    setSnapGuides({ x: false, y: false });
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
   }
 
-  function handleStagePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.target === event.currentTarget) {
-      setSelectedLayerId(legacyLayer?.id ?? "");
-    }
+  function selectLayer(layerId: string) {
+    setSelectedLayerId(layerId);
   }
 
-  function handleAddTextLayer() {
-    updateCanvas((current) =>
-      updateCanvasLayers(current, (layers) => [
-        ...layers,
-        createTextCanvasLayer(layoutRef.current),
-      ]),
-    );
-    setMessage("Added a new text layer.");
+  function addTextLayer() {
+    const layer = createTextCanvasLayer(layoutRef.current);
+    updateCanvas((current) => ({
+      ...current,
+      layers: [...current.layers, layer],
+    }));
+    setSelectedLayerId(layer.id);
   }
 
-  function handleUploadImage(mode: "add" | "replace", layerId?: string) {
-    setImageAction({ mode, layerId });
+  function addNameLayer() {
+    const layer = createTextCanvasLayer(layoutRef.current);
+    layer.name = "Participant name";
+    const baseText = layer.text!;
+    layer.text = {
+      content: "{{participant.full_name}}",
+      binding: null,
+      font_family: layoutRef.current.font_family,
+      font_size: layoutRef.current.font_size,
+      font_color_hex: layoutRef.current.font_color_hex,
+      text_align: "center",
+      vertical_align: "center",
+      auto_shrink: true,
+      font_weight: baseText.font_weight,
+      letter_spacing: baseText.letter_spacing,
+      line_height: baseText.line_height,
+      background_color_hex: baseText.background_color_hex,
+    };
+    layer.role = "legacy_name";
+    updateCanvas((current) => ({
+      ...current,
+      layers: [...current.layers, layer],
+    }));
+    setSelectedLayerId(layer.id);
+  }
+
+  function addImageLayer() {
+    setImageTarget({ mode: "add" });
+    setIsImagePickerOpen(true);
     imageInputRef.current?.click();
   }
 
-  async function handleImagePicked(event: ChangeEvent<HTMLInputElement>) {
+  function duplicateLayer(layerId: string) {
+    const layer = canvasRef.current.layers.find((item) => item.id === layerId);
+    if (!layer) {
+      return;
+    }
+
+    const duplicate = cloneLayer(layer);
+    updateCanvas((current) => ({
+      ...current,
+      layers: [...current.layers, duplicate],
+    }));
+    setSelectedLayerId(duplicate.id);
+  }
+
+  function removeLayer(layerId: string) {
+    updateCanvas((current) => {
+      const index = current.layers.findIndex((layer) => layer.id === layerId);
+      if (index === -1) {
+        return current;
+      }
+
+      const nextLayers = current.layers.filter((layer) => layer.id !== layerId);
+      const nextSelected = nextLayers[index] ?? nextLayers[index - 1] ?? null;
+      window.setTimeout(() => {
+        setSelectedLayerId(nextSelected?.id ?? "");
+      }, 0);
+
+      return {
+        ...current,
+        layers: nextLayers,
+      };
+    });
+  }
+
+  function moveLayer(layerId: string, direction: "up" | "down") {
+    updateCanvas((current) => {
+      const index = current.layers.findIndex((layer) => layer.id === layerId);
+      if (index === -1) {
+        return current;
+      }
+
+      const next = [...current.layers];
+      const targetIndex = direction === "up" ? index + 1 : index - 1;
+      if (targetIndex < 0 || targetIndex >= next.length) {
+        return current;
+      }
+
+      const [layer] = next.splice(index, 1);
+      next.splice(targetIndex, 0, layer);
+      return { ...current, layers: next };
+    });
+  }
+
+  async function handleImageFileChange(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file || !imageAction) {
+
+    if (!file || !imageTarget) {
+      setIsImagePickerOpen(false);
+      setImageTarget(null);
       return;
     }
 
-    const src = await readFileAsDataUrl(file);
+    const src = await fileToDataUrl(file);
+    const imageMetrics = src ? await getImageMetrics(src) : null;
     if (!src) {
-      setMessage("Image upload failed.");
+      setImageTarget(null);
+      setIsImagePickerOpen(false);
       return;
     }
 
-    if (imageAction.mode === "add") {
-      updateCanvas((current) =>
-        updateCanvasLayers(current, (layers) => [
-          ...layers,
-          createImageCanvasLayer(layoutRef.current, src, file.name),
-        ]),
+    if (imageTarget.mode === "add") {
+      const layer = createImageCanvasLayer(
+        layoutRef.current,
+        src,
+        file.name,
+        imageMetrics ?? undefined,
       );
-      setMessage(`Added image layer ${file.name}.`);
-    } else if (imageAction.layerId) {
-      setSelectedLayerId(imageAction.layerId);
+      updateCanvas((current) => ({
+        ...current,
+        layers: [...current.layers, layer],
+      }));
+      setSelectedLayerId(layer.id);
+    } else if (imageTarget.layerId) {
+      const nextSize = imageMetrics
+        ? getFittedImageLayerSize(
+            layoutRef.current,
+            imageMetrics.width,
+            imageMetrics.height,
+          )
+        : null;
       updateCanvas((current) =>
         updateCanvasLayers(current, (layers) =>
           layers.map((layer) =>
-            layer.id === imageAction.layerId
-              ? {
-                  ...layer,
-                  image: layer.image
-                    ? {
-                        ...layer.image,
+            layer.id === imageTarget.layerId && layer.kind === "image"
+              ? clampLayerToLayout(
+                  {
+                    ...layer,
+                    ...(nextSize
+                      ? {
+                          x: Math.round(
+                            layer.x + (layer.width - nextSize.width) / 2,
+                          ),
+                          y: Math.round(
+                            layer.y + (layer.height - nextSize.height) / 2,
+                          ),
+                          width: nextSize.width,
+                          height: nextSize.height,
+                        }
+                      : null),
+                    image: {
+                      ...(layer.image ?? {
                         src,
-                      }
-                    : null,
-                }
+                        fit: "fill",
+                        border_radius: 16,
+                      }),
+                      src,
+                      fit: "contain",
+                    },
+                  },
+                  layoutRef.current,
+                )
               : layer,
           ),
         ),
       );
-      setMessage(`Replaced image layer ${file.name}.`);
+      setSelectedLayerId(imageTarget.layerId);
     }
 
-    setImageAction(null);
+    setImageTarget(null);
+    setIsImagePickerOpen(false);
   }
 
-  function handleDeleteLayer(layer: TemplateCanvasLayer) {
-    if (isLegacyNameLayer(layer)) {
-      setMessage("Legacy participant name layer cannot be removed.");
-      return;
+  async function handleSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSaving(true);
+    setPreviewMessage("Saving layout...");
+
+    try {
+      const payload = sanitizeTemplateLayout({
+        ...layoutRef.current,
+        canvas: canvasRef.current,
+      });
+      const { response, data } = await saveTemplateLayout(
+        template.template.id,
+        payload,
+      );
+      if (!response.ok || !data) {
+        setPreviewState("error");
+        setPreviewMessage("Layout save failed.");
+        return;
+      }
+
+      const nextLayout = sanitizeTemplateLayout(data);
+      const nextCanvas = sanitizeTemplateCanvas(nextLayout);
+      setLayout(nextLayout);
+      setCanvas(nextCanvas);
+      layoutRef.current = nextLayout;
+      canvasRef.current = nextCanvas;
+      onSaved?.(nextLayout);
+      setPreviewState((current) => (current === "error" ? "idle" : current));
+      setPreviewMessage(
+        "Layout saved. Generate preview when you want to check the server render.",
+      );
+    } catch {
+      setPreviewState("error");
+      setPreviewMessage("Layout save failed.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function renderPreview(options?: { silent?: boolean }) {
+    const requestId = previewRequestRef.current + 1;
+    previewRequestRef.current = requestId;
+    const shouldShowStatus = !options?.silent || !previewUrl;
+
+    setPreviewState("loading");
+    if (shouldShowStatus) {
+      setPreviewMessage("Rendering the backend proof...");
     }
 
-    updateCanvas((current) =>
-      updateCanvasLayers(current, (layers) => layers.filter((item) => item.id !== layer.id)),
-    );
-    setSelectedLayerId(legacyLayer?.id ?? "");
+    try {
+      const requestLayout = sanitizeTemplateLayout({
+        ...layoutRef.current,
+        canvas: canvasRef.current,
+      });
+      const response = await previewTemplate(
+        template.template.id,
+        previewName,
+        requestLayout,
+      );
+      if (requestId !== previewRequestRef.current) {
+        return;
+      }
+
+      if (!response.ok) {
+        if (shouldShowStatus) {
+          setPreviewMessage("Preview render failed.");
+        }
+        setPreviewState("error");
+        return;
+      }
+
+      const blob = await response.blob();
+      if (requestId !== previewRequestRef.current) {
+        return;
+      }
+
+      const nextUrl = URL.createObjectURL(blob);
+      setPreviewUrl((current) => {
+        if (current) {
+          URL.revokeObjectURL(current);
+        }
+        return nextUrl;
+      });
+      setPreviewState("ready");
+      if (shouldShowStatus) {
+        setPreviewMessage("Backend proof updated.");
+      }
+    } catch {
+      if (requestId === previewRequestRef.current) {
+        setPreviewState("error");
+        if (shouldShowStatus) {
+          setPreviewMessage("Could not render the backend proof.");
+        }
+      }
+    }
   }
 
+  const previewBoxStyles = canvas.layers.map((layer) => {
+    const left = (layer.x / layout.page_width) * 100;
+    const top = (layer.y / layout.page_height) * 100;
+    const width = (layer.width / layout.page_width) * 100;
+    const height = (layer.height / layout.page_height) * 100;
+
+    return {
+      id: layer.id,
+      left,
+      top,
+      width,
+      height,
+    };
+  });
+
+  const layerCount = canvas.layers.length;
+  const hasProof = previewUrl !== null;
   return (
-    <section className="rounded-[2rem] border border-white/10 bg-panel/95 p-4 backdrop-blur-xl sm:p-5">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
       {showHeader ? (
-        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-4">
-          <div className="max-w-3xl">
-            <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
-              Canvas editor
-            </p>
-            <h2 className="mt-3 text-3xl font-black text-white">{template.template.name}</h2>
-            <p className="mt-2 text-sm leading-6 text-white/60">
-              Fullscreen Figma-like canvas with text and image layers. The legacy participant name
-              layer still mirrors into the old export fields and server PDF preview.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <TopPill>{template.template.source_kind.toUpperCase()}</TopPill>
-            <TopPill>
-              {layout.page_width} × {layout.page_height}
-            </TopPill>
-            <TopPill>{canvas.layers.length} layers</TopPill>
+        <div className="shrink-0 border-b border-white/10 pb-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="max-w-2xl">
+              <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
+                Layout editor
+              </p>
+              <h2 className="mt-3 text-2xl font-black text-white">
+                {template.template.name}
+              </h2>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 self-start">
+              <Pill>
+                {layout.page_width} × {layout.page_height}
+              </Pill>
+            </div>
           </div>
         </div>
       ) : null}
 
-      <form className="mt-4 space-y-4" onSubmit={(event) => void handleSave(event)}>
-        <div className="flex flex-wrap items-center gap-2 rounded-[1.5rem] border border-white/10 bg-black/20 p-3">
-          <ToolbarButton onClick={handleAddTextLayer}>
-            <Type className="size-4" />
-            Add text
-          </ToolbarButton>
-          <ToolbarButton onClick={() => handleUploadImage("add")}>
-            <FileImage className="size-4" />
-            Add image
-          </ToolbarButton>
-          <ToolbarButton onClick={() => void renderPreview()}>
-            {isRendering ? (
-              <LoaderCircle className="size-4 animate-spin" />
-            ) : (
-              <WandSparkles className="size-4" />
-            )}
-            Server preview
-          </ToolbarButton>
-          <button className="btn-hero glow-primary rounded-2xl bg-white/[0.05]" type="submit">
-            {isSaving ? (
-              <>
-                <LoaderCircle className="size-4 animate-spin" />
-                Saving
-              </>
-            ) : (
-              <>
-                <Save className="size-4" />
-                Save canvas
-              </>
-            )}
-          </button>
+      <form
+        className="mt-6 grid min-h-0 flex-1 gap-6 xl:grid-cols-[minmax(0,1.5fr)_420px]"
+        onSubmit={(event) => void handleSave(event)}
+      >
+        <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
+          <div className="rounded-[1.75rem] border border-white/10 bg-black/25 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-white/55">
+                <Sparkles className="size-4 text-primary" />
+                Live canvas
+              </div>
+            </div>
 
-          <div className="ml-auto rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/65">
-            Legacy export layer: synced
+            <div
+              ref={stageRef}
+              className="relative mt-4 overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#09090f]"
+              style={{
+                aspectRatio: `${layout.page_width} / ${layout.page_height}`,
+              }}
+            >
+              {/* Background image - loaded immediately from template source */}
+              {sourceImageUrl ? (
+                <img
+                  alt="Template background"
+                  className="absolute inset-0 h-full w-full object-fill"
+                  src={sourceImageUrl}
+                />
+              ) : (
+                <div className="absolute inset-0 bg-[#1a1a2e]" />
+              )}
+
+              <div className="absolute inset-0">
+                {previewBoxStyles.map((box) => {
+                  const layer = canvas.layers.find(
+                    (item) => item.id === box.id,
+                  );
+                  if (!layer) {
+                    return null;
+                  }
+
+                  const isSelected = layer.id === selectedLayerId;
+                  const isText = layer.kind === "text";
+                  return (
+                    <div
+                      key={layer.id}
+                      className="absolute"
+                      style={{
+                        left: `${box.left}%`,
+                        top: `${box.top}%`,
+                        width: `${box.width}%`,
+                        height: `${box.height}%`,
+                      }}
+                    >
+                      <button
+                        aria-label={`Move ${layer.name}`}
+                        className={cn(
+                          "absolute inset-0 rounded-[1rem] border border-dashed bg-transparent text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                          isSelected
+                            ? "border-primary/80 bg-primary/10 shadow-[0_0_0_1px_rgba(255,255,255,0.06)]"
+                            : "border-white/15 hover:border-white/30 hover:bg-white/[0.03]",
+                          "cursor-move",
+                        )}
+                        type="button"
+                        onPointerDown={(event) => beginLayerDrag(layer, event)}
+                        onPointerMove={(event) => handleLayerDragMove(event)}
+                        onPointerUp={(event) => endLayerDrag(event)}
+                        onClick={() => selectLayer(layer.id)}
+                      >
+                        {isText && layer.text ? (
+                          <span
+                            className="pointer-events-none absolute inset-0 overflow-hidden p-1"
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              justifyContent:
+                                layer.text.vertical_align === "center"
+                                  ? "center"
+                                  : layer.text.vertical_align === "bottom"
+                                    ? "flex-end"
+                                    : "flex-start",
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: "100%",
+                                fontFamily: `"${layer.text.font_family}", sans-serif`,
+                                fontSize: `${Math.max(8, layer.text.font_size * 0.45)}px`,
+                                fontWeight: layer.text.font_weight,
+                                letterSpacing: `${(layer.text.letter_spacing ?? 0) * 0.45}px`,
+                                lineHeight: `${(layer.text.line_height ?? 130) / 100}`,
+                                color: layer.text.font_color_hex,
+                                textAlign: layer.text
+                                  .text_align as React.CSSProperties["textAlign"],
+                                wordBreak: "break-word",
+                              }}
+                            >
+                              {resolveCanvasLayerText(
+                                layer.text,
+                                previewName,
+                                buildPreviewBindingValues(
+                                  previewName,
+                                  template,
+                                ),
+                              )}
+                            </span>
+                          </span>
+                        ) : isText ? (
+                          <span className="pointer-events-none absolute left-3 bottom-3 max-w-[calc(100%-24px)] rounded-full border border-white/10 bg-black/45 px-2 py-1 text-[11px] text-white/60">
+                            Text layer
+                          </span>
+                        ) : layer.kind === "image" && layer.image?.src ? (
+                          <span
+                            className="pointer-events-none absolute inset-0 overflow-hidden rounded-[1rem]"
+                            style={{
+                              padding: `${layer.image.border_radius ?? 0}px`,
+                            }}
+                          >
+                            <img
+                              alt={layer.name}
+                              className="pointer-events-none h-full w-full"
+                              src={layer.image.src}
+                              style={{
+                                objectFit:
+                                  layer.image.fit === "contain"
+                                    ? "contain"
+                                    : layer.image.fit === "cover"
+                                      ? "cover"
+                                      : "fill",
+                                borderRadius: `${layer.image.border_radius ?? 0}px`,
+                              }}
+                            />
+                          </span>
+                        ) : (
+                          <span className="pointer-events-none absolute left-3 bottom-3 rounded-full border border-white/10 bg-black/45 px-2 py-1 text-[11px] text-white/60">
+                            {layer.kind === "image" ? "Image layer" : "Layer"}
+                          </span>
+                        )}
+                      </button>
+
+                      {isSelected && (
+                        <>
+                          <ResizeHandle
+                            position="top-left"
+                            onPointerDown={(e) =>
+                              beginResize(layer, "top-left", e)
+                            }
+                            onPointerMove={handleResizeMove}
+                            onPointerUp={endResize}
+                          />
+                          <ResizeHandle
+                            position="top-right"
+                            onPointerDown={(e) =>
+                              beginResize(layer, "top-right", e)
+                            }
+                            onPointerMove={handleResizeMove}
+                            onPointerUp={endResize}
+                          />
+                          <ResizeHandle
+                            position="bottom-left"
+                            onPointerDown={(e) =>
+                              beginResize(layer, "bottom-left", e)
+                            }
+                            onPointerMove={handleResizeMove}
+                            onPointerUp={endResize}
+                          />
+                          <ResizeHandle
+                            position="bottom-right"
+                            onPointerDown={(e) =>
+                              beginResize(layer, "bottom-right", e)
+                            }
+                            onPointerMove={handleResizeMove}
+                            onPointerUp={endResize}
+                          />
+                          <ResizeHandle
+                            position="top"
+                            onPointerDown={(e) => beginResize(layer, "top", e)}
+                            onPointerMove={handleResizeMove}
+                            onPointerUp={endResize}
+                          />
+                          <ResizeHandle
+                            position="bottom"
+                            onPointerDown={(e) =>
+                              beginResize(layer, "bottom", e)
+                            }
+                            onPointerMove={handleResizeMove}
+                            onPointerUp={endResize}
+                          />
+                          <ResizeHandle
+                            position="left"
+                            onPointerDown={(e) => beginResize(layer, "left", e)}
+                            onPointerMove={handleResizeMove}
+                            onPointerUp={endResize}
+                          />
+                          <ResizeHandle
+                            position="right"
+                            onPointerDown={(e) =>
+                              beginResize(layer, "right", e)
+                            }
+                            onPointerMove={handleResizeMove}
+                            onPointerUp={endResize}
+                          />
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Snap guides */}
+                {snapGuides.vertical !== null && (
+                  <div
+                    className="pointer-events-none absolute top-0 bottom-0 w-px bg-primary/60"
+                    style={{
+                      left: `${(snapGuides.vertical / layout.page_width) * 100}%`,
+                    }}
+                  />
+                )}
+                {snapGuides.horizontal !== null && (
+                  <div
+                    className="pointer-events-none absolute left-0 right-0 h-px bg-primary/60"
+                    style={{
+                      top: `${(snapGuides.horizontal / layout.page_height) * 100}%`,
+                    }}
+                  />
+                )}
+
+                {previewState === "loading" ? (
+                  <div className="pointer-events-none absolute right-4 top-4 z-20">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/75 px-4 py-2 text-xs text-white/75 shadow-lg backdrop-blur-xl">
+                      <LoaderCircle className="size-4 animate-spin" />
+                      Rendering preview
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <button
+              className="btn-hero inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white/80 transition hover:border-primary/30 hover:text-white"
+              type="button"
+              onClick={() => addTextLayer()}
+            >
+              <Type className="size-4" />
+              Add text block
+            </button>
+            <button
+              className="btn-hero inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white/80 transition hover:border-primary/30 hover:text-white"
+              type="button"
+              onClick={() => addImageLayer()}
+            >
+              <ImagePlus className="size-4" />
+              Add image asset
+            </button>
           </div>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)_360px]">
-          <aside className="space-y-4 rounded-[1.75rem] border border-white/10 bg-black/20 p-4">
+        <aside className="min-h-0 space-y-4 overflow-y-auto pr-1">
+          <section className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4">
             <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-white/55">
-                <Layers3 className="size-4 text-primary" />
-                Layers
+              <div>
+                <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">
+                  Server preview
+                </p>
+                <p className="mt-2 text-sm leading-6 text-white/58">
+                  Generate the exported PNG from the backend renderer.
+                </p>
               </div>
-              <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-[11px] text-white/55">
-                {canvas.layers.length}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              {canvas.layers.map((layer, index) => (
-                <div
-                  key={layer.id}
-                  className={cn(
-                    "rounded-[1.2rem] border px-3 py-3 transition",
-                    selectedLayer?.id === layer.id
-                      ? "border-primary/35 bg-primary/10"
-                      : "border-white/10 bg-white/[0.03] hover:border-primary/20 hover:bg-white/[0.05]",
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <button
-                      className="min-w-0 flex-1 text-left"
-                      type="button"
-                      onClick={() => setSelectedLayerId(layer.id)}
-                    >
-                      <p className="truncate text-sm font-medium text-white">
-                        {getCanvasLayerLabel(layer)}
-                      </p>
-                      <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-white/42">
-                        {layer.kind}
-                        {isLegacyNameLayer(layer) ? " · legacy export" : ""}
-                      </p>
-                    </button>
-
-                    <div className="flex items-center gap-1">
-                      <button
-                        className="rounded-full border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-white/60"
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          updateCanvas((current) => moveLayerBackward(current, layer.id));
-                        }}
-                      >
-                        -
-                      </button>
-                      <button
-                        className="rounded-full border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-white/60"
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          updateCanvas((current) => moveLayerForward(current, layer.id));
-                        }}
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-white/55">
-                      {index + 1}
-                    </span>
-                    <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-white/55">
-                      {layer.width} × {layer.height}
-                    </span>
-                    <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-white/55">
-                      {layer.x}, {layer.y}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </aside>
-
-          <div className="space-y-4">
-            <div className="rounded-[1.75rem] border border-white/10 bg-black/20 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-white/55">
+              <button
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm font-medium text-white transition hover:border-primary/50 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                type="button"
+                onClick={() => void renderPreview({ silent: false })}
+              >
+                {previewState === "loading" ? (
+                  <LoaderCircle className="size-4 animate-spin text-primary" />
+                ) : (
                   <Sparkles className="size-4 text-primary" />
-                  Canvas stage
-                </div>
-                <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/65">
-                  <MoveDiagonal2 className="size-3.5" />
-                  Drag, resize, inspect
-                </div>
-              </div>
-
-              <div className="mt-4 rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(140,216,18,0.08),_transparent_32%),linear-gradient(180deg,#090A0F_0%,#0E1017_100%)] p-4">
-                <div
-                  ref={stageRef}
-                  className="relative mx-auto overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#0b0b12] shadow-[0_30px_80px_rgba(0,0,0,0.45)]"
-                  style={{
-                    aspectRatio: `${layout.page_width} / ${layout.page_height}`,
-                    maxHeight: "calc(100vh - 19rem)",
-                  }}
-                  onPointerDown={handleStagePointerDown}
-                >
-                  {sourceState === "loading" ? (
-                    <div className="flex h-full items-center justify-center px-6 text-center text-sm text-white/55">
-                      Loading template source...
-                    </div>
-                  ) : sourceState === "error" ? (
-                    <div className="flex h-full items-center justify-center px-6 text-center text-sm leading-6 text-white/55">
-                      Could not load the source preview.
-                    </div>
-                  ) : sourceUrl ? (
-                    <div className="absolute inset-0">
-                      {sourceMime.includes("application/pdf") ? (
-                        <iframe
-                          className="h-full w-full border-0"
-                          src={sourceUrl}
-                          title={`${template.template.name} source preview`}
-                        />
-                      ) : (
-                        <img alt="" className="h-full w-full object-fill" src={sourceUrl} />
-                      )}
-                    </div>
-                  ) : null}
-
-                  <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.06)_1px,transparent_1px)] bg-[size:48px_48px] opacity-20" />
-                  {snapGuides.y ? (
-                    <div className="pointer-events-none absolute inset-x-0 top-1/2 z-0 h-0 border-t border-dashed border-sky-300/90" />
-                  ) : null}
-                  {snapGuides.x ? (
-                    <div className="pointer-events-none absolute inset-y-0 left-1/2 z-0 w-0 border-l border-dashed border-sky-300/90" />
-                  ) : null}
-
-                  {canvas.layers.map((layer) => (
-                    <CanvasLayerView
-                      key={layer.id}
-                      isSelected={selectedLayer?.id === layer.id}
-                      layer={layer}
-                      layout={layout}
-                      legacyPreviewMetrics={legacyPreviewMetrics}
-                      previewName={previewName}
-                      onPointerDown={beginLayerDrag}
-                      onPointerMove={handleLayerPointerMove}
-                      onPointerUp={handleLayerPointerUp}
-                      onResizeDown={beginResize}
-                      onResizeMove={handleResizeMove}
-                      onResizeUp={handleResizeUp}
-                      onSelect={setSelectedLayerId}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-4 flex flex-wrap gap-2 text-xs text-white/58">
-                <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5">
-                  Main stage preview includes all text and image layers.
-                </span>
-                <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5">
-                  Server PDF preview still exports only the legacy participant name layer.
-                </span>
-              </div>
+                )}
+                {previewState === "loading"
+                  ? "Rendering..."
+                  : hasProof
+                    ? "Regenerate"
+                    : "Generate"}
+              </button>
             </div>
-          </div>
 
-          <aside className="space-y-4 rounded-[1.75rem] border border-white/10 bg-black/20 p-4">
-            <ControlBlock title="Preview">
-              <label className="block text-sm font-medium text-white/72" htmlFor="preview-name">
-                Preview participant name
+            <div className="mt-4 space-y-3">
+              <label className="block text-sm font-medium text-white/72">
+                Preview name
                 <input
-                  id="preview-name"
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition placeholder:text-white/30 focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+                  placeholder="Preview Participant"
                   value={previewName}
                   onChange={(event) => setPreviewName(event.target.value)}
                 />
               </label>
 
-              <div className="rounded-2xl border border-sky-400/15 bg-sky-400/10 p-3 text-xs leading-5 text-sky-50/90">
-                Main canvas preview is instant. Server preview remains available below so the old
-                participant name export can still be verified before issuance.
+              <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white/58">
+                {previewMessage}
               </div>
-            </ControlBlock>
 
-            {selectedLayer ? (
-              <ControlBlock title="Layer inspector">
-                <label className="block text-sm font-medium text-white/72">
-                  Layer name
-                  <input
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
-                    value={selectedLayer.name}
-                    onChange={(event) =>
-                      updateSelectedLayer((layer) => ({
-                        ...layer,
-                        name: event.target.value,
-                      }))
-                    }
+              <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/25">
+                {hasProof && previewUrl ? (
+                  <img
+                    alt="Server proof preview"
+                    className="h-auto w-full"
+                    src={previewUrl}
                   />
-                </label>
+                ) : (
+                  <div className="flex min-h-72 items-center justify-center px-6 py-10 text-center text-sm leading-6 text-white/52">
+                    Generate preview to compare the live editor with the backend
+                    output.
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
 
-                <div className="grid grid-cols-2 gap-3">
+          <section className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4">
+            <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">
+              Layers
+            </p>
+            <div className="mt-3 space-y-2">
+              {canvas.layers.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-4 text-sm text-white/50">
+                  No layers yet.
+                </div>
+              ) : (
+                canvas.layers.map((layer, index) => (
+                  <div
+                    key={layer.id}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 cursor-pointer",
+                      layer.id === selectedLayerId
+                        ? "border-primary/35 bg-primary/10"
+                        : "border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.04]",
+                    )}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => selectLayer(layer.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        selectLayer(layer.id);
+                      }
+                    }}
+                  >
+                    <GripVertical className="size-4 shrink-0 text-white/35" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-medium text-white">
+                          {layer.name}
+                        </p>
+                        {layer.role === "legacy_name" ? (
+                          <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-primary">
+                            Name
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-1 truncate text-xs text-white/45">
+                        {layer.kind === "text"
+                          ? layer.text?.content
+                          : layer.image?.fit || "image"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <IconButton
+                        label="Duplicate layer"
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          duplicateLayer(layer.id);
+                        }}
+                      >
+                        <Copy className="size-3.5" />
+                      </IconButton>
+                      <IconButton
+                        label="Move layer up"
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          moveLayer(layer.id, "up");
+                        }}
+                      >
+                        <ArrowUp className="size-3.5" />
+                      </IconButton>
+                      <IconButton
+                        label="Move layer down"
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          moveLayer(layer.id, "down");
+                        }}
+                      >
+                        <ArrowDown className="size-3.5" />
+                      </IconButton>
+                      <IconButton
+                        label="Delete layer"
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          removeLayer(layer.id);
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </IconButton>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4">
+            <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">
+              Properties
+            </p>
+
+            {!selectedLayer ? (
+              <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-black/20 p-4 text-sm text-white/50">
+                Select a layer to edit it.
+              </div>
+            ) : (
+              <div className="mt-4 space-y-4">
+                <TextField
+                  label="Layer name"
+                  value={selectedLayer.name}
+                  onChange={(value) =>
+                    updateSelectedLayer((layer) => ({
+                      ...layer,
+                      name: value,
+                    }))
+                  }
+                />
+
+                <div className="grid gap-3 sm:grid-cols-2">
                   <NumberField
                     label="X"
                     value={selectedLayer.x}
                     onChange={(value) =>
-                      updateSelectedLayer((layer) => ({
-                        ...layer,
-                        x: value,
-                      }))
+                      updateSelectedLayer((layer) => ({ ...layer, x: value }))
                     }
                   />
                   <NumberField
                     label="Y"
                     value={selectedLayer.y}
                     onChange={(value) =>
-                      updateSelectedLayer((layer) => ({
-                        ...layer,
-                        y: value,
-                      }))
+                      updateSelectedLayer((layer) => ({ ...layer, y: value }))
                     }
                   />
                   <NumberField
@@ -1070,744 +1452,485 @@ export function TemplateLayoutEditor({
                   />
                 </div>
 
-                <RangeField
-                  label="Opacity"
-                  value={selectedLayer.opacity}
-                  min={0}
-                  max={100}
-                  step={1}
-                  onChange={(value) =>
-                    updateSelectedLayer((layer) => ({
-                      ...layer,
-                      opacity: value,
-                    }))
-                  }
-                />
-
-                {selectedLayer.kind === "text" && selectedLayer.text ? (
-                  <TextLayerInspector
-                    layer={selectedLayer}
-                    onLayerChange={updateSelectedLayer}
-                    options={fontFamilies}
-                  />
+                {selectedLayer.kind === "text" && selectedTextLayer ? (
+                  <button
+                    className="inline-flex min-h-11 w-full items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left transition hover:border-primary/30 hover:bg-black/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    type="button"
+                    onClick={() => setIsTextSettingsOpen(true)}
+                  >
+                    <span>
+                      <span className="block text-sm font-medium text-white">
+                        Text settings
+                      </span>
+                      <span className="mt-1 block text-xs text-white/50">
+                        Font, color, alignment, placeholders and shrink
+                        behavior.
+                      </span>
+                    </span>
+                    <span className="inline-flex size-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70">
+                      <SlidersHorizontal className="size-4" />
+                    </span>
+                  </button>
                 ) : null}
 
-                {selectedLayer.kind === "image" && selectedLayer.image ? (
-                  <ImageLayerInspector
+                {selectedLayer.kind === "image" && selectedImageLayer ? (
+                  <ImageLayerEditor
                     layer={selectedLayer}
-                    onReplace={() => handleUploadImage("replace", selectedLayer.id)}
-                    onLayerChange={updateSelectedLayer}
+                    image={selectedImageLayer}
+                    onReplace={() => {
+                      setImageTarget({
+                        mode: "replace",
+                        layerId: selectedLayer.id,
+                      });
+                      setIsImagePickerOpen(true);
+                      imageInputRef.current?.click();
+                    }}
+                    onChange={updateSelectedLayer}
                   />
                 ) : null}
-
-                <div className="flex flex-wrap gap-2">
-                  {!isLegacyNameLayer(selectedLayer) ? (
-                    <button
-                      className="inline-flex items-center gap-2 rounded-full border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-100 transition hover:border-red-400/30 hover:bg-red-500/15"
-                      type="button"
-                      onClick={() => handleDeleteLayer(selectedLayer)}
-                    >
-                      <Trash2 className="size-3.5" />
-                      Delete layer
-                    </button>
-                  ) : (
-                    <div className="rounded-full border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary">
-                      Legacy export layer
-                    </div>
-                  )}
-                </div>
-              </ControlBlock>
-            ) : null}
-
-            <ControlBlock title="Server PDF preview">
-              <button
-                className="btn-hero w-full rounded-2xl border border-white/10 bg-white/[0.04]"
-                type="button"
-                onClick={() => void renderPreview()}
-              >
-                {isRendering ? (
-                  <>
-                    <LoaderCircle className="size-4 animate-spin" />
-                    Rendering
-                  </>
-                ) : (
-                  <>
-                    <Eye className="size-4" />
-                    Refresh PDF preview
-                  </>
-                )}
-              </button>
-
-              <div className="overflow-hidden rounded-[1.25rem] border border-white/10 bg-black/30">
-                {previewUrl ? (
-                  <iframe
-                    className="h-[320px] w-full"
-                    src={previewUrl}
-                    title={`${template.template.name} preview`}
-                  />
-                ) : (
-                  <div className="flex h-[320px] items-center justify-center px-6 text-center text-sm leading-6 text-white/55">
-                    Render preview to inspect the server PDF export.
-                  </div>
-                )}
               </div>
-            </ControlBlock>
+            )}
+          </section>
 
-            <details className="rounded-[1.5rem] border border-white/10 bg-black/25 p-4 text-sm text-white/72">
-              <summary className="cursor-pointer list-none font-pixel text-[10px] uppercase tracking-[0.2em] text-primary">
-                Legacy diagnostics
-              </summary>
-              <div className="mt-4 space-y-4">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                  <p className="font-pixel text-[10px] uppercase tracking-[0.18em] text-white/45">
-                    Current source overlay
-                  </p>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {debugRows.source.map((row) => (
-                      <DebugRow key={`source-${row.label}`} label={row.label} value={row.value} />
-                    ))}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                  <p className="font-pixel text-[10px] uppercase tracking-[0.18em] text-white/45">
-                    Last PDF preview
-                  </p>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {debugRows.pdf.length ? (
-                      debugRows.pdf.map((row) => (
-                        <DebugRow key={`pdf-${row.label}`} label={row.label} value={row.value} />
-                      ))
-                    ) : (
-                      <p className="text-sm leading-6 text-white/55">
-                        Render preview once to capture backend metrics.
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                  <p className="font-pixel text-[10px] uppercase tracking-[0.18em] text-white/45">
-                    Delta source - pdf
-                  </p>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {debugDeltaRows.length ? (
-                      debugDeltaRows.map((row) => (
-                        <DebugRow key={`delta-${row.label}`} label={row.label} value={row.value} />
-                      ))
-                    ) : (
-                      <p className="text-sm leading-6 text-white/55">
-                        Delta appears after backend preview diagnostics arrive.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </details>
-
-            <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4 text-sm text-white/70">
-              {message}
-            </div>
-          </aside>
-        </div>
+          <div className="sticky bottom-0 rounded-[1.5rem] border border-white/10 bg-panel/95 p-4 backdrop-blur-xl">
+            <button
+              className="btn-hero inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl bg-white/[0.05] px-4 py-3 text-sm text-white/80 transition hover:border-primary/30 hover:text-white"
+              type="submit"
+            >
+              {isSaving ? (
+                <>
+                  <LoaderCircle className="size-4 animate-spin" />
+                  Saving
+                </>
+              ) : (
+                <>
+                  <Save className="size-4" />
+                  Save layout
+                </>
+              )}
+            </button>
+          </div>
+        </aside>
       </form>
 
       <input
         ref={imageInputRef}
-        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+        accept="image/*"
         className="hidden"
         type="file"
-        onChange={(event) => void handleImagePicked(event)}
+        onChange={(event) => {
+          void handleImageFileChange(event);
+        }}
       />
+
+      {isTextSettingsOpen &&
+      selectedLayer?.kind === "text" &&
+      selectedTextLayer ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-[1.75rem] border border-white/10 bg-panel/95 p-5 shadow-2xl sm:p-6">
+            <div className="mb-5 flex items-start justify-between gap-4 border-b border-white/10 pb-4">
+              <div>
+                <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">
+                  Text settings
+                </p>
+                <h3 className="mt-3 text-xl font-black text-white">
+                  {selectedLayer.name}
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-white/58">
+                  Control typography, alignment and placeholders without
+                  crowding the main sidebar.
+                </p>
+              </div>
+              <button
+                aria-label="Close text settings"
+                className="inline-flex size-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                type="button"
+                onClick={() => setIsTextSettingsOpen(false)}
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <TextLayerEditor
+              text={selectedTextLayer}
+              onChange={updateSelectedLayer}
+            />
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
 
-function CanvasLayerView({
-  layer,
-  layout,
-  previewName,
-  legacyPreviewMetrics,
-  isSelected,
-  onSelect,
-  onPointerDown,
-  onPointerMove,
-  onPointerUp,
-  onResizeDown,
-  onResizeMove,
-  onResizeUp,
+function TextLayerEditor({
+  text,
+  onChange,
 }: {
-  layer: TemplateCanvasLayer;
-  layout: TemplateLayoutData;
-  previewName: string;
-  legacyPreviewMetrics: TemplatePreviewTextMetrics;
-  isSelected: boolean;
-  onSelect: (layerId: string) => void;
-  onPointerDown: (layer: TemplateCanvasLayer, event: ReactPointerEvent<HTMLDivElement>) => void;
-  onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
-  onPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void;
-  onResizeDown: (
-    layer: TemplateCanvasLayer,
-    mode: ResizeMode,
-    event: ReactPointerEvent<HTMLButtonElement>,
+  text: TemplateCanvasTextLayer;
+  onChange: (
+    updater: (layer: TemplateCanvasLayer) => TemplateCanvasLayer,
   ) => void;
-  onResizeMove: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onResizeUp: (event: ReactPointerEvent<HTMLButtonElement>) => void;
 }) {
-  if (!layer.visible) {
-    return null;
-  }
-
   return (
-    <div
-      className={cn(
-        "absolute z-10 overflow-hidden rounded-[1rem] border transition",
-        isSelected
-          ? "border-sky-300/90 shadow-[0_0_0_1px_rgba(125,211,252,0.18)]"
-          : "border-transparent hover:border-sky-400/45",
-      )}
-      style={{
-        left: `${(layer.x / layout.page_width) * 100}%`,
-        top: `${(layer.y / layout.page_height) * 100}%`,
-        width: `${(layer.width / layout.page_width) * 100}%`,
-        height: `${(layer.height / layout.page_height) * 100}%`,
-        opacity: layer.opacity / 100,
-      }}
-      onPointerDown={(event) => {
-        event.stopPropagation();
-        onSelect(layer.id);
-        onPointerDown(layer, event);
-      }}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-    >
-      {isLegacyNameLayer(layer) ? (
-        <svg
-          aria-hidden="true"
-          className="absolute inset-0 h-full w-full overflow-hidden"
-          preserveAspectRatio="none"
-          viewBox={`0 0 ${layer.width} ${layer.height}`}
-        >
-          <text
-            fill={layout.font_color_hex}
-            fontFamily={legacyPreviewMetrics.fontFamily}
-            fontSize={legacyPreviewMetrics.fontSize}
-            fontWeight="400"
-            textAnchor="start"
-            x={legacyPreviewMetrics.textLeft}
-            y={legacyPreviewMetrics.baselineTop}
-          >
-            {previewName || " "}
-          </text>
-        </svg>
-      ) : layer.kind === "text" && layer.text ? (
-        <div
-          className="flex h-full w-full whitespace-pre-wrap break-words px-4 py-3"
-          style={{
-            color: layer.text.font_color_hex,
-            fontFamily: layer.text.font_family,
-            fontSize: `${layer.text.font_size}px`,
-            fontWeight: layer.text.font_weight,
-            letterSpacing: `${layer.text.letter_spacing}px`,
-            lineHeight: `${layer.text.line_height}%`,
-            backgroundColor: layer.text.background_color_hex || "transparent",
-            justifyContent: resolveHorizontalAlign(layer.text.text_align),
-            alignItems: resolveVerticalAlign(layer.text.vertical_align),
-            textAlign: layer.text.text_align as CSSProperties["textAlign"],
-          }}
-        >
-          {getCanvasLayerDisplayText(layer, previewName)}
+    <div className="space-y-5">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+        <div className="space-y-4 rounded-3xl border border-white/10 bg-black/20 p-4">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-white/55">
+            <Type className="size-4 text-primary" />
+            Content
+          </div>
+
+          <label className="block text-sm font-medium text-white/72">
+            Content
+            <textarea
+              className="mt-2 min-h-32 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+              placeholder="Awarded to {{participant.full_name}}"
+              value={text.content}
+              onChange={(event) =>
+                onChange((current) => ({
+                  ...current,
+                  text: current.text
+                    ? {
+                        ...current.text,
+                        content: event.target.value,
+                      }
+                    : current.text,
+                }))
+              }
+            />
+          </label>
+
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-xs leading-6 text-white/55">
+            Use placeholders directly in the text, for example{" "}
+            <code>{`{{participant.full_name}}`}</code>,{" "}
+            <code>{`{{participant.category}}`}</code>,{" "}
+            <code>{`{{template.name}}`}</code>,{" "}
+            <code>{`{{issue.issue_date}}`}</code>, and{" "}
+            <code>{`{{issue.certificate_id}}`}</code>.
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {BINDING_OPTIONS.slice(1).map((option) => (
+              <button
+                key={option.value}
+                className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-left text-xs text-white/70 transition hover:border-primary/30 hover:text-white"
+                type="button"
+                onClick={() =>
+                  onChange((current) => ({
+                    ...current,
+                    text: current.text
+                      ? {
+                          ...current.text,
+                          content: current.text.content
+                            ? `${current.text.content} {{${option.value}}}`
+                            : `{{${option.value}}}`,
+                          binding: null,
+                        }
+                      : current.text,
+                  }))
+                }
+              >
+                Insert {option.label.toLowerCase()}
+              </button>
+            ))}
+          </div>
         </div>
-      ) : layer.kind === "image" && layer.image?.src ? (
-        <img
-          alt=""
-          className="h-full w-full"
-          src={layer.image.src}
-          style={{
-            objectFit: layer.image.fit,
-            borderRadius: `${layer.image.border_radius}px`,
-          }}
-        />
-      ) : (
-        <div className="flex h-full items-center justify-center text-xs uppercase tracking-[0.16em] text-white/35">
-          Empty layer
-        </div>
-      )}
 
-      {isSelected ? (
-        <>
-          <ResizeHandle
-            ariaLabel="Resize from left edge"
-            className="cursor-ew-resize"
-            style={{
-              left: 0,
-              top: "50%",
-              width: "14px",
-              height: "calc(100% - 18px)",
-              transform: "translate(-50%, -50%)",
-            }}
-            onPointerDown={(event) => onResizeDown(layer, "left", event)}
-            onPointerMove={onResizeMove}
-            onPointerUp={onResizeUp}
-          />
-          <ResizeHandle
-            ariaLabel="Resize from right edge"
-            className="cursor-ew-resize"
-            style={{
-              right: 0,
-              top: "50%",
-              width: "14px",
-              height: "calc(100% - 18px)",
-              transform: "translate(50%, -50%)",
-            }}
-            onPointerDown={(event) => onResizeDown(layer, "right", event)}
-            onPointerMove={onResizeMove}
-            onPointerUp={onResizeUp}
-          />
-          <ResizeHandle
-            ariaLabel="Resize from top edge"
-            className="cursor-ns-resize"
-            style={{
-              left: "50%",
-              top: 0,
-              width: "calc(100% - 18px)",
-              height: "14px",
-              transform: "translate(-50%, -50%)",
-            }}
-            onPointerDown={(event) => onResizeDown(layer, "top", event)}
-            onPointerMove={onResizeMove}
-            onPointerUp={onResizeUp}
-          />
-          <ResizeHandle
-            ariaLabel="Resize from bottom edge"
-            className="cursor-ns-resize"
-            style={{
-              left: "50%",
-              bottom: 0,
-              width: "calc(100% - 18px)",
-              height: "14px",
-              transform: "translate(-50%, 50%)",
-            }}
-            onPointerDown={(event) => onResizeDown(layer, "bottom", event)}
-            onPointerMove={onResizeMove}
-            onPointerUp={onResizeUp}
-          />
-          <ResizeHandle
-            ariaLabel="Resize from top left corner"
-            className="cursor-nwse-resize"
-            style={{
-              left: 0,
-              top: 0,
-              width: "18px",
-              height: "18px",
-              transform: "translate(-50%, -50%)",
-            }}
-            onPointerDown={(event) => onResizeDown(layer, "top-left", event)}
-            onPointerMove={onResizeMove}
-            onPointerUp={onResizeUp}
-          />
-          <ResizeHandle
-            ariaLabel="Resize from top right corner"
-            className="cursor-nesw-resize"
-            style={{
-              right: 0,
-              top: 0,
-              width: "18px",
-              height: "18px",
-              transform: "translate(50%, -50%)",
-            }}
-            onPointerDown={(event) => onResizeDown(layer, "top-right", event)}
-            onPointerMove={onResizeMove}
-            onPointerUp={onResizeUp}
-          />
-          <ResizeHandle
-            ariaLabel="Resize from bottom left corner"
-            className="cursor-nesw-resize"
-            style={{
-              left: 0,
-              bottom: 0,
-              width: "18px",
-              height: "18px",
-              transform: "translate(-50%, 50%)",
-            }}
-            onPointerDown={(event) => onResizeDown(layer, "bottom-left", event)}
-            onPointerMove={onResizeMove}
-            onPointerUp={onResizeUp}
-          />
-          <ResizeHandle
-            ariaLabel="Resize from bottom right corner"
-            className="cursor-nwse-resize"
-            style={{
-              right: 0,
-              bottom: 0,
-              width: "18px",
-              height: "18px",
-              transform: "translate(50%, 50%)",
-            }}
-            onPointerDown={(event) => onResizeDown(layer, "bottom-right", event)}
-            onPointerMove={onResizeMove}
-            onPointerUp={onResizeUp}
-          />
-        </>
-      ) : null}
-    </div>
-  );
-}
+        <div className="space-y-4 rounded-3xl border border-white/10 bg-black/20 p-4">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-white/55">
+            <SlidersHorizontal className="size-4 text-primary" />
+            Style
+          </div>
 
-function TextLayerInspector({
-  layer,
-  options,
-  onLayerChange,
-}: {
-  layer: TemplateCanvasLayer;
-  options: FontFamilyOption[];
-  onLayerChange: (updater: (layer: TemplateCanvasLayer) => TemplateCanvasLayer) => void;
-}) {
-  const text = layer.text as TemplateCanvasTextLayer;
-  const isBoundName = text.binding === "participant.full_name";
-
-  return (
-    <>
-      {!isBoundName ? (
-        <label className="block text-sm font-medium text-white/72">
-          Text content
-          <textarea
-            className="mt-2 min-h-28 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
-            value={text.content}
-            onChange={(event) =>
-              onLayerChange((current) => ({
+          <SelectField
+            label="Font family"
+            value={text.font_family}
+            options={SAFE_FONT_OPTIONS}
+            onChange={(value) =>
+              onChange((current) => ({
                 ...current,
                 text: current.text
                   ? {
                       ...current.text,
-                      content: event.target.value,
+                      font_family: value,
                     }
                   : current.text,
               }))
             }
           />
-        </label>
-      ) : (
-        <div className="rounded-2xl border border-primary/20 bg-primary/10 p-3 text-xs leading-5 text-primary">
-          This layer stays bound to `participant.full_name` so the old export fix remains intact.
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <NumberField
+              label="Font size"
+              value={text.font_size}
+              onChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  text: current.text
+                    ? {
+                        ...current.text,
+                        font_size: value,
+                      }
+                    : current.text,
+                }))
+              }
+            />
+            <NumberField
+              label="Font weight"
+              value={text.font_weight}
+              onChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  text: current.text
+                    ? {
+                        ...current.text,
+                        font_weight: value,
+                      }
+                    : current.text,
+                }))
+              }
+            />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ColorField
+              label="Font color"
+              value={text.font_color_hex}
+              onChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  text: current.text
+                    ? {
+                        ...current.text,
+                        font_color_hex: value,
+                      }
+                    : current.text,
+                }))
+              }
+            />
+            <NumberField
+              label="Line height"
+              value={text.line_height}
+              onChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  text: current.text
+                    ? {
+                        ...current.text,
+                        line_height: value,
+                      }
+                    : current.text,
+                }))
+              }
+            />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <NumberField
+              label="Letter spacing"
+              value={text.letter_spacing}
+              onChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  text: current.text
+                    ? {
+                        ...current.text,
+                        letter_spacing: value,
+                      }
+                    : current.text,
+                }))
+              }
+            />
+            <ToggleRow
+              checked={text.auto_shrink}
+              label="Auto shrink"
+              onChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  text: current.text
+                    ? {
+                        ...current.text,
+                        auto_shrink: value,
+                      }
+                    : current.text,
+                }))
+              }
+            />
+          </div>
+
+          <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+            <AlignmentToggleGroup
+              label="Horizontal align"
+              value={text.text_align}
+              options={[
+                {
+                  label: "Left",
+                  value: "left",
+                  icon: <AlignLeft className="size-4" />,
+                },
+                {
+                  label: "Center",
+                  value: "center",
+                  icon: <AlignCenter className="size-4" />,
+                },
+                {
+                  label: "Right",
+                  value: "right",
+                  icon: <AlignRight className="size-4" />,
+                },
+              ]}
+              onChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  text: current.text
+                    ? {
+                        ...current.text,
+                        text_align: value as "left" | "center" | "right",
+                      }
+                    : current.text,
+                }))
+              }
+            />
+
+            <AlignmentToggleGroup
+              label="Vertical align"
+              value={text.vertical_align}
+              options={[
+                {
+                  label: "Top",
+                  value: "top",
+                  icon: <ArrowUp className="size-4" />,
+                },
+                {
+                  label: "Center",
+                  value: "center",
+                  icon: <AlignCenter className="size-4" />,
+                },
+                {
+                  label: "Bottom",
+                  value: "bottom",
+                  icon: <ArrowDown className="size-4" />,
+                },
+              ]}
+              onChange={(value) =>
+                onChange((current) => ({
+                  ...current,
+                  text: current.text
+                    ? {
+                        ...current.text,
+                        vertical_align: value as "top" | "center" | "bottom",
+                      }
+                    : current.text,
+                }))
+              }
+            />
+          </div>
         </div>
-      )}
+      </div>
+    </div>
+  );
+}
 
-      <FontFamilyField
-        label="Font family"
-        value={text.font_family}
-        options={options}
-        onChange={(value) =>
-          onLayerChange((current) => ({
-            ...current,
-            text: current.text
-              ? {
-                  ...current.text,
-                  font_family: value,
-                }
-              : current.text,
-          }))
-        }
-      />
+function ImageLayerEditor({
+  layer,
+  image,
+  onReplace,
+  onChange,
+}: {
+  layer: TemplateCanvasLayer;
+  image: NonNullable<TemplateCanvasLayer["image"]>;
+  onReplace: () => void;
+  onChange: (
+    updater: (layer: TemplateCanvasLayer) => TemplateCanvasLayer,
+  ) => void;
+}) {
+  return (
+    <div className="space-y-4 rounded-3xl border border-white/10 bg-black/20 p-4">
+      <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-white/55">
+        <Upload className="size-4 text-primary" />
+        Image settings
+      </div>
 
-      <ColorField
-        label="Font color"
-        value={text.font_color_hex}
-        onChange={(value) =>
-          onLayerChange((current) => ({
-            ...current,
-            text: current.text
-              ? {
-                  ...current.text,
-                  font_color_hex: value,
-                }
-              : current.text,
-          }))
-        }
-      />
-
-      <RangeField
-        label="Font size"
-        value={text.font_size}
-        min={12}
-        max={160}
-        step={1}
-        onChange={(value) =>
-          onLayerChange((current) => ({
-            ...current,
-            text: current.text
-              ? {
-                  ...current.text,
-                  font_size: value,
-                }
-              : current.text,
-          }))
-        }
-      />
-
-      <RangeField
-        label="Weight"
-        value={text.font_weight}
-        min={300}
-        max={900}
-        step={100}
-        onChange={(value) =>
-          onLayerChange((current) => ({
-            ...current,
-            text: current.text
-              ? {
-                  ...current.text,
-                  font_weight: value,
-                }
-              : current.text,
-          }))
-        }
-      />
-
-      <RangeField
-        label="Line height %"
-        value={text.line_height}
-        min={80}
-        max={220}
-        step={5}
-        onChange={(value) =>
-          onLayerChange((current) => ({
-            ...current,
-            text: current.text
-              ? {
-                  ...current.text,
-                  line_height: value,
-                }
-              : current.text,
-          }))
-        }
-      />
-
-      <RangeField
-        label="Letter spacing"
-        value={text.letter_spacing}
-        min={-8}
-        max={24}
-        step={1}
-        onChange={(value) =>
-          onLayerChange((current) => ({
-            ...current,
-            text: current.text
-              ? {
-                  ...current.text,
-                  letter_spacing: value,
-                }
-              : current.text,
-          }))
-        }
-      />
+      <button
+        className="inline-flex min-h-11 items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/75 transition hover:border-primary/30 hover:text-white"
+        type="button"
+        onClick={onReplace}
+      >
+        <Upload className="size-4" />
+        Replace image
+      </button>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <AlignButtons
-          active={text.text_align}
-          label="Horizontal"
-          options={["left", "center", "right"]}
-          onSelect={(value) =>
-            onLayerChange((current) => ({
+        <SelectField
+          label="Fit"
+          value={image.fit}
+          options={[
+            { label: "Fill", value: "fill" },
+            { label: "Contain", value: "contain" },
+            { label: "Cover", value: "cover" },
+          ]}
+          onChange={(value) =>
+            onChange((current) => ({
               ...current,
-              text: current.text
+              image: current.image
                 ? {
-                    ...current.text,
-                    text_align: value,
+                    ...current.image,
+                    fit: value as "fill" | "contain" | "cover",
                   }
-                : current.text,
+                : current.image,
             }))
           }
         />
-        <AlignButtons
-          active={text.vertical_align}
-          label="Vertical"
-          options={["top", "center", "bottom"]}
-          onSelect={(value) =>
-            onLayerChange((current) => ({
+        <NumberField
+          label="Border radius"
+          value={image.border_radius}
+          onChange={(value) =>
+            onChange((current) => ({
               ...current,
-              text: current.text
+              image: current.image
                 ? {
-                    ...current.text,
-                    vertical_align: value,
+                    ...current.image,
+                    border_radius: value,
                   }
-                : current.text,
+                : current.image,
             }))
           }
         />
       </div>
 
-      <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/25 px-4 py-4 text-sm text-white/75">
-        <input
-          checked={text.auto_shrink}
-          className="size-4 rounded border-white/20 bg-black/20 text-primary focus:ring-primary/50"
-          type="checkbox"
-          onChange={(event) =>
-            onLayerChange((current) => ({
-              ...current,
-              text: current.text
-                ? {
-                    ...current.text,
-                    auto_shrink: event.target.checked,
-                  }
-                : current.text,
-            }))
-          }
-        />
-        Auto shrink font
-      </label>
-    </>
-  );
-}
-
-function ImageLayerInspector({
-  layer,
-  onReplace,
-  onLayerChange,
-}: {
-  layer: TemplateCanvasLayer;
-  onReplace: () => void;
-  onLayerChange: (updater: (layer: TemplateCanvasLayer) => TemplateCanvasLayer) => void;
-}) {
-  const image = layer.image;
-  if (!image) {
-    return null;
-  }
-
-  return (
-    <>
-      <button
-        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/72 transition hover:border-primary/30 hover:text-white"
-        type="button"
-        onClick={onReplace}
-      >
-        <Upload className="size-3.5" />
-        Replace image
-      </button>
-
-      <RangeField
-        label="Border radius"
-        value={image.border_radius}
-        min={0}
-        max={48}
-        step={1}
-        onChange={(value) =>
-          onLayerChange((current) => ({
-            ...current,
-            image: current.image
-              ? {
-                  ...current.image,
-                  border_radius: value,
-                }
-              : current.image,
-          }))
-        }
-      />
-
-      <AlignButtons
-        active={image.fit}
-        label="Image fit"
-        options={["contain", "cover"]}
-        onSelect={(value) =>
-          onLayerChange((current) => ({
-            ...current,
-            image: current.image
-              ? {
-                  ...current.image,
-                  fit: value as "contain" | "cover",
-                }
-              : current.image,
-          }))
-        }
-      />
-    </>
-  );
-}
-
-function ResizeHandle({
-  ariaLabel,
-  className,
-  style,
-  onPointerDown,
-  onPointerMove,
-  onPointerUp,
-}: {
-  ariaLabel: string;
-  className: string;
-  style?: CSSProperties;
-  onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onPointerMove: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onPointerUp: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-}) {
-  return (
-    <button
-      aria-label={ariaLabel}
-      className={cn(
-        "absolute z-20 rounded-full border border-sky-300/90 bg-sky-300 shadow-[0_0_0_2px_rgba(8,10,15,0.95)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300",
-        className,
-      )}
-      style={style}
-      type="button"
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-    />
-  );
-}
-
-function TopPill({ children }: { children: ReactNode }) {
-  return (
-    <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/70">
-      {children}
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/55">
+        Source: {layer.name}
+      </div>
     </div>
   );
 }
 
-function ToolbarButton({
-  children,
-  onClick,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm text-white/75 transition hover:border-primary/30 hover:text-white"
-      type="button"
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
-
-function ControlBlock({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4">
-      <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">{title}</p>
-      <div className="mt-4 space-y-4">{children}</div>
-    </section>
-  );
-}
-
-function DebugRow({
+function SelectField({
   label,
   value,
+  options,
+  onChange,
 }: {
   label: string;
   value: string;
+  options: Array<{ label: string; value: string }>;
+  onChange: (value: string) => void;
 }) {
   return (
-    <div className="rounded-xl border border-white/6 bg-black/20 px-3 py-2">
-      <p className="text-[11px] uppercase tracking-[0.16em] text-white/42">{label}</p>
-      <p className="mt-1 font-mono text-xs text-white/78">{value}</p>
-    </div>
+    <label className="block text-sm font-medium text-white/72">
+      {label}
+      <select
+        className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -1833,147 +1956,6 @@ function NumberField({
   );
 }
 
-function RangeField({
-  label,
-  value,
-  min,
-  max,
-  step,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="block rounded-2xl border border-white/10 bg-black/20 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-medium text-white/72">{label}</span>
-        <span className="font-mono text-xs text-white/52">{value}</span>
-      </div>
-      <input
-        className="mt-3 w-full accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
-        max={max}
-        min={min}
-        step={step}
-        type="range"
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
-    </label>
-  );
-}
-
-function AlignButtons({
-  label,
-  active,
-  options,
-  onSelect,
-}: {
-  label: string;
-  active: string;
-  options: string[];
-  onSelect: (value: string) => void;
-}) {
-  return (
-    <div className="rounded-[1.25rem] border border-white/10 bg-black/20 p-3">
-      <p className="mb-2 text-xs uppercase tracking-[0.18em] text-white/45">{label}</p>
-      <div className={`grid gap-2 ${options.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
-        {options.map((option) => (
-          <button
-            key={option}
-            className={cn(
-              "rounded-2xl border px-3 py-3 text-xs uppercase tracking-[0.18em] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-              active === option
-                ? "border-primary/35 bg-primary/10 text-primary"
-                : "border-white/10 bg-black/20 text-white/70 hover:border-primary/25 hover:bg-white/[0.04]",
-            )}
-            type="button"
-            onClick={() => onSelect(option)}
-          >
-            {option}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function FontFamilyField({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: FontFamilyOption[];
-  onChange: (value: string) => void;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const query = value.trim().toLowerCase();
-  const suggestions = options
-    .filter((option) => {
-      if (!query) {
-        return true;
-      }
-
-      const optionLabel = option.label.toLowerCase();
-      const optionValue = option.value.toLowerCase();
-      return (
-        optionLabel.includes(query) || optionValue.includes(query) || query.includes(optionLabel)
-      );
-    })
-    .slice(0, 8);
-
-  return (
-    <div className="block text-sm font-medium text-white/72">
-      {label}
-      <div className="relative mt-2">
-        <input
-          className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition placeholder:text-white/30 focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
-          placeholder="Start typing a font name..."
-          value={value}
-          onBlur={() => {
-            window.setTimeout(() => {
-              setIsOpen(false);
-            }, 120);
-          }}
-          onChange={(event) => {
-            onChange(event.target.value);
-            setIsOpen(true);
-          }}
-          onFocus={() => setIsOpen(true)}
-        />
-        {isOpen && suggestions.length > 0 ? (
-          <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 overflow-hidden rounded-2xl border border-white/10 bg-[#0b0b12] shadow-[0_18px_50px_rgba(0,0,0,0.4)]">
-            {suggestions.map((option) => (
-              <button
-                key={option.value}
-                className="flex w-full items-center justify-between gap-3 border-b border-white/5 px-4 py-3 text-left transition last:border-b-0 hover:bg-white/[0.05]"
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  onChange(option.value);
-                  setIsOpen(false);
-                }}
-              >
-                <span className="text-sm text-white">{option.label}</span>
-                <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/40">
-                  {option.value}
-                </span>
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 function ColorField({
   label,
   value,
@@ -1983,54 +1965,48 @@ function ColorField({
   value: string;
   onChange: (value: string) => void;
 }) {
-  const normalizedValue = normalizeHexColor(value);
-  const [draft, setDraft] = useState(normalizedValue);
+  const normalized = normalizeHexColor(value);
+  const [draft, setDraft] = useState(normalized);
 
   useEffect(() => {
-    setDraft(normalizedValue);
-  }, [normalizedValue]);
+    setDraft(normalized);
+  }, [normalized]);
 
   return (
     <div className="block text-sm font-medium text-white/72">
       <div className="flex items-center justify-between gap-3">
         <span>{label}</span>
-        <span className="font-mono text-xs text-white/52">{normalizedValue}</span>
+        <span className="font-mono text-xs text-white/50">{normalized}</span>
       </div>
-
       <div className="mt-2 flex items-center gap-3 rounded-2xl border border-white/10 bg-black/35 px-3 py-3">
         <input
-          className="min-w-0 flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+          className="min-w-0 flex-1 bg-transparent text-base text-white outline-none placeholder:text-white/30 focus-visible:outline-none"
           inputMode="text"
           pattern="^#[0-9a-fA-F]{6}$"
           placeholder="#111827"
           value={draft}
           onChange={(event) => {
-            const nextValue = event.target.value;
-            setDraft(nextValue);
-            if (isValidHexColor(nextValue)) {
-              onChange(normalizeHexColor(nextValue));
+            const next = event.target.value;
+            setDraft(next);
+            if (isValidHexColor(next)) {
+              onChange(normalizeHexColor(next));
             }
           }}
           onBlur={() => {
-            const nextValue = normalizeHexColor(draft);
-            setDraft(nextValue);
-            onChange(nextValue);
+            const next = normalizeHexColor(draft);
+            setDraft(next);
+            onChange(next);
           }}
-        />
-        <span
-          aria-hidden="true"
-          className="h-10 w-10 shrink-0 rounded-xl border border-white/10 shadow-inner"
-          style={{ backgroundColor: normalizedValue }}
         />
         <input
           aria-label={`${label} picker`}
           className="h-10 w-12 cursor-pointer rounded-xl border border-white/10 bg-black/35 p-1"
           type="color"
-          value={normalizedValue}
+          value={normalized}
           onChange={(event) => {
-            const nextValue = normalizeHexColor(event.target.value);
-            setDraft(nextValue);
-            onChange(nextValue);
+            const next = normalizeHexColor(event.target.value);
+            setDraft(next);
+            onChange(next);
           }}
         />
       </div>
@@ -2038,8 +2014,123 @@ function ColorField({
   );
 }
 
-function isValidHexColor(value: string) {
-  return /^#[0-9a-fA-F]{6}$/.test(value.trim());
+function AlignmentToggleGroup({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ label: string; value: string; icon: ReactNode }>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div>
+      <p className="text-sm font-medium text-white/72">{label}</p>
+      <div className="mt-2 grid grid-cols-3 gap-2">
+        {options.map((option) => {
+          const isActive = option.value === value;
+          return (
+            <button
+              key={option.value}
+              className={cn(
+                "inline-flex min-h-12 flex-col items-center justify-center gap-1 rounded-2xl border px-3 py-2 text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                isActive
+                  ? "border-primary/40 bg-primary/12 text-white"
+                  : "border-white/10 bg-black/20 text-white/60 hover:border-white/20 hover:text-white",
+              )}
+              type="button"
+              onClick={() => onChange(option.value)}
+            >
+              {option.icon}
+              <span>{option.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ToggleRow({
+  checked,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  label: string;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label className="flex min-h-11 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/72">
+      <span>{label}</span>
+      <input
+        className="size-4 rounded border-white/20 bg-black/20 text-primary focus:ring-primary/50"
+        checked={checked}
+        type="checkbox"
+        onChange={(event) => onChange(event.target.checked)}
+      />
+    </label>
+  );
+}
+
+function IconButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: (e: React.MouseEvent) => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      aria-label={label}
+      className="inline-flex size-9 items-center justify-center rounded-full border border-white/10 bg-black/30 text-white/70 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      type="button"
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Pill({ children }: { children: ReactNode }) {
+  return (
+    <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/70">
+      {children}
+    </span>
+  );
+}
+
+function Badge({ text }: { text: string }) {
+  return (
+    <span className="rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-xs text-white/65">
+      {text}
+    </span>
+  );
+}
+
+function TextField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block text-sm font-medium text-white/72">
+      {label}
+      <input
+        className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition placeholder:text-white/30 focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
 }
 
 function normalizeHexColor(value: string) {
@@ -2051,145 +2142,145 @@ function normalizeHexColor(value: string) {
   return `#${trimmed.slice(1).toUpperCase()}`;
 }
 
-function clamp(value: number, min: number, max: number) {
+function isValidHexColor(value: string) {
+  return /^#[0-9a-fA-F]{6}$/.test(value.trim());
+}
+
+function clampToRange(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-function getSnapThreshold(pageSize: number, stageSize: number) {
-  if (pageSize <= 0 || stageSize <= 0) {
-    return 12;
-  }
-
-  return Math.max(6, (14 / stageSize) * pageSize);
-}
-
-function buildLegacyPreviewSignature(layout: TemplateLayoutData) {
-  return [
-    layout.page_width,
-    layout.page_height,
-    layout.name_x,
-    layout.name_y,
-    layout.name_max_width,
-    layout.name_box_height,
-    layout.font_family,
-    layout.font_size,
-    layout.font_color_hex,
-    layout.text_align,
-    layout.vertical_align,
-    layout.auto_shrink ? 1 : 0,
-  ].join(":");
-}
-
-function resolveHorizontalAlign(value: string) {
-  switch (value) {
-    case "center":
-      return "center";
-    case "right":
-      return "flex-end";
-    default:
-      return "flex-start";
-  }
-}
-
-function resolveVerticalAlign(value: string) {
-  switch (value) {
-    case "center":
-      return "center";
-    case "bottom":
-      return "flex-end";
-    default:
-      return "flex-start";
-  }
-}
-
-function parsePdfPreviewDiagnostics(value: string | null): TemplatePdfPreviewDiagnostics | null {
-  if (!value) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(value) as TemplatePdfPreviewDiagnostics;
-  } catch {
-    return null;
-  }
-}
-
-function buildPreviewDebugRows(
-  sourceMetrics: TemplatePreviewTextMetrics,
-  diagnostics: TemplatePdfPreviewDiagnostics | null,
-) {
+function cloneLayer(layer: TemplateCanvasLayer) {
+  const id = createLayerId();
   return {
-    source: [
-      { label: "source", value: sourceMetrics.source },
-      { label: "font", value: sourceMetrics.pdfFontFamily },
-      { label: "font size", value: formatMetric(sourceMetrics.fontSize) },
-      { label: "text left", value: formatMetric(sourceMetrics.textLeft) },
-      { label: "text top", value: formatMetric(sourceMetrics.textTop) },
-      { label: "baseline top", value: formatMetric(sourceMetrics.baselineTop) },
-      { label: "text width", value: formatMetric(sourceMetrics.textWidth) },
-      { label: "ascent ratio", value: formatMetric(sourceMetrics.ascentRatio) },
-    ],
-    pdf: diagnostics
-      ? [
-          { label: "font", value: diagnostics.pdf_font_family },
-          { label: "font size", value: formatMetric(diagnostics.font_size) },
-          { label: "text left", value: formatMetric(diagnostics.text_left_in_box) },
-          { label: "text top", value: formatMetric(diagnostics.text_top_in_box) },
-          {
-            label: "baseline top",
-            value: formatMetric(diagnostics.baseline_top - diagnostics.box_top),
-          },
-          { label: "text width", value: formatMetric(diagnostics.text_width) },
-          { label: "ascent ratio", value: formatMetric(diagnostics.ascent_ratio) },
-          { label: "box top", value: formatMetric(diagnostics.box_top) },
-        ]
-      : [],
+    ...layer,
+    id,
+    name: `${layer.name} copy`,
+    text: layer.text ? { ...layer.text } : layer.text,
+    image: layer.image ? { ...layer.image } : layer.image,
   };
 }
 
-function buildPreviewDebugDeltaRows(
-  sourceMetrics: TemplatePreviewTextMetrics,
-  diagnostics: TemplatePdfPreviewDiagnostics | null,
-) {
-  if (!diagnostics) {
-    return [];
-  }
-
-  return [
-    {
-      label: "text left",
-      value: formatMetric(sourceMetrics.textLeft - diagnostics.text_left_in_box),
-    },
-    {
-      label: "text top",
-      value: formatMetric(sourceMetrics.textTop - diagnostics.text_top_in_box),
-    },
-    {
-      label: "baseline top",
-      value: formatMetric(
-        sourceMetrics.baselineTop - (diagnostics.baseline_top - diagnostics.box_top),
-      ),
-    },
-    {
-      label: "font size",
-      value: formatMetric(sourceMetrics.fontSize - diagnostics.font_size),
-    },
-    {
-      label: "text width",
-      value: formatMetric(sourceMetrics.textWidth - diagnostics.text_width),
-    },
-  ];
+function createLayerId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? `layer-${crypto.randomUUID()}`
+    : `layer-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function formatMetric(value: number) {
-  return (Math.round(value * 100) / 100).toFixed(2);
-}
-
-async function readFileAsDataUrl(file: File) {
+async function fileToDataUrl(file: File) {
   return new Promise<string | null>((resolve) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
+    reader.onload = () =>
+      resolve(typeof reader.result === "string" ? reader.result : null);
     reader.onerror = () => resolve(null);
     reader.readAsDataURL(file);
   });
+}
+
+async function getImageMetrics(src: string) {
+  return new Promise<{ width: number; height: number } | null>((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      resolve({
+        width: image.naturalWidth || image.width || 1,
+        height: image.naturalHeight || image.height || 1,
+      });
+    };
+    image.onerror = () => resolve(null);
+    image.src = src;
+  });
+}
+
+function ResizeHandle({
+  position,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+}: {
+  position: ResizeMode;
+  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void;
+}) {
+  const handleSize = 10;
+  const halfSize = handleSize / 2;
+
+  const cursorMap: Record<ResizeMode, string> = {
+    left: "ew-resize",
+    right: "ew-resize",
+    top: "ns-resize",
+    bottom: "ns-resize",
+    "top-left": "nwse-resize",
+    "top-right": "nesw-resize",
+    "bottom-left": "nesw-resize",
+    "bottom-right": "nwse-resize",
+  };
+
+  const positionMap: Record<ResizeMode, React.CSSProperties> = {
+    left: {
+      top: "50%",
+      left: -halfSize,
+      width: handleSize,
+      height: handleSize * 2.5,
+      transform: "translateY(-50%)",
+    },
+    right: {
+      top: "50%",
+      right: -halfSize,
+      width: handleSize,
+      height: handleSize * 2.5,
+      transform: "translateY(-50%)",
+    },
+    top: {
+      left: "50%",
+      top: -halfSize,
+      width: handleSize * 2.5,
+      height: handleSize,
+      transform: "translateX(-50%)",
+    },
+    bottom: {
+      left: "50%",
+      bottom: -halfSize,
+      width: handleSize * 2.5,
+      height: handleSize,
+      transform: "translateX(-50%)",
+    },
+    "top-left": {
+      top: -halfSize,
+      left: -halfSize,
+      width: handleSize,
+      height: handleSize,
+    },
+    "top-right": {
+      top: -halfSize,
+      right: -halfSize,
+      width: handleSize,
+      height: handleSize,
+    },
+    "bottom-left": {
+      bottom: -halfSize,
+      left: -halfSize,
+      width: handleSize,
+      height: handleSize,
+    },
+    "bottom-right": {
+      bottom: -halfSize,
+      right: -halfSize,
+      width: handleSize,
+      height: handleSize,
+    },
+  };
+
+  return (
+    <div
+      className="absolute z-10 rounded-sm bg-primary/80 hover:bg-primary"
+      style={{
+        ...positionMap[position],
+        cursor: cursorMap[position],
+      }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+    />
+  );
 }

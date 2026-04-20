@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, LoaderCircle, ScanLine } from "lucide-react";
+import { ArrowLeft, LoaderCircle } from "lucide-react";
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
 
@@ -62,25 +62,10 @@ export default function TemplateLayoutPage({ params }: Props) {
   }
 
   return (
-    <section className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="max-w-3xl space-y-4">
-          <div className="inline-flex items-center gap-2 rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-1.5">
-            <ScanLine className="size-4 text-sky-200" />
-            <span className="font-pixel text-[10px] uppercase tracking-[0.2em] text-sky-100">
-              Canvas editor
-            </span>
-          </div>
-
-          <h1 className="heading-hero text-gradient text-left">{template.template.name}</h1>
-          <p className="max-w-2xl text-sm leading-6 text-white/68 sm:text-base">
-            Здесь только холст, source preview, live PDF preview и controls. Управление названием,
-            файлом и статусом шаблона остается на странице самого шаблона.
-          </p>
-        </div>
-
+    <section className="flex h-full min-h-0 flex-col gap-4">
+      <div className="shrink-0 py-1">
         <Link
-          className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/75 transition hover:border-primary/30 hover:text-white"
+          className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/10 bg-black/45 px-4 py-2 text-sm text-white/80 backdrop-blur-xl transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
           href={`/admin/templates/${template.template.id}`}
         >
           <ArrowLeft className="size-4" />
@@ -88,23 +73,25 @@ export default function TemplateLayoutPage({ params }: Props) {
         </Link>
       </div>
 
-      <TemplateLayoutEditor
-        template={template}
-        onSaved={(layout) => {
-          setTemplate((current) =>
-            current
-              ? {
-                  ...current,
-                  layout,
-                  template: {
-                    ...current.template,
-                    has_layout: true,
-                  },
-                }
-              : current,
-          );
-        }}
-      />
+      <div className="min-h-0 flex-1">
+        <TemplateLayoutEditor
+          template={template}
+          onSaved={(layout) => {
+            setTemplate((current) =>
+              current
+                ? {
+                    ...current,
+                    layout,
+                    template: {
+                      ...current.template,
+                      has_layout: true,
+                    },
+                  }
+                : current,
+            );
+          }}
+        />
+      </div>
     </section>
   );
 }

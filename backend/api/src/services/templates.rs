@@ -4,10 +4,8 @@ use std::path::Path;
 use anyhow::Context;
 use chrono::Utc;
 use entity::{
-    certificate_issues,
-    certificate_templates,
+    certificate_issues, certificate_templates, participants,
     prelude::{CertificateTemplates, TemplateLayouts},
-    participants,
     template_layouts,
 };
 use sea_orm::{
@@ -19,7 +17,7 @@ use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    services::{certificates, storage::StorageService},
+    services::{scene_renderer, storage::StorageService},
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -96,7 +94,20 @@ pub struct FontFamilyOption {
 }
 
 const FONT_FAMILY_OPTIONS: &[(&str, &str, &str)] = &[
+    // Modern Google Fonts
     ("Outfit", "Outfit", "Helvetica"),
+    ("Inter", "Inter", "Helvetica"),
+    ("Roboto", "Roboto", "Helvetica"),
+    ("Montserrat", "Montserrat", "Helvetica"),
+    ("Open Sans", "Open Sans", "Helvetica"),
+    ("Playfair Display", "Playfair Display", "Times-Roman"),
+    ("Oswald", "Oswald", "Helvetica"),
+    ("Lato", "Lato", "Helvetica"),
+    ("Raleway", "Raleway", "Helvetica"),
+    ("Merriweather", "Merriweather", "Times-Roman"),
+    ("Nunito", "Nunito", "Helvetica"),
+    ("Poppins", "Poppins", "Helvetica"),
+    // System Fonts
     ("Arial", "Arial", "Helvetica"),
     ("Helvetica", "Helvetica", "Helvetica"),
     ("Helvetica Neue", "Helvetica Neue", "Helvetica"),
@@ -139,9 +150,9 @@ pub struct TemplateStats {
 }
 
 #[derive(Clone, Debug)]
-pub struct TemplatePreviewPdf {
-    pub pdf: Vec<u8>,
-    pub diagnostics: certificates::PreviewRenderDiagnostics,
+pub struct TemplatePreviewAsset {
+    pub bytes: Vec<u8>,
+    pub content_type: String,
 }
 
 #[derive(Clone, Debug)]
@@ -201,16 +212,6 @@ pub fn available_font_families() -> Vec<FontFamilyOption> {
             value: (*value).to_owned(),
         })
         .collect()
-}
-
-pub fn resolve_pdf_font_family(font_family: &str) -> String {
-    FONT_FAMILY_OPTIONS
-        .iter()
-        .find(|(label, value, _pdf_base)| {
-            label.eq_ignore_ascii_case(font_family) || value.eq_ignore_ascii_case(font_family)
-        })
-        .map(|(_label, _value, pdf_base)| (*pdf_base).to_owned())
-        .unwrap_or_else(|| "Helvetica".to_owned())
 }
 
 pub async fn get_template_source(
@@ -477,19 +478,19 @@ pub async fn save_layout(
     Ok(layout)
 }
 
-pub async fn preview_template_pdf(
+pub async fn preview_template_asset(
     state: &crate::state::AppState,
     template_id: Uuid,
     preview_name: &str,
     layout_override: Option<TemplateLayoutData>,
-) -> Result<TemplatePreviewPdf, AppError> {
+) -> Result<TemplatePreviewAsset, AppError> {
     let template = CertificateTemplates::find_by_id(template_id)
         .one(&state.db)
         .await
         .map_err(|err| AppError::Internal(err.into()))?
         .ok_or_else(|| AppError::NotFound("template not found".to_owned()))?;
     let layout = match layout_override {
-        Some(layout) => build_preview_layout_model(template_id, layout),
+        Some(layout) => layout,
         None => TemplateLayouts::find()
             .filter(template_layouts::Column::TemplateId.eq(template_id))
             .one(&state.db)
@@ -497,48 +498,23 @@ pub async fn preview_template_pdf(
             .map_err(|err| AppError::Internal(err.into()))?
             .ok_or_else(|| {
                 AppError::ServiceUnavailable("template layout is not configured".to_owned())
-            })?,
+            })
+            .map(|model| model_to_layout_data(&model))?,
     };
-    let font_family = resolve_pdf_font_family(&layout.font_family);
-
-    let participant = entity::participants::Model {
-        id: Uuid::new_v4(),
-        event_code: "preview".to_owned(),
-        email: "preview@example.com".to_owned(),
-        email_normalized: "preview@example.com".to_owned(),
-        full_name: preview_name.trim().to_owned(),
-        category: None,
-        metadata: serde_json::json!({}),
-        imported_at: Utc::now(),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-    };
-    let issue = entity::certificate_issues::Model {
-        id: Uuid::new_v4(),
-        certificate_id: format!("preview-{}", template.id),
-        verification_code: format!("preview-code-{}", template.id),
-        participant_id: participant.id,
-        template_id: template.id,
-        generated_pdf_path: String::new(),
-        download_count: 0,
-        last_downloaded_at: None,
-        created_at: Utc::now(),
-    };
-
-    let (pdf, diagnostics) = certificates::render_certificate_pdf_with_diagnostics(
+    let png = scene_renderer::render_scene_png(
         state,
-        &participant,
         &template,
         &layout,
-        &font_family,
-        &issue,
+        preview_name,
+        build_preview_binding_values(&template, preview_name),
     )
     .await
     .map_err(AppError::Internal)?;
 
     let preview_key = state.storage.template_preview_key(&template.id.to_string());
-    state.storage
-        .put_object(&preview_key, pdf.clone(), Some("application/pdf"))
+    state
+        .storage
+        .put_object(&preview_key, png.clone(), Some("image/png"))
         .await
         .with_context(|| format!("failed to write template preview object: {preview_key}"))
         .map_err(AppError::Internal)?;
@@ -551,35 +527,10 @@ pub async fn preview_template_pdf(
         .await
         .map_err(|err| AppError::Internal(err.into()))?;
 
-    Ok(TemplatePreviewPdf { pdf, diagnostics })
-}
-
-fn build_preview_layout_model(
-    template_id: Uuid,
-    layout: TemplateLayoutData,
-) -> template_layouts::Model {
-    template_layouts::Model {
-        id: Uuid::new_v4(),
-        template_id,
-        page_width: layout.page_width,
-        page_height: layout.page_height,
-        name_x: layout.name_x,
-        name_y: layout.name_y,
-        name_max_width: layout.name_max_width,
-        name_box_height: layout.name_box_height,
-        font_family: layout.font_family,
-        font_size: layout.font_size,
-        font_color_hex: layout.font_color_hex,
-        text_align: layout.text_align,
-        vertical_align: layout.vertical_align,
-        auto_shrink: layout.auto_shrink,
-        canvas_data: layout
-            .canvas
-            .as_ref()
-            .and_then(|canvas| serde_json::to_value(canvas).ok()),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-    }
+    Ok(TemplatePreviewAsset {
+        bytes: png,
+        content_type: "image/png".to_owned(),
+    })
 }
 
 fn to_detail(
@@ -599,7 +550,7 @@ fn to_detail(
             created_at: template.created_at,
             updated_at: template.updated_at,
         },
-        layout: layout.map(to_layout_data),
+        layout: layout.map(model_to_layout_data),
     }
 }
 
@@ -625,8 +576,8 @@ async fn load_template_stats(
     })
 }
 
-fn to_layout_data(layout: &template_layouts::Model) -> TemplateLayoutData {
-    TemplateLayoutData {
+pub(crate) fn model_to_layout_data(layout: &template_layouts::Model) -> TemplateLayoutData {
+    let mut data = TemplateLayoutData {
         page_width: layout.page_width,
         page_height: layout.page_height,
         name_x: layout.name_x,
@@ -640,7 +591,11 @@ fn to_layout_data(layout: &template_layouts::Model) -> TemplateLayoutData {
         vertical_align: layout.vertical_align.clone(),
         auto_shrink: layout.auto_shrink,
         canvas: deserialize_canvas_data(layout.canvas_data.as_ref()),
+    };
+    if data.canvas.is_none() {
+        data.canvas = Some(default_canvas_for_layout(&data));
     }
+    data
 }
 
 impl TemplateLayoutData {
@@ -678,7 +633,7 @@ fn deserialize_canvas_data(canvas: Option<&serde_json::Value>) -> Option<Templat
     canvas.and_then(|value| serde_json::from_value(value.clone()).ok())
 }
 
-fn default_canvas_for_layout(layout: &TemplateLayoutData) -> TemplateCanvasData {
+pub(crate) fn default_canvas_for_layout(layout: &TemplateLayoutData) -> TemplateCanvasData {
     TemplateCanvasData {
         version: 1,
         layers: vec![TemplateCanvasLayer {
@@ -731,4 +686,33 @@ fn template_source_content_type(source_path: &str, source_kind: &str) -> String 
             _ => "application/octet-stream".to_owned(),
         },
     }
+}
+
+pub fn build_preview_binding_values(
+    template: &certificate_templates::Model,
+    preview_name: &str,
+) -> HashMap<String, String> {
+    let name = preview_name.trim();
+    let preview_name_value = if name.is_empty() {
+        "Preview Participant"
+    } else {
+        name
+    };
+
+    HashMap::from([
+        ("participant.full_name".to_owned(), preview_name_value.to_owned()),
+        ("full_name".to_owned(), preview_name_value.to_owned()),
+        ("name".to_owned(), preview_name_value.to_owned()),
+        ("participant.category".to_owned(), "Preview track".to_owned()),
+        ("track_name".to_owned(), "Preview track".to_owned()),
+        ("template.name".to_owned(), template.name.clone()),
+        ("certificate_type".to_owned(), template.name.clone()),
+        ("issue.certificate_id".to_owned(), "cert-preview-0001".to_owned()),
+        ("certificate_id".to_owned(), "cert-preview-0001".to_owned()),
+        ("issue.issue_date".to_owned(), chrono::Utc::now().format("%Y-%m-%d").to_string()),
+        (
+            "issue.verification_code".to_owned(),
+            "verify-preview-0001".to_owned(),
+        ),
+    ])
 }

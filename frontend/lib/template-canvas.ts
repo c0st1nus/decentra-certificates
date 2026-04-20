@@ -10,9 +10,18 @@ import { sanitizeTemplateLayout } from "@/lib/template-layout";
 const LEGACY_NAME_LAYER_ID = "legacy-name-layer";
 const LEGACY_NAME_ROLE = "legacy_name";
 
-export function sanitizeTemplateCanvas(layout?: TemplateLayoutData | null): TemplateCanvasData {
+type SanitizeTemplateCanvasOptions = {
+  preserveLegacyFromCanvas?: boolean;
+  forceLegacyLayer?: boolean;
+};
+
+export function sanitizeTemplateCanvas(
+  layout?: TemplateLayoutData | null,
+  options?: SanitizeTemplateCanvasOptions,
+): TemplateCanvasData {
   const safeLayout = sanitizeTemplateLayout(layout);
   const existingLayers = layout?.canvas?.layers ?? [];
+  const hasExplicitCanvas = Array.isArray(layout?.canvas?.layers);
   const normalizedLayers = existingLayers
     .map((layer) => sanitizeCanvasLayer(layer))
     .filter(Boolean) as TemplateCanvasLayer[];
@@ -20,9 +29,15 @@ export function sanitizeTemplateCanvas(layout?: TemplateLayoutData | null): Temp
   const legacyLayer = normalizedLayers.find((layer) => layer.role === LEGACY_NAME_ROLE);
   const nextLayers = legacyLayer
     ? normalizedLayers.map((layer) =>
-        layer.role === LEGACY_NAME_ROLE ? buildLegacyNameLayer(safeLayout, layer) : layer,
+        layer.role === LEGACY_NAME_ROLE
+          ? buildLegacyNameLayer(safeLayout, layer, {
+              preserveCanvasState: options?.preserveLegacyFromCanvas === true,
+            })
+          : layer,
       )
-    : [buildLegacyNameLayer(safeLayout), ...normalizedLayers];
+    : hasExplicitCanvas && options?.forceLegacyLayer !== true
+      ? normalizedLayers
+      : [buildLegacyNameLayer(safeLayout), ...normalizedLayers];
 
   return {
     version: layout?.canvas?.version ?? 1,
@@ -35,10 +50,15 @@ export function syncLayoutWithCanvas(
   canvas: TemplateCanvasData,
 ): TemplateLayoutData {
   const safeLayout = sanitizeTemplateLayout(layout);
-  const normalizedCanvas = sanitizeTemplateCanvas({
-    ...safeLayout,
-    canvas,
-  });
+  const normalizedCanvas = sanitizeTemplateCanvas(
+    {
+      ...safeLayout,
+      canvas,
+    },
+    {
+      preserveLegacyFromCanvas: true,
+    },
+  );
   const legacyLayer =
     normalizedCanvas.layers.find((layer) => layer.role === LEGACY_NAME_ROLE) ??
     buildLegacyNameLayer(safeLayout);
@@ -92,20 +112,30 @@ export function createTextCanvasLayer(layout: TemplateLayoutData): TemplateCanva
   };
 }
 
+
+
 export function createImageCanvasLayer(
   layout: TemplateLayoutData,
   src: string,
   fileName?: string,
+  imageSize?: { width: number; height: number },
 ): TemplateCanvasLayer {
+  const fittedSize = imageSize
+    ? getFittedImageLayerSize(layout, imageSize.width, imageSize.height)
+    : {
+        width: Math.round(layout.page_width * 0.18),
+        height: Math.round(layout.page_height * 0.18),
+      };
+
   return {
     id: createCanvasLayerId(),
     name: fileName?.replace(/\.[^.]+$/, "") || "Image asset",
     kind: "image",
     role: null,
-    x: Math.round(layout.page_width * 0.62),
-    y: Math.round(layout.page_height * 0.18),
-    width: Math.round(layout.page_width * 0.18),
-    height: Math.round(layout.page_height * 0.18),
+    x: Math.max(0, Math.min(Math.round(layout.page_width * 0.62), layout.page_width - fittedSize.width)),
+    y: Math.max(0, Math.min(Math.round(layout.page_height * 0.18), layout.page_height - fittedSize.height)),
+    width: fittedSize.width,
+    height: fittedSize.height,
     rotation: 0,
     opacity: 100,
     visible: true,
@@ -116,6 +146,23 @@ export function createImageCanvasLayer(
       fit: "contain",
       border_radius: 16,
     },
+  };
+}
+
+export function getFittedImageLayerSize(
+  layout: TemplateLayoutData,
+  naturalWidth: number,
+  naturalHeight: number,
+) {
+  const safeWidth = Math.max(1, naturalWidth);
+  const safeHeight = Math.max(1, naturalHeight);
+  const maxWidth = Math.round(layout.page_width * 0.24);
+  const maxHeight = Math.round(layout.page_height * 0.24);
+  const scale = Math.min(maxWidth / safeWidth, maxHeight / safeHeight, 1);
+
+  return {
+    width: Math.max(60, Math.round(safeWidth * scale)),
+    height: Math.max(60, Math.round(safeHeight * scale)),
   };
 }
 
@@ -133,29 +180,7 @@ export function updateCanvasLayers(
   };
 }
 
-export function moveLayerForward(canvas: TemplateCanvasData, layerId: string): TemplateCanvasData {
-  const index = canvas.layers.findIndex((layer) => layer.id === layerId);
-  if (index === -1 || index === canvas.layers.length - 1) {
-    return canvas;
-  }
 
-  const next = [...canvas.layers];
-  const [layer] = next.splice(index, 1);
-  next.splice(index + 1, 0, layer);
-  return { ...canvas, layers: next };
-}
-
-export function moveLayerBackward(canvas: TemplateCanvasData, layerId: string): TemplateCanvasData {
-  const index = canvas.layers.findIndex((layer) => layer.id === layerId);
-  if (index <= 0) {
-    return canvas;
-  }
-
-  const next = [...canvas.layers];
-  const [layer] = next.splice(index, 1);
-  next.splice(index - 1, 0, layer);
-  return { ...canvas, layers: next };
-}
 
 export function getCanvasLayerLabel(layer: TemplateCanvasLayer) {
   if (layer.role === LEGACY_NAME_ROLE) {
@@ -165,21 +190,49 @@ export function getCanvasLayerLabel(layer: TemplateCanvasLayer) {
   return layer.name;
 }
 
-export function getCanvasLayerDisplayText(layer: TemplateCanvasLayer, previewName: string) {
+export function getCanvasLayerDisplayText(
+  layer: TemplateCanvasLayer,
+  previewName: string,
+  bindingValues: Record<string, string> = {},
+) {
   if (layer.kind !== "text" || !layer.text) {
     return "";
   }
 
-  if (layer.text.binding === "participant.full_name") {
-    return previewName.trim() || "Preview Participant";
+  return resolveCanvasLayerText(layer.text, previewName, bindingValues);
+}
+
+export function resolveCanvasLayerText(
+  text: TemplateCanvasTextLayer,
+  previewName: string,
+  bindingValues: Record<string, string>,
+) {
+  const content = text.content ?? "";
+  const resolvedValues: Record<string, string> = {
+    ...bindingValues,
+    "participant.full_name": bindingValues["participant.full_name"] ?? previewName.trim(),
+    full_name: bindingValues.full_name ?? previewName.trim(),
+    name: bindingValues.name ?? previewName.trim(),
+  };
+
+  const rendered = replaceTemplatePlaceholders(content, resolvedValues).trim();
+  if (rendered) {
+    return rendered;
   }
 
-  return layer.text.content;
+  if (text.binding) {
+    return (
+      resolvedValues[text.binding] ??
+      resolvedValues[text.binding.trim()] ??
+      previewName.trim() ??
+      text.content
+    );
+  }
+
+  return content;
 }
 
-export function isLegacyNameLayer(layer: TemplateCanvasLayer) {
-  return layer.role === LEGACY_NAME_ROLE;
-}
+
 
 export function clampLayerToLayout(
   layer: TemplateCanvasLayer,
@@ -196,8 +249,10 @@ export function clampLayerToLayout(
     y: clamp(Math.round(layer.y), 0, Math.max(0, layout.page_height - height)),
     width,
     height,
-    opacity: clamp(Math.round(layer.opacity), 0, 100),
-    rotation: Math.round(layer.rotation),
+    opacity: 100,
+    rotation: 0,
+    visible: true,
+    locked: false,
   };
 }
 
@@ -211,10 +266,10 @@ function sanitizeCanvasLayer(layer?: TemplateCanvasLayer | null) {
       ...layer,
       name: layer.name || "Text block",
       role: layer.role ?? null,
-      visible: layer.visible !== false,
-      locked: layer.locked === true,
-      opacity: clamp(Math.round(layer.opacity ?? 100), 0, 100),
-      rotation: Math.round(layer.rotation ?? 0),
+      visible: true,
+      locked: false,
+      opacity: 100,
+      rotation: 0,
       text: sanitizeTextLayer(layer.text),
       image: null,
     } satisfies TemplateCanvasLayer;
@@ -225,10 +280,10 @@ function sanitizeCanvasLayer(layer?: TemplateCanvasLayer | null) {
       ...layer,
       name: layer.name || "Image asset",
       role: layer.role ?? null,
-      visible: layer.visible !== false,
-      locked: layer.locked === true,
-      opacity: clamp(Math.round(layer.opacity ?? 100), 0, 100),
-      rotation: Math.round(layer.rotation ?? 0),
+      visible: true,
+      locked: false,
+      opacity: 100,
+      rotation: 0,
       text: null,
       image: sanitizeImageLayer(layer.image),
     } satisfies TemplateCanvasLayer;
@@ -240,9 +295,9 @@ function sanitizeCanvasLayer(layer?: TemplateCanvasLayer | null) {
 function sanitizeTextLayer(layer?: TemplateCanvasTextLayer | null): TemplateCanvasTextLayer {
   return {
     content: layer?.content || "Text block",
-    binding: layer?.binding ?? null,
+    binding: null,
     font_family: layer?.font_family || "Outfit",
-    font_size: clamp(Math.round(layer?.font_size ?? 32), 12, 160),
+    font_size: clamp(Math.round(layer?.font_size ?? 32), 1, 400),
     font_color_hex: normalizeHexColor(layer?.font_color_hex || "#111827"),
     text_align:
       layer?.text_align === "left" ||
@@ -257,9 +312,9 @@ function sanitizeTextLayer(layer?: TemplateCanvasTextLayer | null): TemplateCanv
         ? layer.vertical_align
         : "top",
     auto_shrink: layer?.auto_shrink === true,
-    font_weight: clamp(Math.round(layer?.font_weight ?? 500), 300, 900),
+    font_weight: clamp(Math.round(layer?.font_weight ?? 500), 1, 1000),
     letter_spacing: Math.round(layer?.letter_spacing ?? 0),
-    line_height: clamp(Math.round(layer?.line_height ?? 130), 80, 220),
+    line_height: clamp(Math.round(layer?.line_height ?? 130), 1, 400),
     background_color_hex: layer?.background_color_hex
       ? normalizeHexColor(layer.background_color_hex)
       : null,
@@ -269,7 +324,10 @@ function sanitizeTextLayer(layer?: TemplateCanvasTextLayer | null): TemplateCanv
 function sanitizeImageLayer(layer?: TemplateCanvasImageLayer | null): TemplateCanvasImageLayer {
   return {
     src: layer?.src || "",
-    fit: layer?.fit === "cover" ? "cover" : "contain",
+    fit:
+      layer?.fit === "cover" || layer?.fit === "contain" || layer?.fit === "fill"
+        ? layer.fit
+        : "fill",
     border_radius: clamp(Math.round(layer?.border_radius ?? 16), 0, 48),
   };
 }
@@ -277,18 +335,25 @@ function sanitizeImageLayer(layer?: TemplateCanvasImageLayer | null): TemplateCa
 function buildLegacyNameLayer(
   layout: TemplateLayoutData,
   current?: TemplateCanvasLayer,
+  options?: {
+    preserveCanvasState?: boolean;
+  },
 ): TemplateCanvasLayer {
   const text = current?.text ? sanitizeTextLayer(current.text) : buildDefaultTextLayer(layout);
-
-  return {
+  const preserveCanvasState = options?.preserveCanvasState === true;
+  const nextLayer: TemplateCanvasLayer = {
     id: current?.id || LEGACY_NAME_LAYER_ID,
     name: "Participant name",
     kind: "text",
     role: LEGACY_NAME_ROLE,
-    x: layout.name_x,
-    y: layout.name_y - layout.name_box_height,
-    width: layout.name_max_width,
-    height: layout.name_box_height,
+    x: preserveCanvasState ? (current?.x ?? layout.name_x) : layout.name_x,
+    y: preserveCanvasState
+      ? (current?.y ?? layout.name_y - layout.name_box_height)
+      : layout.name_y - layout.name_box_height,
+    width: preserveCanvasState ? (current?.width ?? layout.name_max_width) : layout.name_max_width,
+    height: preserveCanvasState
+      ? (current?.height ?? layout.name_box_height)
+      : layout.name_box_height,
     rotation: 0,
     opacity: current?.opacity ?? 100,
     visible: current?.visible !== false,
@@ -296,15 +361,17 @@ function buildLegacyNameLayer(
     text: {
       ...text,
       binding: "participant.full_name",
-      font_family: layout.font_family,
-      font_size: layout.font_size,
-      font_color_hex: layout.font_color_hex,
-      text_align: layout.text_align,
-      vertical_align: layout.vertical_align,
-      auto_shrink: layout.auto_shrink,
+      font_family: preserveCanvasState ? text.font_family : layout.font_family,
+      font_size: preserveCanvasState ? text.font_size : layout.font_size,
+      font_color_hex: preserveCanvasState ? text.font_color_hex : layout.font_color_hex,
+      text_align: preserveCanvasState ? text.text_align : layout.text_align,
+      vertical_align: preserveCanvasState ? text.vertical_align : layout.vertical_align,
+      auto_shrink: preserveCanvasState ? text.auto_shrink : layout.auto_shrink,
     },
     image: null,
   };
+
+  return clampLayerToLayout(nextLayer, layout);
 }
 
 function buildDefaultTextLayer(layout: TemplateLayoutData): TemplateCanvasTextLayer {
@@ -325,9 +392,7 @@ function buildDefaultTextLayer(layout: TemplateLayoutData): TemplateCanvasTextLa
 }
 
 function sortLayers(layers: TemplateCanvasLayer[]) {
-  const legacy = layers.filter((layer) => layer.role === LEGACY_NAME_ROLE);
-  const others = layers.filter((layer) => layer.role !== LEGACY_NAME_ROLE);
-  return [...legacy, ...others];
+  return [...layers];
 }
 
 function createCanvasLayerId() {
@@ -345,4 +410,11 @@ function normalizeHexColor(value: string) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function replaceTemplatePlaceholders(text: string, bindingValues: Record<string, string>) {
+  return text.replace(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g, (match, key: string) => {
+    const value = bindingValues[key] ?? bindingValues[key.trim()];
+    return typeof value === "string" ? value : match;
+  });
 }

@@ -77,7 +77,7 @@ impl StorageService {
     }
 
     pub fn template_preview_key(&self, template_id: &str) -> String {
-        format!("{TEMPLATE_PREFIX}/{template_id}-preview.pdf")
+        format!("{TEMPLATE_PREFIX}/{template_id}-preview.png")
     }
 
     pub async fn put_object(

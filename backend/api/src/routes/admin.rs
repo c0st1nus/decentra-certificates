@@ -465,7 +465,7 @@ async fn preview_template(
         .preview_name
         .as_deref()
         .unwrap_or("Preview Participant");
-    let preview = templates::preview_template_pdf(
+    let preview = templates::preview_template_asset(
         &state,
         template_id,
         preview_name,
@@ -489,8 +489,6 @@ async fn preview_template(
             }),
     )
     .await?;
-    let diagnostics_header =
-        serde_json::to_string(&preview.diagnostics).map_err(|err| AppError::Internal(err.into()))?;
 
     audit::log_admin_action(
         &state.db,
@@ -505,13 +503,12 @@ async fn preview_template(
     .await;
 
     Ok(HttpResponse::Ok()
-        .insert_header(("Content-Type", "application/pdf"))
+        .insert_header(("Content-Type", preview.content_type))
         .insert_header((
             "Content-Disposition",
-            "inline; filename=\"template-preview.pdf\"",
+            "inline; filename=\"template-preview.png\"",
         ))
-        .insert_header(("X-Template-Preview-Diagnostics", diagnostics_header))
-        .body(preview.pdf))
+        .body(preview.bytes))
 }
 
 #[post("/participants/import")]

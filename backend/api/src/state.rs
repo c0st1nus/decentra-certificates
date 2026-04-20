@@ -7,7 +7,7 @@ use crate::config::Settings;
 use crate::services::redis::RedisService;
 use crate::services::storage::StorageService;
 
-pub type PdfBackgroundCache = Arc<RwLock<HashMap<uuid::Uuid, Arc<crate::services::certificates::PdfBackground>>>>;
+pub type FontCache = Arc<RwLock<HashMap<String, Arc<Vec<u8>>>>>;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -15,7 +15,7 @@ pub struct AppState {
     pub db: DatabaseConnection,
     pub redis: RedisService,
     pub storage: StorageService,
-    pub pdf_backgrounds: PdfBackgroundCache,
+    pub font_cache: FontCache,
 }
 
 impl AppState {
@@ -28,7 +28,7 @@ impl AppState {
             db,
             redis,
             storage,
-            pdf_backgrounds: Arc::new(RwLock::new(HashMap::new())),
+            font_cache: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 }
