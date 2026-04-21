@@ -6,8 +6,8 @@ use entity::{
     template_layouts,
 };
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
-    QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    Set,
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -140,7 +140,10 @@ pub async fn issue_certificate(
         certificate_id: job.certificate_id,
         events_url: format!("/api/v1/public/certificates/jobs/{}/events", job.job_id),
         verification_url: job.verification_url.unwrap_or_else(|| {
-            format!("/api/v1/public/certificates/verify/{}", issue.verification_code)
+            format!(
+                "/api/v1/public/certificates/verify/{}",
+                issue.verification_code
+            )
         }),
         full_name: participant.full_name,
         template_name: template.name,
@@ -168,7 +171,11 @@ pub async fn check_available_certificates(
 
     let template_ids: Vec<uuid::Uuid> = participants
         .iter()
-        .map(|p| p.event_code.parse::<uuid::Uuid>().unwrap_or(uuid::Uuid::nil()))
+        .map(|p| {
+            p.event_code
+                .parse::<uuid::Uuid>()
+                .unwrap_or(uuid::Uuid::nil())
+        })
         .filter(|id| !id.is_nil())
         .collect();
 
@@ -202,7 +209,9 @@ pub async fn check_available_certificates(
     let mut certificates = Vec::with_capacity(templates.len());
 
     for template in templates {
-        let participant = participants.iter().find(|p| p.event_code == template.id.to_string());
+        let participant = participants
+            .iter()
+            .find(|p| p.event_code == template.id.to_string());
         let issue = participant.and_then(|p| issue_map.get(&(p.id, template.id)).copied());
         let delivery_status = resolve_delivery_status(state, issue).await?;
 
@@ -407,9 +416,11 @@ pub(crate) async fn find_or_create_issue_record(
 
     match issue.insert(&state.db).await {
         Ok(issue) => Ok(issue),
-        Err(err) if is_unique_issue_violation(&err) => find_existing_issue(&state.db, participant, template)
-            .await?
-            .ok_or_else(|| AppError::Internal(err.into())),
+        Err(err) if is_unique_issue_violation(&err) => {
+            find_existing_issue(&state.db, participant, template)
+                .await?
+                .ok_or_else(|| AppError::Internal(err.into()))
+        }
         Err(err) => Err(AppError::Internal(err.into())),
     }
 }
@@ -483,17 +494,26 @@ fn build_certificate_binding_values(
     issue: &certificate_issues::Model,
 ) -> HashMap<String, String> {
     let issue_date = issue.created_at.format("%Y-%m-%d").to_string();
-    let track_name = participant.category.clone().unwrap_or_else(|| "General".to_owned());
+    let track_name = participant
+        .category
+        .clone()
+        .unwrap_or_else(|| "General".to_owned());
 
     let mut values = HashMap::from([
-        ("participant.full_name".to_owned(), participant.full_name.clone()),
+        (
+            "participant.full_name".to_owned(),
+            participant.full_name.clone(),
+        ),
         ("full_name".to_owned(), participant.full_name.clone()),
         ("name".to_owned(), participant.full_name.clone()),
         ("participant.category".to_owned(), track_name.clone()),
         ("track_name".to_owned(), track_name),
         ("template.name".to_owned(), template.name.clone()),
         ("certificate_type".to_owned(), template.name.clone()),
-        ("issue.certificate_id".to_owned(), issue.certificate_id.clone()),
+        (
+            "issue.certificate_id".to_owned(),
+            issue.certificate_id.clone(),
+        ),
         ("certificate_id".to_owned(), issue.certificate_id.clone()),
         ("issue.issue_date".to_owned(), issue_date),
         (

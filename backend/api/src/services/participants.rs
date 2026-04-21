@@ -289,7 +289,7 @@ async fn import_rows(
             }
             .insert(db)
             .await
-                .map_err(|err| AppError::Internal(err.into()))?;
+            .map_err(|err| AppError::Internal(err.into()))?;
             inserted += 1;
             affected_participant_ids.push(model.id);
         }

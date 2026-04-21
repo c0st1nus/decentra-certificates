@@ -5,8 +5,8 @@ use anyhow::Context;
 use chrono::Utc;
 use entity::{
     certificate_issues, certificate_templates, participants,
-    prelude::{CertificateTemplates, TemplateCategories, TemplateLayouts}, template_categories,
-    template_layouts,
+    prelude::{CertificateTemplates, TemplateCategories, TemplateLayouts},
+    template_categories, template_layouts,
 };
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
@@ -159,6 +159,11 @@ pub struct TemplatePreviewAsset {
 }
 
 #[derive(Clone, Debug)]
+pub struct StoredTemplatePreview {
+    pub preview_path: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct TemplateSourceFile {
     pub bytes: Vec<u8>,
     pub content_type: String,
@@ -185,16 +190,22 @@ pub async fn list_templates(db: &DatabaseConnection) -> Result<Vec<TemplateDetai
         .await
         .map_err(|err| AppError::Internal(err.into()))?
         .into_iter()
-        .fold(HashMap::<Uuid, Vec<template_categories::Model>>::new(), |mut acc, category| {
-            acc.entry(category.template_id).or_default().push(category);
-            acc
-        });
+        .fold(
+            HashMap::<Uuid, Vec<template_categories::Model>>::new(),
+            |mut acc, category| {
+                acc.entry(category.template_id).or_default().push(category);
+                acc
+            },
+        );
 
     let mut details = Vec::with_capacity(templates.len());
     for template in templates {
         let layout = layouts_by_template_id.get(&template.id);
         let stats = load_template_stats(db, &template).await?;
-        let template_categories = categories.get(&template.id).map(Vec::as_slice).unwrap_or(&[]);
+        let template_categories = categories
+            .get(&template.id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
         details.push(to_detail(template, template_categories, layout, stats));
     }
 
@@ -340,11 +351,9 @@ pub async fn update_template(
     if let Some(file_bytes) = file_bytes {
         if let Some(file_name) = file_name {
             let new_source_key = storage.template_file_key(&id.to_string(), &file_name);
-            let effective_source_kind = active_model
-                .source_kind
-                .as_ref()
-                .clone();
-            let content_type = template_source_content_type(&new_source_key, &effective_source_kind);
+            let effective_source_kind = active_model.source_kind.as_ref().clone();
+            let content_type =
+                template_source_content_type(&new_source_key, &effective_source_kind);
             storage
                 .put_object(&new_source_key, file_bytes, Some(&content_type))
                 .await
@@ -512,6 +521,51 @@ pub async fn preview_template_asset(
     preview_name: &str,
     layout_override: Option<TemplateLayoutData>,
 ) -> Result<TemplatePreviewAsset, AppError> {
+    let (_template, png) =
+        render_template_preview_png(state, template_id, preview_name, layout_override).await?;
+
+    Ok(TemplatePreviewAsset {
+        bytes: png,
+        content_type: "image/png".to_owned(),
+    })
+}
+
+pub async fn save_template_snapshot(
+    state: &crate::state::AppState,
+    template_id: Uuid,
+    preview_name: &str,
+    layout_override: Option<TemplateLayoutData>,
+) -> Result<StoredTemplatePreview, AppError> {
+    let (template, png) =
+        render_template_preview_png(state, template_id, preview_name, layout_override).await?;
+
+    let preview_key = state.storage.template_preview_key(&template.id.to_string());
+    state
+        .storage
+        .put_object(&preview_key, png, Some("image/png"))
+        .await
+        .with_context(|| format!("failed to write template preview object: {preview_key}"))
+        .map_err(AppError::Internal)?;
+
+    let mut active_model: certificate_templates::ActiveModel = template.into();
+    active_model.preview_path = Set(Some(preview_key.clone()));
+    active_model.updated_at = Set(Utc::now());
+    active_model
+        .update(&state.db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?;
+
+    Ok(StoredTemplatePreview {
+        preview_path: preview_key,
+    })
+}
+
+async fn render_template_preview_png(
+    state: &crate::state::AppState,
+    template_id: Uuid,
+    preview_name: &str,
+    layout_override: Option<TemplateLayoutData>,
+) -> Result<(certificate_templates::Model, Vec<u8>), AppError> {
     let template = CertificateTemplates::find_by_id(template_id)
         .one(&state.db)
         .await
@@ -539,26 +593,7 @@ pub async fn preview_template_asset(
     .await
     .map_err(AppError::Internal)?;
 
-    let preview_key = state.storage.template_preview_key(&template.id.to_string());
-    state
-        .storage
-        .put_object(&preview_key, png.clone(), Some("image/png"))
-        .await
-        .with_context(|| format!("failed to write template preview object: {preview_key}"))
-        .map_err(AppError::Internal)?;
-
-    let mut active_model: certificate_templates::ActiveModel = template.into();
-    active_model.preview_path = Set(Some(preview_key));
-    active_model.updated_at = Set(Utc::now());
-    active_model
-        .update(&state.db)
-        .await
-        .map_err(|err| AppError::Internal(err.into()))?;
-
-    Ok(TemplatePreviewAsset {
-        bytes: png,
-        content_type: "image/png".to_owned(),
-    })
+    Ok((template, png))
 }
 
 fn to_detail(
@@ -729,7 +764,6 @@ fn template_source_content_type(source_path: &str, source_kind: &str) -> String 
     }
 }
 
-
 pub fn build_preview_binding_values(
     template: &certificate_templates::Model,
     preview_name: &str,
@@ -742,16 +776,28 @@ pub fn build_preview_binding_values(
     };
 
     HashMap::from([
-        ("participant.full_name".to_owned(), preview_name_value.to_owned()),
+        (
+            "participant.full_name".to_owned(),
+            preview_name_value.to_owned(),
+        ),
         ("full_name".to_owned(), preview_name_value.to_owned()),
         ("name".to_owned(), preview_name_value.to_owned()),
-        ("participant.category".to_owned(), "Preview track".to_owned()),
+        (
+            "participant.category".to_owned(),
+            "Preview track".to_owned(),
+        ),
         ("track_name".to_owned(), "Preview track".to_owned()),
         ("template.name".to_owned(), template.name.clone()),
         ("certificate_type".to_owned(), template.name.clone()),
-        ("issue.certificate_id".to_owned(), "cert-preview-0001".to_owned()),
+        (
+            "issue.certificate_id".to_owned(),
+            "cert-preview-0001".to_owned(),
+        ),
         ("certificate_id".to_owned(), "cert-preview-0001".to_owned()),
-        ("issue.issue_date".to_owned(), chrono::Utc::now().format("%Y-%m-%d").to_string()),
+        (
+            "issue.issue_date".to_owned(),
+            chrono::Utc::now().format("%Y-%m-%d").to_string(),
+        ),
         (
             "issue.verification_code".to_owned(),
             "verify-preview-0001".to_owned(),

@@ -136,40 +136,38 @@ impl RedisService {
         Ok(())
     }
 
-    pub async fn dequeue_scored(&self, key: &str) -> Result<Option<String>> {
+    pub async fn dequeue_ready_scored(&self, key: &str, max_score: f64) -> Result<Option<String>> {
         let mut connection = self.connection().await?;
-        let response: redis::Value = redis::cmd("ZPOPMIN")
-            .arg(key)
+        let script = "local items = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, 1)\nif #items == 0 then\n  return nil\nend\nredis.call('ZREM', KEYS[1], items[1])\nreturn items[1]";
+        redis::cmd("EVAL")
+            .arg(script)
             .arg(1)
+            .arg(key)
+            .arg(max_score)
             .query_async(&mut connection)
             .await
-            .with_context(|| format!("failed to zpopmin redis key `{key}`"))?;
+            .with_context(|| format!("failed to dequeue ready redis member from key `{key}`"))
+    }
 
-        match response {
-            redis::Value::Nil => Ok(None),
-            redis::Value::Array(values) if values.is_empty() => Ok(None),
-            redis::Value::Array(values) => {
-                let Some(member) = values.first() else {
-                    return Err(anyhow::anyhow!(
-                        "unexpected zpopmin response length for redis key `{key}`"
-                    ));
-                };
+    pub async fn next_scored_score(&self, key: &str) -> Result<Option<f64>> {
+        let mut connection = self.connection().await?;
+        let values: Vec<String> = redis::cmd("ZRANGE")
+            .arg(key)
+            .arg(0)
+            .arg(0)
+            .arg("WITHSCORES")
+            .query_async(&mut connection)
+            .await
+            .with_context(|| format!("failed to read next score from redis key `{key}`"))?;
 
-                let member = match member {
-                    redis::Value::BulkString(bytes) => String::from_utf8(bytes.clone())
-                        .context("zpopmin returned a non-utf8 member")?,
-                    redis::Value::SimpleString(value) => value.clone(),
-                    other => {
-                        return Err(anyhow::anyhow!(
-                            "unexpected zpopmin member type for redis key `{key}`: {other:?}"
-                        ));
-                    }
-                };
-
-                Ok(Some(member))
-            }
-            other => Err(anyhow::anyhow!(
-                "unexpected zpopmin response for redis key `{key}`: {other:?}"
+        match values.as_slice() {
+            [] => Ok(None),
+            [_, score] => score
+                .parse::<f64>()
+                .map(Some)
+                .with_context(|| format!("invalid score returned for redis key `{key}`")),
+            _ => Err(anyhow::anyhow!(
+                "unexpected zrange withscores response for redis key `{key}`"
             )),
         }
     }

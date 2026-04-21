@@ -1,7 +1,7 @@
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::{Notify, RwLock, Semaphore};
 
 use crate::config::Settings;
 use crate::services::font_loader::FontDatabase;
@@ -9,7 +9,7 @@ use crate::services::redis::RedisService;
 use crate::services::storage::StorageService;
 
 pub type TemplateBackgroundCache = Arc<RwLock<HashMap<uuid::Uuid, Option<Arc<String>>>>>;
-pub type TemplateSvgCache = Arc<RwLock<HashMap<uuid::Uuid, Arc<String>>>>;
+pub type TemplateSvgCache = Arc<RwLock<HashMap<String, Arc<String>>>>;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -21,6 +21,7 @@ pub struct AppState {
     pub template_background_cache: TemplateBackgroundCache,
     pub template_svg_cache: TemplateSvgCache,
     pub render_semaphore: Arc<Semaphore>,
+    pub certificate_queue_notify: Arc<Notify>,
 }
 
 impl AppState {
@@ -35,6 +36,7 @@ impl AppState {
         };
 
         Ok(Self {
+            render_semaphore: Arc::new(Semaphore::new(settings.render_parallelism.max(1))),
             settings,
             db,
             redis,
@@ -42,7 +44,7 @@ impl AppState {
             font_db,
             template_background_cache: Arc::new(RwLock::new(HashMap::new())),
             template_svg_cache: Arc::new(RwLock::new(HashMap::new())),
-            render_semaphore: Arc::new(Semaphore::new(num_cpus::get().max(1))),
+            certificate_queue_notify: Arc::new(Notify::new()),
         })
     }
 
@@ -52,6 +54,11 @@ impl AppState {
         drop(background_cache);
 
         let mut svg_cache = self.template_svg_cache.write().await;
-        svg_cache.remove(&template_id);
+        let prefix = format!("{template_id}:");
+        svg_cache.retain(|key, _| !key.starts_with(&prefix));
+    }
+
+    pub fn notify_certificate_workers(&self) {
+        self.certificate_queue_notify.notify_waiters();
     }
 }

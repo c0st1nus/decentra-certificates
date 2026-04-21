@@ -42,7 +42,10 @@ impl MigrationTrait for Migration {
             .create_foreign_key(
                 ForeignKey::create()
                     .name("fk_certificate_templates_category_id")
-                    .from(CertificateTemplates::Table, CertificateTemplates::CategoryId)
+                    .from(
+                        CertificateTemplates::Table,
+                        CertificateTemplates::CategoryId,
+                    )
                     .to(Categories::Table, Categories::Id)
                     .on_delete(ForeignKeyAction::SetNull)
                     .on_update(ForeignKeyAction::Cascade)

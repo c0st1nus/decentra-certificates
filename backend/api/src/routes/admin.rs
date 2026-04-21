@@ -19,7 +19,8 @@ use crate::{
     services::{
         audit,
         auth::{AuthService, RefreshTokenRequest, SessionResponse},
-        categories as category_service, certificate_jobs, participants as participant_service, settings,
+        categories as category_service, certificate_jobs, participants as participant_service,
+        settings,
         templates::{self, TemplateLayoutData},
     },
     state::AppState,
@@ -74,6 +75,11 @@ pub struct TemplateLayoutRequest {
 pub struct TemplatePreviewRequest {
     pub preview_name: Option<String>,
     pub layout: Option<TemplateLayoutRequest>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TemplateSnapshotResponse {
+    pub preview_path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -341,7 +347,12 @@ async fn update_template(
     let explicit_source_kind = form.fields.get("source_kind").map(String::as_str);
     let inferred_source_kind = file.and_then(|item| {
         item.file_name.as_deref().and_then(|file_name| {
-            infer_source_kind(explicit_source_kind, item.content_type.as_deref(), file_name).ok()
+            infer_source_kind(
+                explicit_source_kind,
+                item.content_type.as_deref(),
+                file_name,
+            )
+            .ok()
         })
     });
     let template = templates::update_template(
@@ -392,7 +403,9 @@ async fn activate_template(
     path: web::Path<Uuid>,
 ) -> Result<HttpResponse, AppError> {
     let template = templates::activate_template(&state.db, path.into_inner()).await?;
-    state.invalidate_template_background(template.template.id).await;
+    state
+        .invalidate_template_background(template.template.id)
+        .await;
     certificate_jobs::enqueue_active_template_if_enabled(&state)
         .await
         .map_err(AppError::Internal)?;
@@ -521,24 +534,7 @@ async fn preview_template(
         &state,
         template_id,
         preview_name,
-        payload
-            .layout
-            .as_ref()
-            .map(|layout| templates::TemplateLayoutData {
-                page_width: layout.page_width,
-                page_height: layout.page_height,
-                name_x: layout.name_x,
-                name_y: layout.name_y,
-                name_max_width: layout.name_max_width,
-                name_box_height: layout.name_box_height,
-                font_family: layout.font_family.clone(),
-                font_size: layout.font_size,
-                font_color_hex: layout.font_color_hex.clone(),
-                text_align: layout.text_align.clone(),
-                vertical_align: layout.vertical_align.clone(),
-                auto_shrink: layout.auto_shrink,
-                canvas: layout.canvas.clone(),
-            }),
+        payload.layout.as_ref().map(template_layout_from_request),
     )
     .await?;
 
@@ -561,6 +557,44 @@ async fn preview_template(
             "inline; filename=\"template-preview.png\"",
         ))
         .body(preview.bytes))
+}
+
+#[post("/templates/{id}/snapshot")]
+async fn save_template_snapshot(
+    state: web::Data<AppState>,
+    auth: AdminAuth,
+    path: web::Path<Uuid>,
+    payload: web::Json<TemplatePreviewRequest>,
+) -> Result<HttpResponse, AppError> {
+    let template_id = path.into_inner();
+    let preview_name = payload
+        .preview_name
+        .as_deref()
+        .unwrap_or("Preview Participant");
+    let snapshot = templates::save_template_snapshot(
+        &state,
+        template_id,
+        preview_name,
+        payload.layout.as_ref().map(template_layout_from_request),
+    )
+    .await?;
+
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "template.snapshot",
+        "certificate_template",
+        Some(template_id.to_string()),
+        serde_json::json!({
+            "preview_name": preview_name,
+            "preview_path": &snapshot.preview_path,
+        }),
+    )
+    .await;
+
+    Ok(HttpResponse::Created().json(TemplateSnapshotResponse {
+        preview_path: snapshot.preview_path,
+    }))
 }
 
 #[post("/participants/import")]
@@ -673,9 +707,7 @@ async fn list_categories(
 }
 
 #[get("/categories")]
-async fn list_all_categories(
-    state: web::Data<AppState>,
-) -> Result<HttpResponse, AppError> {
+async fn list_all_categories(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let categories = category_service::list_all_categories(&state.db).await?;
     Ok(HttpResponse::Ok().json(categories))
 }
@@ -804,6 +836,7 @@ pub fn configure_protected(cfg: &mut web::ServiceConfig) {
         .service(delete_template)
         .service(save_template_layout)
         .service(preview_template)
+        .service(save_template_snapshot)
         .service(list_all_categories)
         .service(list_categories)
         .service(create_category)
@@ -813,6 +846,24 @@ pub fn configure_protected(cfg: &mut web::ServiceConfig) {
         .service(import_participants)
         .service(list_participants)
         .service(delete_participants);
+}
+
+fn template_layout_from_request(layout: &TemplateLayoutRequest) -> templates::TemplateLayoutData {
+    templates::TemplateLayoutData {
+        page_width: layout.page_width,
+        page_height: layout.page_height,
+        name_x: layout.name_x,
+        name_y: layout.name_y,
+        name_max_width: layout.name_max_width,
+        name_box_height: layout.name_box_height,
+        font_family: layout.font_family.clone(),
+        font_size: layout.font_size,
+        font_color_hex: layout.font_color_hex.clone(),
+        text_align: layout.text_align.clone(),
+        vertical_align: layout.vertical_align.clone(),
+        auto_shrink: layout.auto_shrink,
+        canvas: layout.canvas.clone(),
+    }
 }
 
 async fn collect_multipart(mut payload: Multipart) -> Result<MultipartForm, AppError> {

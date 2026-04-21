@@ -4,20 +4,23 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use base64::Engine;
 use entity::certificate_templates;
+use sha2::{Digest, Sha256};
+use uuid::Uuid;
 
+use crate::services::pdf_renderer;
 use crate::services::svg_generator::generate_svg;
 use crate::services::svg_renderer::{svg_to_jpeg, svg_to_png, svg_to_png_with_dpi, svg_to_rgb};
 use crate::services::templates::TemplateLayoutData;
 
 /// Render scene to PNG using SVG pipeline (replaces Bun/Chrome)
-/// 
+///
 /// # Arguments
 /// * `state` - Application state with storage access
 /// * `template` - Template model with background info
 /// * `layout` - Layout data with canvas layers
 /// * `preview_name` - Name for preview
 /// * `binding_values` - Key-value pairs for template placeholders
-/// 
+///
 /// # Returns
 /// PNG bytes
 pub async fn render_scene_png(
@@ -27,23 +30,10 @@ pub async fn render_scene_png(
     _preview_name: &str,
     binding_values: HashMap<String, String>,
 ) -> Result<Vec<u8>> {
-    // Get canvas data
-    let canvas = layout
-        .canvas
-        .clone()
-        .unwrap_or_else(|| crate::services::templates::default_canvas_for_layout(layout));
-    
-    // Load background as base64 data URL
     let background_src = load_background_data_url(state, template).await?;
-    
-    // Generate SVG
-    let svg = generate_svg(
-        layout.page_width,
-        layout.page_height,
-        background_src.as_deref(),
-        &canvas,
-        &binding_values,
-    );
+    let svg_template =
+        get_or_build_svg_template(state, template, layout, background_src.as_deref()).await?;
+    let svg = apply_svg_bindings(svg_template.as_ref(), &binding_values);
 
     let _permit = state
         .render_semaphore
@@ -52,9 +42,11 @@ pub async fn render_scene_png(
         .await
         .context("render semaphore closed")?;
     let font_db = Arc::clone(&state.font_db);
-    let rendered = tokio::task::spawn_blocking(move || svg_to_png(&svg, 2.0, font_db.as_ref()))
-        .await
-        .context("PNG render task panicked")??;
+    let preview_scale = state.settings.preview_render_scale.max(0.5);
+    let rendered =
+        tokio::task::spawn_blocking(move || svg_to_png(&svg, preview_scale, font_db.as_ref()))
+            .await
+            .context("PNG render task panicked")??;
 
     Ok(rendered.bytes)
 }
@@ -91,9 +83,10 @@ pub async fn render_scene_jpeg(
         .await
         .context("render semaphore closed")?;
     let font_db = Arc::clone(&state.font_db);
-    let jpeg_bytes = tokio::task::spawn_blocking(move || svg_to_jpeg(&svg, 2.0, quality, font_db.as_ref()))
-        .await
-        .context("JPEG render task panicked")??;
+    let jpeg_bytes =
+        tokio::task::spawn_blocking(move || svg_to_jpeg(&svg, 2.0, quality, font_db.as_ref()))
+            .await
+            .context("JPEG render task panicked")??;
 
     Ok(jpeg_bytes)
 }
@@ -130,9 +123,10 @@ pub async fn render_scene_with_dpi(
         .await
         .context("render semaphore closed")?;
     let font_db = Arc::clone(&state.font_db);
-    let png_bytes = tokio::task::spawn_blocking(move || svg_to_png_with_dpi(&svg, dpi, font_db.as_ref()))
-        .await
-        .context("DPI render task panicked")??;
+    let png_bytes =
+        tokio::task::spawn_blocking(move || svg_to_png_with_dpi(&svg, dpi, font_db.as_ref()))
+            .await
+            .context("DPI render task panicked")??;
 
     Ok(png_bytes)
 }
@@ -144,7 +138,8 @@ pub async fn render_scene_pdf(
     binding_values: HashMap<String, String>,
 ) -> Result<Vec<u8>> {
     let background_src = load_background_data_url(state, template).await?;
-    let svg_template = get_or_build_svg_template(state, template, layout, background_src.as_deref()).await?;
+    let svg_template =
+        get_or_build_svg_template(state, template, layout, background_src.as_deref()).await?;
     let svg = apply_svg_bindings(svg_template.as_ref(), &binding_values);
 
     let _permit = state
@@ -158,14 +153,20 @@ pub async fn render_scene_pdf(
     let page_height = layout.page_height;
     let render_scale = state.settings.certificate_render_scale.max(0.5);
     tokio::task::spawn_blocking(move || {
-        let rendered = svg_to_rgb(&svg, render_scale, font_db.as_ref())?;
-        build_pdf_from_rgb(
-            &rendered.rgb_bytes,
-            page_width,
-            page_height,
-            rendered.width,
-            rendered.height,
-        )
+        match pdf_renderer::svg_to_vector_pdf(&svg, font_db.as_ref()) {
+            Ok(pdf) => Ok(pdf),
+            Err(err) => {
+                tracing::warn!(error = %err, "vector PDF render failed, falling back to raster PDF");
+                let rendered = svg_to_rgb(&svg, render_scale, font_db.as_ref())?;
+                build_pdf_from_rgb(
+                    &rendered.rgb_bytes,
+                    page_width,
+                    page_height,
+                    rendered.width,
+                    rendered.height,
+                )
+            }
+        }
     })
     .await
     .context("PDF render task panicked")?
@@ -187,8 +188,7 @@ pub fn build_pdf_from_rgb(
     encoder
         .write_all(rgb_bytes)
         .context("Failed to compress RGB bitmap data")?;
-    let compressed = encoder.finish()
-        .context("Failed to finish compression")?;
+    let compressed = encoder.finish().context("Failed to finish compression")?;
 
     // Create PDF background
     let background = PdfBackground {
@@ -251,9 +251,10 @@ async fn get_or_build_svg_template(
     layout: &TemplateLayoutData,
     background_src: Option<&str>,
 ) -> Result<Arc<String>> {
+    let cache_key = svg_cache_key(template.id, layout)?;
     {
         let cache = state.template_svg_cache.read().await;
-        if let Some(cached) = cache.get(&template.id) {
+        if let Some(cached) = cache.get(&cache_key) {
             return Ok(Arc::clone(cached));
         }
     }
@@ -273,9 +274,16 @@ async fn get_or_build_svg_template(
 
     let mut cache = state.template_svg_cache.write().await;
     let cached = cache
-        .entry(template.id)
+        .entry(cache_key)
         .or_insert_with(|| Arc::clone(&svg_template));
     Ok(Arc::clone(cached))
+}
+
+fn svg_cache_key(template_id: Uuid, layout: &TemplateLayoutData) -> Result<String> {
+    let layout_bytes = serde_json::to_vec(layout)
+        .context("failed to serialize template layout for SVG cache key")?;
+    let layout_hash = Sha256::digest(layout_bytes);
+    Ok(format!("{template_id}:{layout_hash:x}"))
 }
 
 fn apply_svg_bindings(svg_template: &str, binding_values: &HashMap<String, String>) -> String {
@@ -301,7 +309,7 @@ fn escape_svg_text(value: &str) -> String {
 mod tests {
     use super::*;
     use crate::services::templates::{TemplateCanvasData, TemplateCanvasLayer, TemplateCanvasText};
-    
+
     #[test]
     fn test_generate_svg_simple() {
         let canvas = TemplateCanvasData {
@@ -336,10 +344,10 @@ mod tests {
                 image: None,
             }],
         };
-        
+
         let bindings = HashMap::new();
         let svg = generate_svg(800, 600, None, &canvas, &bindings);
-        
+
         assert!(svg.contains("<svg"));
         assert!(svg.contains("Hello World"));
         assert!(svg.contains("Arial"));

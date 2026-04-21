@@ -12,6 +12,7 @@ const TEXT_PADDING_Y = 12;
 const MIN_AUTO_SHRINK_SIZE = 10;
 
 const imageCache = new Map<string, Promise<HTMLImageElement>>();
+let fontsReadyPromise: Promise<FontFaceSet> | null = null;
 
 type RenderTemplateSceneArgs = {
   canvas: HTMLCanvasElement;
@@ -50,15 +51,20 @@ export async function renderTemplateSceneToCanvas({
   }
 
   if (typeof document !== "undefined" && "fonts" in document) {
-    await document.fonts.ready;
+    await getFontsReady();
   }
+
+  const [backgroundImage, layerImages] = await Promise.all([
+    backgroundSrc ? loadImage(backgroundSrc) : Promise.resolve(null),
+    preloadSceneImages(scene),
+  ]);
 
   canvas.width = Math.max(1, Math.round(layout.page_width));
   canvas.height = Math.max(1, Math.round(layout.page_height));
 
   context.clearRect(0, 0, canvas.width, canvas.height);
-  if (backgroundSrc) {
-    await drawBackgroundImage(context, backgroundSrc, canvas.width, canvas.height);
+  if (backgroundImage) {
+    drawBackgroundImage(context, backgroundImage, canvas.width, canvas.height);
   }
 
   for (const layer of scene.layers) {
@@ -80,20 +86,19 @@ export async function renderTemplateSceneToCanvas({
     if (layer.kind === "text" && layer.text) {
       drawTextLayer(context, layer, previewName, bindingValues);
     } else if (layer.kind === "image" && layer.image?.src) {
-      await drawImageLayer(context, layer);
+      drawImageLayer(context, layer, layerImages.get(layer.id) ?? null);
     }
 
     context.restore();
   }
 }
 
-async function drawBackgroundImage(
+function drawBackgroundImage(
   context: CanvasRenderingContext2D,
-  src: string,
+  image: HTMLImageElement,
   width: number,
   height: number,
 ) {
-  const image = await loadImage(src);
   if (!image.naturalWidth || !image.naturalHeight) {
     return;
   }
@@ -144,13 +149,16 @@ function drawTextLayer(
   }
 }
 
-async function drawImageLayer(context: CanvasRenderingContext2D, layer: TemplateCanvasLayer) {
+function drawImageLayer(
+  context: CanvasRenderingContext2D,
+  layer: TemplateCanvasLayer,
+  resource: HTMLImageElement | null,
+) {
   const image = layer.image;
-  if (!image?.src) {
+  if (!image?.src || !resource) {
     return;
   }
 
-  const resource = await loadImage(image.src);
   if (!resource.naturalWidth || !resource.naturalHeight) {
     return;
   }
@@ -514,6 +522,31 @@ function loadImage(src: string) {
 
   imageCache.set(src, promise);
   return promise;
+}
+
+function getFontsReady() {
+  if (!fontsReadyPromise) {
+    fontsReadyPromise = document.fonts.ready;
+  }
+
+  return fontsReadyPromise;
+}
+
+async function preloadSceneImages(scene: TemplateCanvasData) {
+  const entries = await Promise.all(
+    scene.layers
+      .filter((layer) => layer.visible && layer.kind === "image" && Boolean(layer.image?.src))
+      .flatMap((layer) => {
+        const src = layer.image?.src;
+        if (!src) {
+          return [];
+        }
+
+        return [(async () => [layer.id, await loadImage(src)] as const)()];
+      }),
+  );
+
+  return new Map(entries);
 }
 
 function clampOpacity(opacity: number) {

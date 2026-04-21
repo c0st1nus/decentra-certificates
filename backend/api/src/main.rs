@@ -46,7 +46,8 @@ async fn main() -> io::Result<()> {
     certificate_jobs::spawn_workers(state.clone());
     let warmup_state = state.clone();
     tokio::spawn(async move {
-        if let Err(err) = certificate_jobs::enqueue_active_template_if_enabled(&warmup_state).await {
+        if let Err(err) = certificate_jobs::enqueue_active_template_if_enabled(&warmup_state).await
+        {
             tracing::error!(error = %err, "failed to enqueue active template jobs during startup warmup");
         }
     });

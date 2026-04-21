@@ -14,7 +14,9 @@ pub struct Settings {
     pub cors_origins: Vec<String>,
     pub issuance_enabled_default: bool,
     pub certificate_workers: usize,
+    pub render_parallelism: usize,
     pub certificate_render_scale: f32,
+    pub preview_render_scale: f32,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -61,6 +63,11 @@ impl Settings {
         let uploads_dir = env_path("UPLOADS_DIR", "./uploads");
         let templates_dir = uploads_dir.join("templates");
         let generated_dir = uploads_dir.join("generated");
+        let certificate_workers = env_parse("CERTIFICATE_WORKERS", num_cpus::get().max(1))?;
+        let render_parallelism = env_parse(
+            "RENDER_PARALLELISM",
+            certificate_workers.min(num_cpus::get_physical().max(1)),
+        )?;
         let s3 = match storage_driver {
             StorageDriver::LocalFs => None,
             StorageDriver::S3 => Some(S3StorageSettings {
@@ -101,8 +108,10 @@ impl Settings {
                 &["http://localhost:3000", "http://127.0.0.1:3000"],
             ),
             issuance_enabled_default: env_parse("ISSUANCE_ENABLED", false)?,
-            certificate_workers: env_parse("CERTIFICATE_WORKERS", num_cpus::get().max(1))?,
+            certificate_workers,
+            render_parallelism,
             certificate_render_scale: env_parse("CERTIFICATE_RENDER_SCALE", 1.5_f32)?,
+            preview_render_scale: env_parse("PREVIEW_RENDER_SCALE", 1.25_f32)?,
         })
     }
 

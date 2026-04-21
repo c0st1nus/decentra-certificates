@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use actix_web::{HttpResponse, get, http::header, post, web};
-use futures_util::stream;
 use futures_util::StreamExt;
+use futures_util::stream;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
@@ -51,7 +51,9 @@ async fn request_certificate(
         .map_err(|err| AppError::BadRequest(err.to_string()))?;
 
     match certificates::issue_certificate(&state, &payload.email, payload.template_id).await? {
-        certificates::IssueCertificateResult::Ready(response) => Ok(HttpResponse::Ok().json(response)),
+        certificates::IssueCertificateResult::Ready(response) => {
+            Ok(HttpResponse::Ok().json(response))
+        }
         certificates::IssueCertificateResult::Queued(response) => {
             Ok(HttpResponse::Accepted().json(response))
         }
@@ -89,7 +91,9 @@ async fn certificate_job_events(
     let job_id = path.into_inner();
     let initial_status = certificates::get_certificate_job(&state, &job_id).await?;
     let initial_payload = serde_json::to_string(&initial_status).map_err(|err| {
-        AppError::Internal(anyhow::anyhow!("failed to serialize initial job status: {err}"))
+        AppError::Internal(anyhow::anyhow!(
+            "failed to serialize initial job status: {err}"
+        ))
     })?;
 
     let stream = stream::unfold(
@@ -111,16 +115,17 @@ async fn certificate_job_events(
             }
 
             tokio::time::sleep(Duration::from_secs(1)).await;
-            let status = match certificates::get_certificate_job(&state.app_state, &state.job_id).await {
-                Ok(status) => status,
-                Err(err) => {
-                    let chunk = format!(
-                        "event: error\ndata: {}\n\n",
-                        serde_json::json!({ "message": err.to_string() })
-                    );
-                    return Some((Ok(web::Bytes::from(chunk)), None));
-                }
-            };
+            let status =
+                match certificates::get_certificate_job(&state.app_state, &state.job_id).await {
+                    Ok(status) => status,
+                    Err(err) => {
+                        let chunk = format!(
+                            "event: error\ndata: {}\n\n",
+                            serde_json::json!({ "message": err.to_string() })
+                        );
+                        return Some((Ok(web::Bytes::from(chunk)), None));
+                    }
+                };
 
             let payload = match serde_json::to_string(&status) {
                 Ok(payload) => payload,
@@ -146,7 +151,10 @@ async fn certificate_job_events(
             if state.heartbeat_ticks >= 10 {
                 state.heartbeat_ticks = 0;
                 state.terminal_sent = is_terminal;
-                return Some((Ok(web::Bytes::from_static(b": keep-alive\n\n")), Some(state)));
+                return Some((
+                    Ok(web::Bytes::from_static(b": keep-alive\n\n")),
+                    Some(state),
+                ));
             }
 
             Some((Ok(web::Bytes::from_static(b"")), Some(state)))
@@ -154,7 +162,8 @@ async fn certificate_job_events(
     );
 
     let first_chunk = web::Bytes::from(format!("event: status\ndata: {initial_payload}\n\n"));
-    let response_stream = stream::once(async move { Ok::<_, actix_web::Error>(first_chunk) }).chain(stream);
+    let response_stream =
+        stream::once(async move { Ok::<_, actix_web::Error>(first_chunk) }).chain(stream);
 
     Ok(HttpResponse::Ok()
         .insert_header((header::CONTENT_TYPE, "text/event-stream"))

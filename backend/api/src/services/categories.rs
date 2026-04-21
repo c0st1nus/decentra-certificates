@@ -50,7 +50,10 @@ pub async fn list_categories(
         .map_err(|err| AppError::Internal(err.into()))?
         .ok_or_else(|| AppError::NotFound("template not found".to_owned()))?;
 
-    Ok(items.into_iter().map(|model| to_summary(model, &template.name)).collect())
+    Ok(items
+        .into_iter()
+        .map(|model| to_summary(model, &template.name))
+        .collect())
 }
 
 pub async fn list_all_categories(
@@ -71,17 +74,19 @@ pub async fn list_all_categories(
         .await
         .map_err(|err| AppError::Internal(err.into()))?;
 
-    let template_map: std::collections::HashMap<Uuid, String> = templates
-        .into_iter()
-        .map(|t| (t.id, t.name))
-        .collect();
+    let template_map: std::collections::HashMap<Uuid, String> =
+        templates.into_iter().map(|t| (t.id, t.name)).collect();
 
-    Ok(items.into_iter().map(|model| {
-        let template_name = template_map.get(&model.template_id)
-            .cloned()
-            .unwrap_or_else(|| "Unknown template".to_owned());
-        to_summary(model, &template_name)
-    }).collect())
+    Ok(items
+        .into_iter()
+        .map(|model| {
+            let template_name = template_map
+                .get(&model.template_id)
+                .cloned()
+                .unwrap_or_else(|| "Unknown template".to_owned());
+            to_summary(model, &template_name)
+        })
+        .collect())
 }
 
 pub async fn create_category(
@@ -171,7 +176,10 @@ pub async fn delete_category(
     Ok(())
 }
 
-async fn ensure_template_exists(db: &DatabaseConnection, template_id: Uuid) -> Result<(), AppError> {
+async fn ensure_template_exists(
+    db: &DatabaseConnection,
+    template_id: Uuid,
+) -> Result<(), AppError> {
     let exists = CertificateTemplates::find_by_id(template_id)
         .one(db)
         .await

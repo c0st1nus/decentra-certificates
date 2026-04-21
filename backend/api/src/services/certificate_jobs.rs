@@ -18,6 +18,7 @@ const CERTIFICATE_QUEUE_KEY: &str = "certificates:queue";
 const JOB_TTL_SECONDS: usize = 60 * 60 * 24;
 const PRIORITY_BOOST_MILLIS: i64 = 5 * 60 * 1000;
 const RETRY_DELAY_MILLIS: i64 = 5_000;
+const QUEUE_IDLE_WAIT_SECONDS: u64 = 30;
 const MAX_ATTEMPTS: u32 = 3;
 
 #[derive(Clone, Copy, Debug)]
@@ -58,7 +59,10 @@ pub fn spawn_workers(state: AppState) {
             loop {
                 match worker_state
                     .redis
-                    .dequeue_scored(CERTIFICATE_QUEUE_KEY)
+                    .dequeue_ready_scored(
+                        CERTIFICATE_QUEUE_KEY,
+                        Utc::now().timestamp_millis() as f64,
+                    )
                     .await
                 {
                     Ok(Some(job_id)) => {
@@ -67,7 +71,23 @@ pub fn spawn_workers(state: AppState) {
                         }
                     }
                     Ok(None) => {
-                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        match worker_state
+                            .redis
+                            .next_scored_score(CERTIFICATE_QUEUE_KEY)
+                            .await
+                        {
+                            Ok(next_score) => {
+                                let wait_duration = next_queue_wait_duration(next_score);
+                                tokio::select! {
+                                    _ = worker_state.certificate_queue_notify.notified() => {}
+                                    _ = tokio::time::sleep(wait_duration) => {}
+                                }
+                            }
+                            Err(err) => {
+                                tracing::error!(worker = worker_index, error = %err, "certificate worker failed to inspect queue");
+                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                            }
+                        }
                     }
                     Err(err) => {
                         tracing::error!(worker = worker_index, error = %err, "certificate worker redis dequeue failed");
@@ -79,7 +99,10 @@ pub fn spawn_workers(state: AppState) {
     }
 }
 
-pub async fn get_job_status(state: &AppState, job_id: &str) -> Result<Option<CertificateJobStatus>> {
+pub async fn get_job_status(
+    state: &AppState,
+    job_id: &str,
+) -> Result<Option<CertificateJobStatus>> {
     let key = job_status_key(job_id);
     if let Some(status) = state.redis.get_json::<CertificateJobStatus>(&key).await? {
         return Ok(Some(status));
@@ -146,7 +169,14 @@ pub async fn enqueue_issue(
         .redis
         .get_json::<CertificateJobStatus>(&key)
         .await?
-        .unwrap_or_else(|| queued_status(issue, participant, template, "Сертификат поставлен в очередь"));
+        .unwrap_or_else(|| {
+            queued_status(
+                issue,
+                participant,
+                template,
+                "Сертификат поставлен в очередь",
+            )
+        });
 
     if status.status == "processing" {
         status.message = "Сертификат уже генерируется. Подождите, это скоро закончится.".to_owned();
@@ -173,6 +203,7 @@ pub async fn enqueue_issue(
         .redis
         .enqueue_scored(CERTIFICATE_QUEUE_KEY, &job_id, queue_score(priority, 0))
         .await?;
+    state.notify_certificate_workers();
 
     Ok(status)
 }
@@ -206,7 +237,8 @@ pub async fn enqueue_participants_for_template(
         if participant.event_code != template.id.to_string() {
             continue;
         }
-        let issue = certificates::find_or_create_issue_record(state, &participant, &template).await?;
+        let issue =
+            certificates::find_or_create_issue_record(state, &participant, &template).await?;
         enqueue_issue(state, &issue, &participant, &template, priority).await?;
         queued += 1;
     }
@@ -241,8 +273,8 @@ pub async fn enqueue_imported_participants_if_needed(
         return Ok(0);
     }
 
-    let issuance = settings::get_issuance_setting(&state.db, state.settings.issuance_enabled_default)
-        .await?;
+    let issuance =
+        settings::get_issuance_setting(&state.db, state.settings.issuance_enabled_default).await?;
     if !issuance.enabled {
         return Ok(0);
     }
@@ -264,8 +296,8 @@ pub async fn enqueue_imported_participants_if_needed(
 }
 
 pub async fn enqueue_active_template_if_enabled(state: &AppState) -> Result<usize> {
-    let issuance = settings::get_issuance_setting(&state.db, state.settings.issuance_enabled_default)
-        .await?;
+    let issuance =
+        settings::get_issuance_setting(&state.db, state.settings.issuance_enabled_default).await?;
     if !issuance.enabled {
         return Ok(0);
     }
@@ -306,16 +338,22 @@ async fn process_job(state: &AppState, job_id: &str) -> Result<()> {
         .context("failed to load layout for processing")?
         .context("template layout is not configured")?;
 
-    let mut status = get_job_status(state, job_id)
-        .await?
-        .unwrap_or_else(|| queued_status(&issue, &participant, &template, "Сертификат поставлен в очередь"));
+    let mut status = get_job_status(state, job_id).await?.unwrap_or_else(|| {
+        queued_status(
+            &issue,
+            &participant,
+            &template,
+            "Сертификат поставлен в очередь",
+        )
+    });
     status.status = "processing".to_owned();
     status.message = "Генерируем сертификат на сервере".to_owned();
     status.updated_at = Utc::now().to_rfc3339();
     status.attempts += 1;
     write_job_status(state, &status).await?;
 
-    let result = certificates::render_issue_pdf(state, &issue, &participant, &template, &layout).await;
+    let result =
+        certificates::render_issue_pdf(state, &issue, &participant, &template, &layout).await;
     match result {
         Ok(()) => {
             let completed = completed_status(&issue, &participant, &template, "Сертификат готов");
@@ -337,6 +375,7 @@ async fn process_job(state: &AppState, job_id: &str) -> Result<()> {
                         queue_score(JobPriority::Bulk, RETRY_DELAY_MILLIS),
                     )
                     .await?;
+                state.notify_certificate_workers();
                 tracing::warn!(job_id, error = %err, attempts = retry.attempts, "retrying certificate generation");
                 return Ok(());
             }
@@ -346,7 +385,8 @@ async fn process_job(state: &AppState, job_id: &str) -> Result<()> {
                 certificate_id: issue.certificate_id.clone(),
                 verification_code: Some(issue.verification_code.clone()),
                 status: "failed".to_owned(),
-                message: "Не удалось сгенерировать сертификат. Попробуйте еще раз чуть позже.".to_owned(),
+                message: "Не удалось сгенерировать сертификат. Попробуйте еще раз чуть позже."
+                    .to_owned(),
                 full_name: participant.full_name.clone(),
                 template_name: template.name.clone(),
                 download_url: None,
@@ -393,6 +433,21 @@ fn queue_score(priority: JobPriority, delay_millis: i64) -> f64 {
 
 fn job_status_key(job_id: &str) -> String {
     format!("certificate:job:{job_id}")
+}
+
+fn next_queue_wait_duration(next_score: Option<f64>) -> std::time::Duration {
+    let fallback = std::time::Duration::from_secs(QUEUE_IDLE_WAIT_SECONDS);
+    let Some(next_score) = next_score else {
+        return fallback;
+    };
+
+    let now = Utc::now().timestamp_millis() as f64;
+    if next_score <= now {
+        return std::time::Duration::from_millis(0);
+    }
+
+    let wait_millis = (next_score - now).min((QUEUE_IDLE_WAIT_SECONDS * 1000) as f64) as u64;
+    std::time::Duration::from_millis(wait_millis)
 }
 
 fn queued_status(

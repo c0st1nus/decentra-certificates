@@ -43,6 +43,7 @@ sea-orm-migration.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+svg2pdf = "0.13"
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

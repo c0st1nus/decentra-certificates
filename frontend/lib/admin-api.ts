@@ -401,6 +401,23 @@ export async function previewTemplate(
   });
 }
 
+export async function saveTemplateSnapshot(
+  id: string,
+  previewName: string,
+  layout?: TemplateLayoutData,
+) {
+  return adminRequestJson<{ preview_path: string }>(`/api/v1/admin/templates/${id}/snapshot`, {
+    body: JSON.stringify({
+      preview_name: previewName,
+      layout,
+    }),
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+}
+
 export async function importParticipants(form: FormData) {
   return adminRequestJson<ImportResponse>("/api/v1/admin/participants/import", {
     body: form,

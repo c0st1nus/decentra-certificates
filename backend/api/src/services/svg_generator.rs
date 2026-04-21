@@ -11,17 +11,17 @@ pub fn generate_svg(
     binding_values: &HashMap<String, String>,
 ) -> String {
     let mut svg_parts = vec![];
-    
+
     // SVG header with viewBox
     svg_parts.push(format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 {width} {height}" width="{width}" height="{height}">"#,
         width = page_width,
         height = page_height
     ));
-    
+
     // Background rectangle (white by default)
     svg_parts.push(r#"<rect width="100%" height="100%" fill="white"/>"#.to_string());
-    
+
     // Background image if provided
     if let Some(bg) = background_src {
         svg_parts.push(format!(
@@ -29,16 +29,16 @@ pub fn generate_svg(
             src = escape_xml(bg)
         ));
     }
-    
+
     // Process each layer
     for layer in &canvas.layers {
         let layer_svg = render_layer(layer, binding_values);
         svg_parts.push(layer_svg);
     }
-    
+
     // Close SVG
     svg_parts.push("</svg>".to_string());
-    
+
     svg_parts.join("\n")
 }
 
@@ -47,7 +47,7 @@ fn render_layer(layer: &TemplateCanvasLayer, binding_values: &HashMap<String, St
     // Ignore stale persisted values so backend preview matches the live canvas.
     let transform = String::new();
     let opacity_attr = String::new();
-    
+
     match layer.kind.as_str() {
         "text" => render_text_layer(layer, binding_values, &transform, &opacity_attr),
         "image" => render_image_layer(layer, &transform, &opacity_attr),
@@ -65,13 +65,13 @@ fn render_text_layer(
         Some(t) => t,
         None => return String::new(),
     };
-    
+
     // Resolve binding values
     let text_content = resolve_text_content(text_data, binding_values);
-    
+
     // Convert hex color to RGB
     let color = parse_hex_color(&text_data.font_color_hex);
-    
+
     // Text alignment
     let text_anchor = match text_data.text_align.as_str() {
         "left" => "start",
@@ -79,7 +79,7 @@ fn render_text_layer(
         "right" => "end",
         _ => "start",
     };
-    
+
     // Calculate text position
     let x = match text_data.text_align.as_str() {
         "left" => layer.x,
@@ -87,7 +87,7 @@ fn render_text_layer(
         "right" => layer.x + layer.width,
         _ => layer.x,
     };
-    
+
     // Avoid SVG baseline modes here: resvg/usvg can render `ideographic` inconsistently,
     // which causes bottom-aligned text to appear offset or sideways. We keep a normal
     // horizontal text run and compute the baseline position manually.
@@ -98,7 +98,7 @@ fn render_text_layer(
         "bottom" => layer.y + layer.height - baseline_padding,
         _ => layer.y + text_data.font_size,
     };
-    
+
     // Background color if specified
     let bg_rect = if let Some(bg_color) = &text_data.background_color_hex {
         let bg_rgb = parse_hex_color(bg_color);
@@ -117,7 +117,7 @@ fn render_text_layer(
     } else {
         String::new()
     };
-    
+
     // Main text element
     format!(
         r#"{bg_rect}<text x="{x}" y="{y}" font-family="{font_family}" font-size="{font_size}" font-weight="{font_weight}" fill="rgb({r},{g},{b})" text-anchor="{text_anchor}" letter-spacing="{letter_spacing}" xml:space="preserve" {transform}{opacity}>{text}</text>"#,
@@ -143,13 +143,13 @@ fn render_image_layer(layer: &TemplateCanvasLayer, transform: &str, opacity_attr
         Some(i) => i,
         None => return String::new(),
     };
-    
+
     let preserve_aspect = match image_data.fit.as_str() {
         "contain" => r#"preserveAspectRatio="xMidYMid meet""#,
         "cover" => r#"preserveAspectRatio="xMidYMid slice""#,
         _ => r#"preserveAspectRatio="none""#,
     };
-    
+
     format!(
         r#"<image xlink:href="{src}" x="{x}" y="{y}" width="{width}" height="{height}" {preserve_aspect} {transform}{opacity}/>"#,
         src = escape_xml(&image_data.src),
@@ -163,7 +163,10 @@ fn render_image_layer(layer: &TemplateCanvasLayer, transform: &str, opacity_attr
     )
 }
 
-fn resolve_text_content(text: &TemplateCanvasText, binding_values: &HashMap<String, String>) -> String {
+fn resolve_text_content(
+    text: &TemplateCanvasText,
+    binding_values: &HashMap<String, String>,
+) -> String {
     let mut result = text.content.clone();
     for (key, value) in binding_values {
         let placeholder = format!("{{{{{}}}}}", key);
@@ -179,7 +182,11 @@ fn resolve_text_content(text: &TemplateCanvasText, binding_values: &HashMap<Stri
         return result;
     }
 
-    if let Some(binding) = text.binding.as_deref().map(str::trim).filter(|value| !value.is_empty())
+    if let Some(binding) = text
+        .binding
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
         && let Some(value) = binding_values.get(binding)
     {
         return value.clone();
@@ -242,25 +249,25 @@ fn escape_xml(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_parse_hex_color() {
         assert_eq!(parse_hex_color("#FF5733"), (255, 87, 51));
         assert_eq!(parse_hex_color("#fff"), (255, 255, 255));
         assert_eq!(parse_hex_color("FF5733"), (255, 87, 51));
     }
-    
+
     #[test]
     fn test_escape_xml() {
         assert_eq!(escape_xml("<test>"), "&lt;test&gt;");
         assert_eq!(escape_xml("\"quote\""), "&quot;quote&quot;");
     }
-    
+
     #[test]
     fn test_resolve_text_content() {
         let mut bindings = HashMap::new();
         bindings.insert("participant.full_name".to_string(), "John Doe".to_string());
-        
+
         let text = TemplateCanvasText {
             content: "Hello {{participant.full_name}}".to_string(),
             binding: Some("participant.full_name".to_string()),
@@ -275,7 +282,7 @@ mod tests {
             line_height: 120,
             background_color_hex: None,
         };
-        
+
         assert_eq!(resolve_text_content(&text, &bindings), "Hello John Doe");
     }
 }

@@ -1,10 +1,11 @@
 pub mod audit;
 pub mod auth;
-pub mod certificate_jobs;
 pub mod categories;
+pub mod certificate_jobs;
 pub mod certificates;
 pub mod font_loader;
 pub mod participants;
+pub mod pdf_renderer;
 pub mod redis;
 pub mod scene_renderer;
 pub mod settings;
