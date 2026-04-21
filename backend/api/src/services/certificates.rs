@@ -5,18 +5,17 @@ use entity::{
     prelude::{CertificateIssues, CertificateTemplates, Participants, TemplateLayouts},
     template_layouts,
 };
-use std::collections::HashMap;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder,
-    Set,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
+    QueryOrder, Set,
 };
 use serde::Serialize;
+use std::collections::HashMap;
 use ulid::Ulid;
 
-use crate::services::fonts::ResolvedFont;
 use crate::{
     error::AppError,
-    services::{scene_renderer, settings, storage::StorageService, templates},
+    services::{certificate_jobs, scene_renderer, settings, templates},
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -29,6 +28,23 @@ pub struct PublicCertificateResponse {
     pub verification_url: String,
     pub full_name: String,
     pub template_name: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct QueuedCertificateResponse {
+    pub status: &'static str,
+    pub message: String,
+    pub job_id: String,
+    pub certificate_id: String,
+    pub events_url: String,
+    pub verification_url: String,
+    pub full_name: String,
+    pub template_name: String,
+}
+
+pub enum IssueCertificateResult {
+    Ready(PublicCertificateResponse),
+    Queued(QueuedCertificateResponse),
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -49,6 +65,7 @@ pub struct AvailableCertificate {
     pub full_name: String,
     pub category: Option<String>,
     pub already_issued: bool,
+    pub generation_status: String,
     pub certificate_id: Option<String>,
     pub download_url: Option<String>,
     pub verification_url: Option<String>,
@@ -64,7 +81,7 @@ pub async fn issue_certificate(
     state: &crate::state::AppState,
     email: &str,
     template_id: Option<uuid::Uuid>,
-) -> Result<PublicCertificateResponse, AppError> {
+) -> Result<IssueCertificateResult, AppError> {
     let issuance =
         settings::get_issuance_setting(&state.db, state.settings.issuance_enabled_default)
             .await
@@ -90,22 +107,55 @@ pub async fn issue_certificate(
 
     let participant =
         find_participant_for_template(&state.db, &normalized_email, template.id).await?;
-    let layout = find_layout_for_template(&state.db, template.id).await?;
+    find_layout_for_template(&state.db, template.id).await?;
 
-    let issue = find_or_create_issue(state, &participant, &template, &layout).await?;
+    let issue = find_or_create_issue_record(state, &participant, &template).await?;
+    if state
+        .storage
+        .object_exists(&issue.generated_pdf_path)
+        .await
+        .unwrap_or(false)
+    {
+        return Ok(IssueCertificateResult::Ready(build_public_response(
+            participant,
+            template,
+            issue,
+        )));
+    }
 
-    Ok(build_public_response(participant, template, issue))
+    let job = certificate_jobs::enqueue_issue(
+        state,
+        &issue,
+        &participant,
+        &template,
+        certificate_jobs::JobPriority::UserRequested,
+    )
+    .await
+    .map_err(AppError::Internal)?;
+
+    Ok(IssueCertificateResult::Queued(QueuedCertificateResponse {
+        status: "queued",
+        message: job.message,
+        job_id: job.job_id.clone(),
+        certificate_id: job.certificate_id,
+        events_url: format!("/api/v1/public/certificates/jobs/{}/events", job.job_id),
+        verification_url: job.verification_url.unwrap_or_else(|| {
+            format!("/api/v1/public/certificates/verify/{}", issue.verification_code)
+        }),
+        full_name: participant.full_name,
+        template_name: template.name,
+    }))
 }
 
 pub async fn check_available_certificates(
-    db: &DatabaseConnection,
+    state: &crate::state::AppState,
     email: &str,
 ) -> Result<AvailableCertificatesResponse, AppError> {
     let normalized_email = normalize_email(email);
 
     let participants = Participants::find()
         .filter(participants::Column::EmailNormalized.eq(&normalized_email))
-        .all(db)
+        .all(&state.db)
         .await
         .map_err(|err| AppError::Internal(err.into()))?;
 
@@ -116,16 +166,18 @@ pub async fn check_available_certificates(
         });
     }
 
-    let template_ids: Vec<uuid::Uuid> = participants.iter().map(|p| {
-        p.event_code.parse::<uuid::Uuid>().unwrap_or(uuid::Uuid::nil())
-    }).filter(|id| !id.is_nil()).collect();
+    let template_ids: Vec<uuid::Uuid> = participants
+        .iter()
+        .map(|p| p.event_code.parse::<uuid::Uuid>().unwrap_or(uuid::Uuid::nil()))
+        .filter(|id| !id.is_nil())
+        .collect();
 
     let templates = if template_ids.is_empty() {
         vec![]
     } else {
         CertificateTemplates::find()
             .filter(certificate_templates::Column::Id.is_in(template_ids))
-            .all(db)
+            .all(&state.db)
             .await
             .map_err(|err| AppError::Internal(err.into()))?
     };
@@ -136,35 +188,42 @@ pub async fn check_available_certificates(
         let participant_ids: Vec<uuid::Uuid> = participants.iter().map(|p| p.id).collect();
         CertificateIssues::find()
             .filter(certificate_issues::Column::ParticipantId.is_in(participant_ids))
-            .all(db)
+            .all(&state.db)
             .await
             .map_err(|err| AppError::Internal(err.into()))?
     };
 
-    let issue_map: std::collections::HashMap<(uuid::Uuid, uuid::Uuid), &certificate_issues::Model> =
-        existing_issues.iter()
-            .map(|i| ((i.participant_id, i.template_id), i))
-            .collect();
+    let issue_map: HashMap<(uuid::Uuid, uuid::Uuid), &certificate_issues::Model> = existing_issues
+        .iter()
+        .map(|issue| ((issue.participant_id, issue.template_id), issue))
+        .collect();
 
     let full_name = participants.first().map(|p| p.full_name.clone());
+    let mut certificates = Vec::with_capacity(templates.len());
 
-    let certificates: Vec<AvailableCertificate> = templates.into_iter().map(|template| {
-        let participant = participants.iter()
-            .find(|p| p.event_code == template.id.to_string());
+    for template in templates {
+        let participant = participants.iter().find(|p| p.event_code == template.id.to_string());
+        let issue = participant.and_then(|p| issue_map.get(&(p.id, template.id)).copied());
+        let delivery_status = resolve_delivery_status(state, issue).await?;
 
-        let issue = participant.and_then(|p| issue_map.get(&(p.id, template.id)));
-
-        AvailableCertificate {
+        certificates.push(AvailableCertificate {
             template_id: template.id.to_string(),
             template_name: template.name.clone(),
-            full_name: participant.map(|p| p.full_name.clone()).unwrap_or_else(|| full_name.clone().unwrap_or_default()),
+            full_name: participant
+                .map(|p| p.full_name.clone())
+                .unwrap_or_else(|| full_name.clone().unwrap_or_default()),
             category: participant.and_then(|p| p.category.clone()),
-            already_issued: issue.is_some(),
+            already_issued: delivery_status == "ready",
+            generation_status: delivery_status.to_owned(),
             certificate_id: issue.map(|i| i.certificate_id.clone()),
-            download_url: issue.map(|i| format!("/api/v1/public/certificates/{}/download", i.certificate_id)),
-            verification_url: issue.map(|i| format!("/api/v1/public/certificates/verify/{}", i.verification_code)),
-        }
-    }).collect();
+            download_url: issue.and_then(|i| {
+                (delivery_status == "ready")
+                    .then(|| format!("/api/v1/public/certificates/{}/download", i.certificate_id))
+            }),
+            verification_url: issue
+                .map(|i| format!("/api/v1/public/certificates/verify/{}", i.verification_code)),
+        });
+    }
 
     Ok(AvailableCertificatesResponse {
         full_name,
@@ -193,20 +252,28 @@ fn build_public_response(
 }
 
 pub async fn download_certificate(
-    db: &DatabaseConnection,
-    storage: &StorageService,
+    state: &crate::state::AppState,
     certificate_id: &str,
 ) -> Result<(Vec<u8>, String), AppError> {
     let issue = CertificateIssues::find()
         .filter(certificate_issues::Column::CertificateId.eq(certificate_id))
-        .one(db)
+        .one(&state.db)
         .await
         .map_err(|err| AppError::Internal(err.into()))?
         .ok_or_else(|| AppError::NotFound("certificate not found".to_owned()))?;
 
-    let pdf = match storage.get_object(&issue.generated_pdf_path).await {
+    let pdf = match state.storage.get_object(&issue.generated_pdf_path).await {
         Ok(bytes) => bytes,
         Err(err) if is_storage_not_found(&err) => {
+            if let Some(status) = certificate_jobs::get_job_status(state, &issue.id.to_string())
+                .await
+                .map_err(AppError::Internal)?
+                && status.is_processing()
+            {
+                return Err(AppError::TooEarly(
+                    "certificate is still being generated".to_owned(),
+                ));
+            }
             return Err(AppError::NotFound(
                 "generated certificate file not found".to_owned(),
             ));
@@ -223,11 +290,21 @@ pub async fn download_certificate(
     active_model.download_count = Set(issue.download_count + 1);
     active_model.last_downloaded_at = Set(Some(Utc::now()));
     active_model
-        .update(db)
+        .update(&state.db)
         .await
         .map_err(|err| AppError::Internal(err.into()))?;
 
     Ok((pdf, issue.certificate_id))
+}
+
+pub async fn get_certificate_job(
+    state: &crate::state::AppState,
+    job_id: &str,
+) -> Result<certificate_jobs::CertificateJobStatus, AppError> {
+    certificate_jobs::get_job_status(state, job_id)
+        .await
+        .map_err(AppError::Internal)?
+        .ok_or_else(|| AppError::NotFound("certificate job not found".to_owned()))
 }
 
 pub async fn verify_certificate(
@@ -292,7 +369,7 @@ async fn find_active_template(
         })
 }
 
-async fn find_layout_for_template(
+pub(crate) async fn find_layout_for_template(
     db: &DatabaseConnection,
     template_id: uuid::Uuid,
 ) -> Result<template_layouts::Model, AppError> {
@@ -304,31 +381,12 @@ async fn find_layout_for_template(
         .ok_or_else(|| AppError::ServiceUnavailable("template layout is not configured".to_owned()))
 }
 
-async fn find_or_create_issue(
+pub(crate) async fn find_or_create_issue_record(
     state: &crate::state::AppState,
     participant: &participants::Model,
     template: &certificate_templates::Model,
-    layout: &template_layouts::Model,
 ) -> Result<certificate_issues::Model, AppError> {
     if let Some(existing) = find_existing_issue(&state.db, participant, template).await? {
-        if !state
-            .storage
-            .object_exists(&existing.generated_pdf_path)
-            .await
-            .unwrap_or(false)
-        {
-            write_certificate_pdf(
-                state,
-                &existing.generated_pdf_path,
-                participant,
-                template,
-                layout,
-                &existing,
-            )
-            .await
-            .map_err(|e| AppError::Internal(e))?;
-        }
-
         return Ok(existing);
     }
 
@@ -341,34 +399,19 @@ async fn find_or_create_issue(
         verification_code: Set(verification_code.clone()),
         participant_id: Set(participant.id),
         template_id: Set(template.id),
-        generated_pdf_path: Set(output_key.clone()),
+        generated_pdf_path: Set(output_key),
         download_count: Set(0),
         last_downloaded_at: Set(None),
         created_at: Set(Utc::now()),
     };
 
-    let issue = match issue.insert(&state.db).await {
-        Ok(issue) => issue,
-        Err(err) if is_unique_issue_violation(&err) => {
-            find_existing_issue(&state.db, participant, template)
-                .await?
-                .ok_or_else(|| AppError::Internal(err.into()))?
-        }
-        Err(err) => return Err(AppError::Internal(err.into())),
-    };
-
-    write_certificate_pdf(
-        state,
-        &output_key,
-        participant,
-        template,
-        layout,
-        &issue,
-    )
-    .await
-    .map_err(|e| AppError::Internal(e))?;
-
-    Ok(issue)
+    match issue.insert(&state.db).await {
+        Ok(issue) => Ok(issue),
+        Err(err) if is_unique_issue_violation(&err) => find_existing_issue(&state.db, participant, template)
+            .await?
+            .ok_or_else(|| AppError::Internal(err.into())),
+        Err(err) => Err(AppError::Internal(err.into())),
+    }
 }
 
 async fn find_existing_issue(
@@ -391,30 +434,32 @@ fn is_unique_issue_violation(err: &DbErr) -> bool {
         || message.contains("constraint")
 }
 
-async fn write_certificate_pdf(
+pub(crate) async fn render_issue_pdf(
     state: &crate::state::AppState,
-    output_key: &str,
+    issue: &certificate_issues::Model,
     participant: &participants::Model,
     template: &certificate_templates::Model,
     layout: &template_layouts::Model,
-    issue: &certificate_issues::Model,
 ) -> Result<()> {
-    let _ = issue;
     let layout_data = templates::model_to_layout_data(layout);
-    let png = scene_renderer::render_scene_png(
+    let pdf = scene_renderer::render_scene_pdf(
         state,
         template,
         &layout_data,
-        &participant.full_name,
         build_certificate_binding_values(participant, template, issue),
     )
     .await?;
-    let pdf = scene_renderer::build_pdf_from_png(&png, layout.page_width, layout.page_height)?;
+
     state
         .storage
-        .put_object(output_key, pdf, Some("application/pdf"))
+        .put_object(&issue.generated_pdf_path, pdf, Some("application/pdf"))
         .await
-        .with_context(|| format!("failed to write generated certificate object: {output_key}"))?;
+        .with_context(|| {
+            format!(
+                "failed to write generated certificate object: {}",
+                issue.generated_pdf_path
+            )
+        })?;
     Ok(())
 }
 
@@ -423,14 +468,13 @@ pub(crate) fn build_pdf_document(
     page_height: f32,
     content: &str,
     background: Option<&PdfBackground>,
-    resolved_font: &ResolvedFont,
 ) -> Result<Vec<u8>> {
-    build_pdf(page_width, page_height, content, background, resolved_font)
+    build_pdf(page_width, page_height, content, background)
 }
 
 fn is_storage_not_found(err: &anyhow::Error) -> bool {
-  let message = err.to_string().to_ascii_lowercase();
-  message.contains("not found") || message.contains("no such key") || message.contains("404")
+    let message = err.to_string().to_ascii_lowercase();
+    message.contains("not found") || message.contains("no such key") || message.contains("404")
 }
 
 fn build_certificate_binding_values(
@@ -441,7 +485,7 @@ fn build_certificate_binding_values(
     let issue_date = issue.created_at.format("%Y-%m-%d").to_string();
     let track_name = participant.category.clone().unwrap_or_else(|| "General".to_owned());
 
-    HashMap::from([
+    let mut values = HashMap::from([
         ("participant.full_name".to_owned(), participant.full_name.clone()),
         ("full_name".to_owned(), participant.full_name.clone()),
         ("name".to_owned(), participant.full_name.clone()),
@@ -452,8 +496,24 @@ fn build_certificate_binding_values(
         ("issue.certificate_id".to_owned(), issue.certificate_id.clone()),
         ("certificate_id".to_owned(), issue.certificate_id.clone()),
         ("issue.issue_date".to_owned(), issue_date),
-        ("issue.verification_code".to_owned(), issue.verification_code.clone()),
-    ])
+        (
+            "issue.verification_code".to_owned(),
+            issue.verification_code.clone(),
+        ),
+    ]);
+
+    if let Some(metadata) = participant.metadata.as_object() {
+        for (key, value) in metadata {
+            let string_value = match value {
+                serde_json::Value::String(inner) => inner.clone(),
+                _ => value.to_string(),
+            };
+            values.insert(key.clone(), string_value.clone());
+            values.insert(format!("participant.{key}"), string_value);
+        }
+    }
+
+    values
 }
 
 #[derive(Clone, Debug)]
@@ -469,7 +529,6 @@ fn build_pdf(
     page_height: f32,
     content: &str,
     background: Option<&PdfBackground>,
-    resolved_font: &ResolvedFont,
 ) -> Result<Vec<u8>> {
     let mut content_stream = String::new();
     if background.is_some() {
@@ -482,9 +541,9 @@ fn build_pdf(
     content_stream.push_str(content);
 
     let page_resources = if background.is_some() {
-        "<< /Font << /F1 5 0 R >> /XObject << /Im1 6 0 R >> >>".to_owned()
+        "<< /XObject << /Im1 5 0 R >> >>".to_owned()
     } else {
-        "<< /Font << /F1 5 0 R >> >>".to_owned()
+        "<< >>".to_owned()
     };
 
     let mut objects: Vec<Vec<u8>> = vec![
@@ -504,69 +563,10 @@ fn build_pdf(
         )
         .into_bytes(),
     ];
-    let next_id = 6 + background.is_some() as usize;
-    let mut font_objects = vec![];
-    match resolved_font {
-        ResolvedFont::Builtin(b) => {
-            let name = match b {
-                printpdf::BuiltinFont::TimesRoman => "Times-Roman",
-                printpdf::BuiltinFont::Courier => "Courier",
-                printpdf::BuiltinFont::Symbol => "Symbol",
-                printpdf::BuiltinFont::ZapfDingbats => "ZapfDingbats",
-                _ => "Helvetica",
-            };
-            objects.push(
-                format!(
-                    "5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /{} >> endobj\n",
-                    name
-                )
-                .into_bytes(),
-            );
-        }
-        ResolvedFont::External(bytes) => {
-            let widths_id = next_id;
-            let desc_id = next_id + 1;
-            let stream_id = next_id + 2;
-
-            objects.push(format!("5 0 obj << /Type /Font /Subtype /TrueType /BaseFont /CustomFont /FirstChar 32 /LastChar 255 /Widths {} 0 R /FontDescriptor {} 0 R /Encoding /WinAnsiEncoding >> endobj\n", widths_id, desc_id).into_bytes());
-
-            let mut widths = String::from("[");
-            let font = rusttype::Font::try_from_vec(bytes.to_vec()).unwrap();
-            let scale = rusttype::Scale::uniform(1000.0);
-            for char_code in 32..=255 {
-                let w = font
-                    .glyph(char_code as u8 as char)
-                    .scaled(scale)
-                    .h_metrics()
-                    .advance_width;
-                widths.push_str(&format!("{} ", w.round() as i32));
-            }
-            widths.push_str("]");
-
-            font_objects.push(format!("{} 0 obj\n{}\nendobj\n", widths_id, widths).into_bytes());
-
-            let v_metrics = font.v_metrics(scale);
-            let ascent = v_metrics.ascent.round() as i32;
-            let descent = v_metrics.descent.round() as i32;
-
-            font_objects.push(format!("{} 0 obj << /Type /FontDescriptor /FontName /CustomFont /Flags 32 /FontBBox [-500 -500 1500 1500] /ItalicAngle 0 /Ascent {} /Descent {} /CapHeight {} /StemV 80 /FontFile2 {} 0 R >> endobj\n", desc_id, ascent, descent, ascent, stream_id).into_bytes());
-
-            let mut stream_obj = format!(
-                "{} 0 obj << /Length1 {} /Length {} >> stream\n",
-                stream_id,
-                bytes.len(),
-                bytes.len()
-            )
-            .into_bytes();
-            stream_obj.extend_from_slice(bytes.as_ref());
-            stream_obj.extend_from_slice(b"\nendstream endobj\n");
-            font_objects.push(stream_obj);
-        }
-    }
 
     if let Some(background) = background {
         let mut image_object = format!(
-            "6 0 obj << /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /{} /Length {} >> stream\n",
+            "5 0 obj << /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /{} /Length {} >> stream\n",
             background.width,
             background.height,
             background.filter,
@@ -618,6 +618,39 @@ fn format_number(value: f32) -> String {
         text.pop();
     }
     text
+}
+
+async fn resolve_delivery_status(
+    state: &crate::state::AppState,
+    issue: Option<&certificate_issues::Model>,
+) -> Result<&'static str, AppError> {
+    let Some(issue) = issue else {
+        return Ok("not_requested");
+    };
+
+    if state
+        .storage
+        .object_exists(&issue.generated_pdf_path)
+        .await
+        .unwrap_or(false)
+    {
+        return Ok("ready");
+    }
+
+    if let Some(job) = certificate_jobs::get_job_status(state, &issue.id.to_string())
+        .await
+        .map_err(AppError::Internal)?
+    {
+        return Ok(match job.status.as_str() {
+            "queued" => "queued",
+            "processing" => "processing",
+            "failed" => "failed",
+            "completed" => "ready",
+            _ => "not_requested",
+        });
+    }
+
+    Ok("not_requested")
 }
 
 #[cfg(test)]

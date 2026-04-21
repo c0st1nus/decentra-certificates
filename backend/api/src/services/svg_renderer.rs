@@ -1,10 +1,44 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use jpeg_encoder::{ColorType, Encoder};
 use resvg::usvg::{Options, Tree};
 use resvg::tiny_skia::{Pixmap, Transform};
 
 use crate::services::font_loader::FontDatabase;
+
+pub struct RenderedImage {
+    pub bytes: Vec<u8>,
+    pub rgb_bytes: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
+fn render_svg(svg_data: &str, scale: f32, font_db: &FontDatabase) -> Result<(Pixmap, u32, u32)> {
+    let options = Options {
+        fontdb: Arc::clone(&font_db.db),
+        ..Options::default()
+    };
+
+    let tree = Tree::from_str(svg_data, &options).context("Failed to parse SVG")?;
+    let size = tree.size();
+    let width = (size.width() * scale) as u32;
+    let height = (size.height() * scale) as u32;
+
+    let mut pixmap = Pixmap::new(width, height).context("Failed to create pixmap - invalid dimensions")?;
+    let transform = Transform::from_scale(scale, scale);
+    resvg::render(&tree, transform, &mut pixmap.as_mut());
+
+    Ok((pixmap, width, height))
+}
+
+fn pixmap_to_rgb(pixmap: &Pixmap) -> Vec<u8> {
+    pixmap
+        .data()
+        .chunks_exact(4)
+        .flat_map(|chunk| [chunk[0], chunk[1], chunk[2]])
+        .collect()
+}
 
 /// Renders an SVG string to PNG bytes
 /// 
@@ -15,36 +49,17 @@ use crate::services::font_loader::FontDatabase;
 /// 
 /// # Returns
 /// PNG encoded bytes
-pub fn svg_to_png(svg_data: &str, scale: f32, font_db: &FontDatabase) -> Result<Vec<u8>> {
-    // Parse SVG with font database
-    let options = Options {
-        fontdb: Arc::clone(&font_db.db),
-        ..Options::default()
-    };
-    
-    let tree = Tree::from_str(svg_data, &options)
-        .context("Failed to parse SVG")?;
-    
-    // Calculate output size
-    let size = tree.size();
-    let width = (size.width() * scale) as u32;
-    let height = (size.height() * scale) as u32;
-    
-    // Create pixmap
-    let mut pixmap = Pixmap::new(width, height)
-        .context("Failed to create pixmap - invalid dimensions")?;
-    
-    // Apply scale transform
-    let transform = Transform::from_scale(scale, scale);
-    
-    // Render SVG to pixmap
-    resvg::render(&tree, transform, &mut pixmap.as_mut());
-    
-    // Encode as PNG
-    let png_bytes = pixmap.encode_png()
-        .context("Failed to encode PNG")?;
-    
-    Ok(png_bytes)
+pub fn svg_to_png(svg_data: &str, scale: f32, font_db: &FontDatabase) -> Result<RenderedImage> {
+    let (pixmap, width, height) = render_svg(svg_data, scale, font_db)?;
+    let rgb_bytes = pixmap_to_rgb(&pixmap);
+    let png_bytes = pixmap.encode_png().context("Failed to encode PNG")?;
+
+    Ok(RenderedImage {
+        bytes: png_bytes,
+        rgb_bytes,
+        width,
+        height,
+    })
 }
 
 /// Renders an SVG string to JPEG bytes
@@ -57,50 +72,32 @@ pub fn svg_to_png(svg_data: &str, scale: f32, font_db: &FontDatabase) -> Result<
 /// 
 /// # Returns
 /// JPEG encoded bytes
+#[allow(dead_code)]
 pub fn svg_to_jpeg(
     svg_data: &str, 
     scale: f32, 
     quality: u8,
     font_db: &FontDatabase
 ) -> Result<Vec<u8>> {
-    // First render to pixmap
-    let options = Options {
-        fontdb: Arc::clone(&font_db.db),
-        ..Options::default()
-    };
-    
-    let tree = Tree::from_str(svg_data, &options)
-        .context("Failed to parse SVG")?;
-    
-    let size = tree.size();
-    let width = (size.width() * scale) as u32;
-    let height = (size.height() * scale) as u32;
-    
-    let mut pixmap = Pixmap::new(width, height)
-        .context("Failed to create pixmap")?;
-    
-    let transform = Transform::from_scale(scale, scale);
-    resvg::render(&tree, transform, &mut pixmap.as_mut());
-    
-    // Convert to RGB for JPEG
-    let rgba_data = pixmap.data();
-    let rgb_data: Vec<u8> = rgba_data
-        .chunks_exact(4)
-        .flat_map(|chunk| vec![chunk[0], chunk[1], chunk[2]])
-        .collect();
-    
-    // Encode as JPEG using image crate
-    let image = image::ImageBuffer::<image::Rgb<u8>, _>::from_raw(width, height, rgb_data)
-        .context("Failed to create image buffer")?;
+    let (pixmap, width, height) = render_svg(svg_data, scale, font_db)?;
+    let rgb_data = pixmap_to_rgb(&pixmap);
     
     let mut jpeg_bytes = Vec::new();
-    let mut cursor = std::io::Cursor::new(&mut jpeg_bytes);
-    
-    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, quality);
-    image.write_with_encoder(encoder)
+    Encoder::new(&mut jpeg_bytes, quality)
+        .encode(&rgb_data, width as u16, height as u16, ColorType::Rgb)
         .context("Failed to encode JPEG")?;
-    
+
     Ok(jpeg_bytes)
+}
+
+pub fn svg_to_rgb(svg_data: &str, scale: f32, font_db: &FontDatabase) -> Result<RenderedImage> {
+    let (pixmap, width, height) = render_svg(svg_data, scale, font_db)?;
+    Ok(RenderedImage {
+        bytes: Vec::new(),
+        rgb_bytes: pixmap_to_rgb(&pixmap),
+        width,
+        height,
+    })
 }
 
 /// Render SVG with specific DPI setting
@@ -112,13 +109,15 @@ pub fn svg_to_jpeg(
 /// 
 /// # Returns
 /// PNG encoded bytes at specified DPI
+#[allow(dead_code)]
 pub fn svg_to_png_with_dpi(svg_data: &str, dpi: f32, font_db: &FontDatabase) -> Result<Vec<u8>> {
     // DPI scaling: 96 DPI is default in SVG
     let scale = dpi / 96.0;
-    svg_to_png(svg_data, scale, font_db)
+    Ok(svg_to_png(svg_data, scale, font_db)?.bytes)
 }
 
 /// Get the size of an SVG in pixels at a specific DPI
+#[allow(dead_code)]
 pub fn get_svg_size(svg_data: &str, font_db: &FontDatabase) -> Result<(u32, u32)> {
     let options = Options {
         fontdb: Arc::clone(&font_db.db),
@@ -147,7 +146,7 @@ mod tests {
         let result = svg_to_png(svg, 1.0, &font_db);
         assert!(result.is_ok());
         
-        let png = result.unwrap();
+        let png = result.unwrap().bytes;
         assert!(!png.is_empty());
         // PNG magic bytes
         assert_eq!(&png[0..4], &[0x89, 0x50, 0x4E, 0x47]);

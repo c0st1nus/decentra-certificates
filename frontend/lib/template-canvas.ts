@@ -295,7 +295,10 @@ function sanitizeCanvasLayer(layer?: TemplateCanvasLayer | null) {
 function sanitizeTextLayer(layer?: TemplateCanvasTextLayer | null): TemplateCanvasTextLayer {
   return {
     content: layer?.content || "Text block",
-    binding: null,
+    binding:
+      typeof layer?.binding === "string" && layer.binding.trim().length > 0
+        ? layer.binding.trim()
+        : null,
     font_family: layer?.font_family || "Outfit",
     font_size: clamp(Math.round(layer?.font_size ?? 32), 1, 400),
     font_color_hex: normalizeHexColor(layer?.font_color_hex || "#111827"),

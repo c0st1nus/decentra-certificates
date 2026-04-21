@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{Serialize, de::DeserializeOwned};
 
 #[derive(Clone)]
 pub struct RedisService {
@@ -91,5 +91,86 @@ impl RedisService {
             .query_async(&mut connection)
             .await
             .with_context(|| format!("failed to read redis key `{key}`"))
+    }
+
+    pub async fn get_json<T>(&self, key: &str) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        let Some(value) = self.get_string(key).await? else {
+            return Ok(None);
+        };
+
+        serde_json::from_str(&value)
+            .with_context(|| format!("failed to deserialize redis json key `{key}`"))
+            .map(Some)
+    }
+
+    pub async fn set_json<T>(&self, key: &str, value: &T, ttl_seconds: usize) -> Result<()>
+    where
+        T: Serialize,
+    {
+        let mut connection = self.connection().await?;
+        let payload = serde_json::to_string(value)
+            .with_context(|| format!("failed to serialize redis json key `{key}`"))?;
+        let _: String = redis::cmd("SET")
+            .arg(key)
+            .arg(payload)
+            .arg("EX")
+            .arg(ttl_seconds)
+            .query_async(&mut connection)
+            .await
+            .with_context(|| format!("failed to write redis json key `{key}`"))?;
+        Ok(())
+    }
+
+    pub async fn enqueue_scored(&self, key: &str, member: &str, score: f64) -> Result<()> {
+        let mut connection = self.connection().await?;
+        let _: i64 = redis::cmd("ZADD")
+            .arg(key)
+            .arg(score)
+            .arg(member)
+            .query_async(&mut connection)
+            .await
+            .with_context(|| format!("failed to zadd member `{member}` to redis key `{key}`"))?;
+        Ok(())
+    }
+
+    pub async fn dequeue_scored(&self, key: &str) -> Result<Option<String>> {
+        let mut connection = self.connection().await?;
+        let response: redis::Value = redis::cmd("ZPOPMIN")
+            .arg(key)
+            .arg(1)
+            .query_async(&mut connection)
+            .await
+            .with_context(|| format!("failed to zpopmin redis key `{key}`"))?;
+
+        match response {
+            redis::Value::Nil => Ok(None),
+            redis::Value::Array(values) if values.is_empty() => Ok(None),
+            redis::Value::Array(values) => {
+                let Some(member) = values.first() else {
+                    return Err(anyhow::anyhow!(
+                        "unexpected zpopmin response length for redis key `{key}`"
+                    ));
+                };
+
+                let member = match member {
+                    redis::Value::BulkString(bytes) => String::from_utf8(bytes.clone())
+                        .context("zpopmin returned a non-utf8 member")?,
+                    redis::Value::SimpleString(value) => value.clone(),
+                    other => {
+                        return Err(anyhow::anyhow!(
+                            "unexpected zpopmin member type for redis key `{key}`: {other:?}"
+                        ));
+                    }
+                };
+
+                Ok(Some(member))
+            }
+            other => Err(anyhow::anyhow!(
+                "unexpected zpopmin response for redis key `{key}`: {other:?}"
+            )),
+        }
     }
 }

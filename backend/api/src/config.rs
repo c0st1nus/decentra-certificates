@@ -13,6 +13,8 @@ pub struct Settings {
     pub storage: StorageSettings,
     pub cors_origins: Vec<String>,
     pub issuance_enabled_default: bool,
+    pub certificate_workers: usize,
+    pub certificate_render_scale: f32,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -99,6 +101,8 @@ impl Settings {
                 &["http://localhost:3000", "http://127.0.0.1:3000"],
             ),
             issuance_enabled_default: env_parse("ISSUANCE_ENABLED", false)?,
+            certificate_workers: env_parse("CERTIFICATE_WORKERS", num_cpus::get().max(1))?,
+            certificate_render_scale: env_parse("CERTIFICATE_RENDER_SCALE", 1.5_f32)?,
         })
     }
 

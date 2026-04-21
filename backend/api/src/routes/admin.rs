@@ -19,7 +19,7 @@ use crate::{
     services::{
         audit,
         auth::{AuthService, RefreshTokenRequest, SessionResponse},
-        categories as category_service, participants as participant_service, settings,
+        categories as category_service, certificate_jobs, participants as participant_service, settings,
         templates::{self, TemplateLayoutData},
     },
     state::AppState,
@@ -218,6 +218,12 @@ async fn update_issuance_status(
         .await
         .map_err(AppError::Internal)?;
 
+    if issuance.enabled {
+        certificate_jobs::enqueue_active_template_if_enabled(&state)
+            .await
+            .map_err(AppError::Internal)?;
+    }
+
     audit::log_admin_action(
         &state.db,
         auth.0.id,
@@ -351,6 +357,16 @@ async fn update_template(
         file.map(|item| item.bytes.clone()),
     )
     .await?;
+    state.invalidate_template_background(template_id).await;
+    if template.template.is_active {
+        certificate_jobs::enqueue_all_for_template(
+            &state,
+            template.template.id,
+            certificate_jobs::JobPriority::Bulk,
+        )
+        .await
+        .map_err(AppError::Internal)?;
+    }
 
     audit::log_admin_action(
         &state.db,
@@ -376,6 +392,10 @@ async fn activate_template(
     path: web::Path<Uuid>,
 ) -> Result<HttpResponse, AppError> {
     let template = templates::activate_template(&state.db, path.into_inner()).await?;
+    state.invalidate_template_background(template.template.id).await;
+    certificate_jobs::enqueue_active_template_if_enabled(&state)
+        .await
+        .map_err(AppError::Internal)?;
     audit::log_admin_action(
         &state.db,
         auth.0.id,
@@ -399,6 +419,7 @@ async fn delete_template(
 ) -> Result<HttpResponse, AppError> {
     let template_id = path.into_inner();
     templates::delete_template(&state.db, &state.storage, template_id).await?;
+    state.invalidate_template_background(template_id).await;
     audit::log_admin_action(
         &state.db,
         auth.0.id,
@@ -443,6 +464,21 @@ async fn save_template_layout(
         },
     )
     .await?;
+    state.invalidate_template_background(template_id).await;
+    if let Some(template) = CertificateTemplates::find_by_id(template_id)
+        .one(&state.db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?
+        && template.is_active
+    {
+        certificate_jobs::enqueue_all_for_template(
+            &state,
+            template_id,
+            certificate_jobs::JobPriority::Bulk,
+        )
+        .await
+        .map_err(AppError::Internal)?;
+    }
 
     audit::log_admin_action(
         &state.db,
@@ -552,6 +588,13 @@ async fn import_participants(
     } else {
         participant_service::import_csv(&state.db, &file.bytes, &default_event_code).await?
     };
+    certificate_jobs::enqueue_imported_participants_if_needed(
+        &state,
+        &default_event_code,
+        &result.affected_participant_ids,
+    )
+    .await
+    .map_err(AppError::Internal)?;
 
     audit::log_admin_action(
         &state.db,

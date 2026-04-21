@@ -9,12 +9,38 @@ export interface CertificateRequestSuccess {
   template_name: string;
 }
 
+export interface CertificateRequestQueued {
+  status: "queued";
+  message: string;
+  job_id: string;
+  certificate_id: string;
+  events_url: string;
+  verification_url: string;
+  full_name: string;
+  template_name: string;
+}
+
+export interface CertificateJobStatus {
+  job_id: string;
+  certificate_id: string;
+  verification_code: string | null;
+  status: "queued" | "processing" | "completed" | "failed";
+  message: string;
+  full_name: string;
+  template_name: string;
+  download_url: string | null;
+  verification_url: string | null;
+  attempts: number;
+  updated_at: string;
+}
+
 export interface AvailableCertificate {
   template_id: string;
   template_name: string;
   full_name: string;
   category: string | null;
   already_issued: boolean;
+  generation_status: "ready" | "queued" | "processing" | "failed" | "not_requested";
   certificate_id: string | null;
   download_url: string | null;
   verification_url: string | null;
@@ -72,7 +98,7 @@ export async function checkCertificates(email: string) {
   };
 }
 
-type ResponseBody = CertificateRequestSuccess | ApiErrorBody;
+type ResponseBody = CertificateRequestSuccess | CertificateRequestQueued | ApiErrorBody;
 
 async function parseJson<T>(response: Response): Promise<T | null> {
   try {

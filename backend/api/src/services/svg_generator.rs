@@ -20,9 +20,7 @@ pub fn generate_svg(
     ));
     
     // Background rectangle (white by default)
-    svg_parts.push(format!(
-        r#"<rect width="100%" height="100%" fill="white"/>"#
-    ));
+    svg_parts.push(r#"<rect width="100%" height="100%" fill="white"/>"#.to_string());
     
     // Background image if provided
     if let Some(bg) = background_src {
@@ -122,11 +120,11 @@ fn render_text_layer(
     
     // Main text element
     format!(
-        r#"{bg_rect}<text x="{x}" y="{y}" font-family="{font_family}" font-size="{font_size}" font-weight="{font_weight}" fill="rgb({r},{g},{b})" text-anchor="{text_anchor}" letter-spacing="{letter_spacing}" {transform}{opacity}>{text}</text>"#,
+        r#"{bg_rect}<text x="{x}" y="{y}" font-family="{font_family}" font-size="{font_size}" font-weight="{font_weight}" fill="rgb({r},{g},{b})" text-anchor="{text_anchor}" letter-spacing="{letter_spacing}" xml:space="preserve" {transform}{opacity}>{text}</text>"#,
         bg_rect = bg_rect,
         x = x,
         y = y,
-        font_family = escape_xml(&text_data.font_family),
+        font_family = escape_xml(&font_family_stack(&text_data.font_family)),
         font_size = text_data.font_size,
         font_weight = text_data.font_weight,
         r = color.0,
@@ -166,14 +164,52 @@ fn render_image_layer(layer: &TemplateCanvasLayer, transform: &str, opacity_attr
 }
 
 fn resolve_text_content(text: &TemplateCanvasText, binding_values: &HashMap<String, String>) -> String {
-    // Resolve template syntax {{...}} only. Legacy `binding` is ignored.
     let mut result = text.content.clone();
     for (key, value) in binding_values {
         let placeholder = format!("{{{{{}}}}}", key);
         result = result.replace(&placeholder, value);
     }
-    
+
+    let trimmed = result.trim();
+    if !trimmed.is_empty() && trimmed != text.content.trim() {
+        return result;
+    }
+
+    if !trimmed.is_empty() && !trimmed.contains("{{") {
+        return result;
+    }
+
+    if let Some(binding) = text.binding.as_deref().map(str::trim).filter(|value| !value.is_empty())
+        && let Some(value) = binding_values.get(binding)
+    {
+        return value.clone();
+    }
+
     result
+}
+
+fn font_family_stack(font_family: &str) -> String {
+    match font_family.trim().to_ascii_lowercase().as_str() {
+        "outfit" | "inter" | "roboto" | "open sans" | "lato" | "montserrat" | "poppins"
+        | "nunito" | "oswald" | "raleway" => format!(
+            "{}, Liberation Sans, DejaVu Sans, Arial, Helvetica, sans-serif",
+            font_family.trim()
+        ),
+        "playfair display" | "merriweather" | "times new roman" | "times" | "georgia" => {
+            format!(
+                "{}, Liberation Serif, DejaVu Serif, Times New Roman, Times, serif",
+                font_family.trim()
+            )
+        }
+        "courier new" | "courier" => format!(
+            "{}, Liberation Mono, DejaVu Sans Mono, Courier New, Courier, monospace",
+            font_family.trim()
+        ),
+        other => format!(
+            "{}, Liberation Sans, DejaVu Sans, Arial, Helvetica, sans-serif",
+            other
+        ),
+    }
 }
 
 fn parse_hex_color(hex: &str) -> (u8, u8, u8) {

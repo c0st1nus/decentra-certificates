@@ -45,6 +45,8 @@ pub struct ImportResponse {
     pub updated: u64,
     pub skipped: u64,
     pub errors: Vec<ImportError>,
+    #[serde(skip_serializing)]
+    pub affected_participant_ids: Vec<Uuid>,
 }
 
 #[derive(Clone, Debug)]
@@ -247,6 +249,7 @@ async fn import_rows(
 ) -> Result<ImportResponse, AppError> {
     let mut inserted = 0u64;
     let mut updated = 0u64;
+    let mut affected_participant_ids = Vec::with_capacity(rows.len());
 
     for (_, row) in rows {
         let existing = Participants::find()
@@ -257,6 +260,7 @@ async fn import_rows(
             .map_err(|err| AppError::Internal(err.into()))?;
 
         if let Some(model) = existing {
+            let participant_id = model.id;
             let mut active_model: participants::ActiveModel = model.into();
             active_model.email = Set(row.email.clone());
             active_model.email_normalized = Set(row.email_normalized.clone());
@@ -269,8 +273,9 @@ async fn import_rows(
                 .await
                 .map_err(|err| AppError::Internal(err.into()))?;
             updated += 1;
+            affected_participant_ids.push(participant_id);
         } else {
-            participants::ActiveModel {
+            let model = participants::ActiveModel {
                 id: Set(Uuid::new_v4()),
                 event_code: Set(row.event_code.clone()),
                 email: Set(row.email.clone()),
@@ -284,8 +289,9 @@ async fn import_rows(
             }
             .insert(db)
             .await
-            .map_err(|err| AppError::Internal(err.into()))?;
+                .map_err(|err| AppError::Internal(err.into()))?;
             inserted += 1;
+            affected_participant_ids.push(model.id);
         }
     }
 
@@ -297,6 +303,7 @@ async fn import_rows(
         updated,
         skipped,
         errors,
+        affected_participant_ids,
     })
 }
 

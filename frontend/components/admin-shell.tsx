@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  BadgeCheck,
-  Layers3,
-  LayoutDashboard,
-  LogOut,
-  ShieldCheck,
-  Users,
-} from "lucide-react";
+import { BadgeCheck, Layers3, LayoutDashboard, LogOut, ShieldCheck, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
@@ -39,9 +32,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [hydrated, setHydrated] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const isCanvasEditorRoute = /^\/admin\/templates\/[^/]+\/layout$/.test(
-    pathname,
-  );
+  const isCanvasEditorRoute = /^\/admin\/templates\/[^/]+\/layout$/.test(pathname);
 
   useEffect(() => {
     const session = getAdminSession();
@@ -98,9 +89,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
             </div>
           </header>
 
-          <div className="flex flex-1 items-center justify-center py-8">
-            {children}
-          </div>
+          <div className="flex flex-1 items-center justify-center py-8">{children}</div>
         </div>
       </main>
     );
@@ -125,9 +114,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                 <p className="truncate font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
                   Decentrathon Admin
                 </p>
-                <p className="truncate text-sm text-white/58">
-                  Canvas workspace
-                </p>
+                <p className="truncate text-sm text-white/58">Canvas workspace</p>
               </div>
             </div>
 
@@ -165,9 +152,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
               <p className="truncate font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
                 Decentrathon Admin
               </p>
-              <p className="truncate text-sm text-white/58">
-                Operational control center
-              </p>
+              <p className="truncate text-sm text-white/58">Operational control center</p>
             </div>
           </div>
 
@@ -241,9 +226,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
                         <Icon className="size-4" />
                       </span>
                       <span className="min-w-0">
-                        <span className="block text-sm font-medium">
-                          {item.label}
-                        </span>
+                        <span className="block text-sm font-medium">{item.label}</span>
                         <span className="mt-0.5 block truncate text-xs text-white/45">
                           {item.description}
                         </span>

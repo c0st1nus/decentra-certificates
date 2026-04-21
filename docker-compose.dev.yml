@@ -67,57 +67,10 @@ services:
     networks:
       - decentra
 
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    container_name: decentra-certificates-backend
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_started
-      minio-init:
-        condition: service_completed_successfully
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/decentra_certificates
-      REDIS_URL: redis://redis:6379/0
-      STORAGE_S3_ENDPOINT_URL: http://minio:9000
-      BIND_ADDRESS: "0.0.0.0:8080"
-    ports:
-      - "18080:8080"
-    volumes:
-      - uploads_data:/app/uploads
-    networks:
-      - decentra
-
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-      args:
-        NEXT_PUBLIC_API_URL: https://certificates.api.depa-team.com
-    container_name: decentra-certificates-frontend
-    restart: unless-stopped
-    depends_on:
-      - backend
-    environment:
-      NEXT_PUBLIC_API_URL: https://certificates.api.depa-team.com
-    ports:
-      - "13000:3000"
-    networks:
-      - decentra
-
 volumes:
   postgres_data:
   redis_data:
   minio_data:
-  uploads_data:
 
 networks:
   decentra:

@@ -14,7 +14,7 @@ RUN cargo build --release -p decentra-certificates-api \
     && cp target/release/decentra-certificates-api /app/api \
     && cp target/release/seed-admin /app/seed-admin
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \

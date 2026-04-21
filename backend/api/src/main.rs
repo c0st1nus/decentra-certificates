@@ -15,6 +15,7 @@ use db_migration::Migrator;
 use jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER as JWT_CRYPTO_PROVIDER;
 use sea_orm::Database;
 use sea_orm_migration::MigratorTraitSelf;
+use services::certificate_jobs;
 use services::settings as settings_service;
 use state::AppState;
 use tracing::info;
@@ -42,6 +43,13 @@ async fn main() -> io::Result<()> {
     let state = AppState::try_new(settings.clone(), db)
         .await
         .map_err(io::Error::other)?;
+    certificate_jobs::spawn_workers(state.clone());
+    let warmup_state = state.clone();
+    tokio::spawn(async move {
+        if let Err(err) = certificate_jobs::enqueue_active_template_if_enabled(&warmup_state).await {
+            tracing::error!(error = %err, "failed to enqueue active template jobs during startup warmup");
+        }
+    });
 
     let bind_address = settings.server.bind_address.clone();
     let workers = settings.server.workers;

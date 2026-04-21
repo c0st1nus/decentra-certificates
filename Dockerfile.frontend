@@ -1,5 +1,8 @@
 FROM oven/bun:1-slim AS builder
 
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 WORKDIR /app
 
 COPY frontend/package.json frontend/bun.lock ./

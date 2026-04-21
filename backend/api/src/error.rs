@@ -14,6 +14,8 @@ pub enum AppError {
     Forbidden(String),
     #[error("{0}")]
     ServiceUnavailable(String),
+    #[error("{0}")]
+    TooEarly(String),
     #[error("internal server error")]
     Internal(#[from] anyhow::Error),
 }
@@ -32,6 +34,7 @@ impl ResponseError for AppError {
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
+            Self::TooEarly(_) => StatusCode::from_u16(425).expect("425 is a valid status code"),
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
