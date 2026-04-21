@@ -1,0 +1,24 @@
+[package]
+name = "stress-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "stress-tests"
+path = "src/main.rs"
+
+[dependencies]
+decentra-certificates-api = { path = "../../backend/api" }
+entity = { package = "decentra-certificates-entity", path = "../../backend/entity" }
+sea-orm.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+serde_json.workspace = true
+dotenvy.workspace = true
+uuid.workspace = true
+tokio-util = "0.7"
+futures = "0.3"
+indicatif = "0.17"

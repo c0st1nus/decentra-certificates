@@ -3,6 +3,7 @@ members = [
     "backend/api",
     "backend/entity",
     "backend/db-migration",
+    "stress-tests/rs",
 ]
 resolver = "2"
 

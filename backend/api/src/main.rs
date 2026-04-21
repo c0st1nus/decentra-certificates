@@ -1,23 +1,15 @@
-mod app;
-mod config;
-mod error;
-mod middleware;
-mod routes;
-mod services;
-mod state;
-
 use std::io;
 
 use actix_web::{App, HttpServer, middleware::Logger, web};
-use app::{build_app, build_cors};
-use config::Settings;
+use decentra_certificates_api::app::{build_app, build_cors};
+use decentra_certificates_api::config::Settings;
+use decentra_certificates_api::services::certificate_jobs;
+use decentra_certificates_api::services::settings as settings_service;
+use decentra_certificates_api::state::AppState;
 use db_migration::Migrator;
 use jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER as JWT_CRYPTO_PROVIDER;
 use sea_orm::Database;
 use sea_orm_migration::MigratorTraitSelf;
-use services::certificate_jobs;
-use services::settings as settings_service;
-use state::AppState;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -54,6 +46,7 @@ async fn main() -> io::Result<()> {
 
     let bind_address = settings.server.bind_address.clone();
     let workers = settings.server.workers;
+    let stress_test_mode = settings.stress_test_mode;
 
     info!(%bind_address, workers, "starting decentra certificates backend");
 
@@ -63,7 +56,7 @@ async fn main() -> io::Result<()> {
             .wrap(Logger::default())
             .wrap(build_cors(&settings.cors_origins))
             .app_data(web::Data::new(state.clone()))
-            .configure(build_app)
+            .configure(|cfg| build_app(cfg, stress_test_mode))
     })
     .workers(workers)
     .bind(&bind_address)?

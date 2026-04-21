@@ -390,7 +390,7 @@ pub(crate) async fn find_layout_for_template(
         .ok_or_else(|| AppError::ServiceUnavailable("template layout is not configured".to_owned()))
 }
 
-pub(crate) async fn find_or_create_issue_record(
+pub async fn find_or_create_issue_record(
     state: &crate::state::AppState,
     participant: &participants::Model,
     template: &certificate_templates::Model,

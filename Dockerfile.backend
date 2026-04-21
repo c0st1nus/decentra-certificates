@@ -9,6 +9,8 @@ WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
 COPY backend/ backend/
+COPY stress-tests/rs/Cargo.toml stress-tests/rs/Cargo.toml
+COPY stress-tests/rs/src/main.rs stress-tests/rs/src/main.rs
 
 RUN cargo build --release -p decentra-certificates-api \
     && cp target/release/decentra-certificates-api /app/api \

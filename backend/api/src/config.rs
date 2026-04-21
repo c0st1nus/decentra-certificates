@@ -17,6 +17,7 @@ pub struct Settings {
     pub render_parallelism: usize,
     pub certificate_render_scale: f32,
     pub preview_render_scale: f32,
+    pub stress_test_mode: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -112,6 +113,7 @@ impl Settings {
             render_parallelism,
             certificate_render_scale: env_parse("CERTIFICATE_RENDER_SCALE", 1.5_f32)?,
             preview_render_scale: env_parse("PREVIEW_RENDER_SCALE", 1.25_f32)?,
+            stress_test_mode: env_parse("STRESS_TEST_MODE", false)?,
         })
     }
 

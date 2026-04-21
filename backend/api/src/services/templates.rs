@@ -652,7 +652,7 @@ async fn load_template_stats(
     })
 }
 
-pub(crate) fn model_to_layout_data(layout: &template_layouts::Model) -> TemplateLayoutData {
+pub fn model_to_layout_data(layout: &template_layouts::Model) -> TemplateLayoutData {
     let mut data = TemplateLayoutData {
         page_width: layout.page_width,
         page_height: layout.page_height,

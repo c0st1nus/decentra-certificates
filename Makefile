@@ -1,7 +1,10 @@
 SHELL := /bin/sh
 
 .PHONY: help install up down logs ps backend frontend migrate migrate-down \
-	seed-admin check test lint fmt dev setup
+	seed-admin check test lint fmt dev setup \
+	stress-fixtures stress-seed stress-rs \
+	stress-k6-smoke stress-k6-ready stress-k6-queued stress-k6-preview \
+	stress-k6-import stress-k6-mixed stress-k6-all
 
 help:
 	@printf "%s\n" \
@@ -71,3 +74,56 @@ fmt:
 setup: install up migrate
 
 dev: setup
+
+# Stress testing targets
+stress-fixtures:
+	stress-tests/scripts/generate-fixtures.sh
+
+stress-seed:
+	stress-tests/scripts/seed-http-data.sh
+
+stress-clear-generated:
+	stress-tests/scripts/clear-generated.sh
+
+stress-rs:
+	cargo run -p stress-tests -- all
+
+stress-rs-render:
+	cargo run -p stress-tests -- render
+
+stress-rs-import:
+	cargo run -p stress-tests -- import
+
+stress-rs-dedup:
+	cargo run -p stress-tests -- dedup
+
+stress-rs-conn-leak:
+	cargo run -p stress-tests -- conn-leak
+
+K6 := docker run --rm -i --network host \
+	-v $(PWD)/stress-tests/k6:/k6 \
+	-v $(PWD)/stress-tests/fixtures:/fixtures \
+	-e API_BASE=$(API_BASE) \
+	-e ADMIN_LOGIN=$(ADMIN_LOGIN) \
+	-e ADMIN_PASSWORD=$(ADMIN_PASSWORD) \
+	grafana/k6 run
+
+stress-k6-smoke:
+	$(K6) /k6/public-smoke.js
+
+stress-k6-ready:
+	$(K6) /k6/public-ready-certificates.js
+
+stress-k6-queued:
+	$(K6) /k6/public-queued-certificates.js
+
+stress-k6-preview:
+	$(K6) /k6/admin-preview.js
+
+stress-k6-import:
+	$(K6) /k6/admin-import.js
+
+stress-k6-mixed:
+	$(K6) /k6/mixed-realistic.js
+
+stress-k6-all: stress-k6-smoke stress-k6-ready stress-k6-queued stress-k6-preview stress-k6-import stress-k6-mixed

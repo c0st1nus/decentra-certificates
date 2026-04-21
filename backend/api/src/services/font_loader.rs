@@ -9,6 +9,12 @@ pub struct FontDatabase {
     pub db: Arc<Database>,
 }
 
+impl Default for FontDatabase {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FontDatabase {
     pub fn new() -> Self {
         let mut db = Database::new();
