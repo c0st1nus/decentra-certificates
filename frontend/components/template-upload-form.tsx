@@ -3,6 +3,7 @@
 import { FileImage, LoaderCircle, Plus } from "lucide-react";
 import type { FormEvent } from "react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { type TemplateDetail, createTemplate } from "@/lib/admin-api";
 import { cn } from "@/lib/utils";
@@ -19,12 +20,11 @@ export function TemplateUploadForm({
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [message, setMessage] = useState("PNG, JPG/JPEG and PDF assets are supported.");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!name.trim() || !file) {
-      setMessage("Provide a template name and file.");
+      toast.error("Provide a template name and file.");
       return;
     }
 
@@ -33,32 +33,31 @@ export function TemplateUploadForm({
     form.append("file", file);
 
     setIsLoading(true);
-    setMessage("Uploading template...");
 
     try {
       const { response, data } = await createTemplate(form);
       if (!response.ok || !data) {
-        setMessage("Template upload failed.");
+        toast.error("Template upload failed.");
         setIsLoading(false);
         return;
       }
 
       setName("");
       setFile(null);
-      setMessage(`Template ${data.template.name} uploaded.`);
+      toast.success(`Template "${data.template.name}" uploaded.`);
       onSaved?.(data);
     } catch {
-      setMessage("Upload failed. Try again.");
+      toast.error("Upload failed. Try again.");
     } finally {
       setIsLoading(false);
     }
   }
 
   return (
-    <section className="rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+    <section className="rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
             Templates
           </p>
           <h2 className="mt-3 text-2xl font-black text-white">{title}</h2>
@@ -68,7 +67,7 @@ export function TemplateUploadForm({
 
       <form className="mt-6 space-y-4" onSubmit={(event) => void handleSubmit(event)}>
         <div className="grid gap-4 sm:grid-cols-1">
-          <label className="block text-sm font-medium text-white/72" htmlFor="template-name">
+          <label className="block text-sm font-medium text-white/80" htmlFor="template-name">
             Template name
             <input
               id="template-name"
@@ -81,14 +80,14 @@ export function TemplateUploadForm({
           </label>
         </div>
 
-        <label className="block text-sm font-medium text-white/72" htmlFor="template-file">
+        <label className="block text-sm font-medium text-white/80" htmlFor="template-file">
           Asset file
           <div className="mt-2 flex items-center gap-3 rounded-2xl border border-dashed border-white/15 bg-black/20 px-4 py-4">
             <FileImage aria-hidden="true" className="size-5 text-primary/80" />
             <input
               id="template-file"
               accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
-              className="block w-full text-sm text-white/72 file:mr-4 file:rounded-full file:border-0 file:bg-primary/15 file:px-4 file:py-2 file:text-xs file:font-pixel file:uppercase file:tracking-[0.18em] file:text-primary hover:file:bg-primary/20"
+              className="block w-full text-sm text-white/75 file:mr-4 file:rounded-full file:border-0 file:bg-primary/15 file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:tracking-[0.18em] file:text-primary hover:file:bg-primary/20"
               disabled={isLoading}
               type="file"
               onChange={(event) => {
@@ -97,8 +96,8 @@ export function TemplateUploadForm({
               }}
             />
           </div>
-          <p className="mt-2 text-xs leading-5 text-white/50">
-            Формат будет определён автоматически по выбранному файлу.
+          <p className="mt-2 text-xs leading-5 text-white/55">
+            Format will be detected automatically from the selected file.
           </p>
         </label>
 
@@ -124,17 +123,6 @@ export function TemplateUploadForm({
           )}
         </button>
       </form>
-
-      <div
-        className={cn(
-          "mt-5 rounded-[1.5rem] border p-4 text-sm",
-          isLoading
-            ? "border-primary/25 bg-primary/10 text-white"
-            : "border-white/10 bg-white/[0.03] text-white/68",
-        )}
-      >
-        {message}
-      </div>
     </section>
   );
 }
@@ -153,7 +141,7 @@ function detectTemplateSourceKind(fileName: string) {
 function InfoTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
-      <p className="text-xs uppercase tracking-[0.18em] text-white/45">{label}</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/50">{label}</p>
       <p className="mt-2 truncate text-sm text-white/75">{value}</p>
     </div>
   );

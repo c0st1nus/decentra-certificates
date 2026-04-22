@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { FormEvent, MutableRefObject, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import {
   type AvailableCertificate,
@@ -57,7 +58,7 @@ type RequestState =
   | { kind: "error"; message: string };
 
 const initialMessage =
-  "Введите e-mail, который использовался при регистрации. Мы покажем все доступные сертификаты и сразу запустим нужный в работу.";
+  "Enter the email used during registration. We will show all available certificates and immediately start the one you need.";
 
 export function EmailRequestForm() {
   const [email, setEmail] = useState("");
@@ -75,7 +76,7 @@ export function EmailRequestForm() {
 
     const normalizedEmail = email.trim();
     if (!normalizedEmail) {
-      setState({ kind: "error", message: "Введите e-mail, чтобы продолжить." });
+      setState({ kind: "error", message: "Enter your email to continue." });
       return;
     }
 
@@ -89,7 +90,7 @@ export function EmailRequestForm() {
         if (response.status === 403) {
           setState({
             kind: "issuance_disabled",
-            message: "Выдача сертификатов еще не открыта.",
+            message: "Certificate issuance is not open yet.",
           });
           return;
         }
@@ -97,7 +98,7 @@ export function EmailRequestForm() {
         if (response.status === 429) {
           setState({
             kind: "rate_limited",
-            message: "Слишком много запросов. Подождите немного и попробуйте снова.",
+            message: "Too many requests. Please wait a moment and try again.",
           });
           return;
         }
@@ -105,7 +106,7 @@ export function EmailRequestForm() {
         const message =
           data && "message" in data && typeof data.message === "string"
             ? data.message
-            : "Произошла ошибка. Попробуйте позже.";
+            : "Something went wrong. Please try again later.";
         setState({ kind: "error", message });
         return;
       }
@@ -113,7 +114,7 @@ export function EmailRequestForm() {
       if (data.certificates.length === 0) {
         setState({
           kind: "not_found",
-          message: "Данный e-mail не найден в базе участников.",
+          message: "This email was not found in the participant database.",
         });
         return;
       }
@@ -122,7 +123,7 @@ export function EmailRequestForm() {
     } catch {
       setState({
         kind: "error",
-        message: "Не удалось связаться с сервером. Проверьте подключение и попробуйте снова.",
+        message: "Unable to reach the server. Check your connection and try again.",
       });
     }
   }
@@ -147,12 +148,12 @@ export function EmailRequestForm() {
       const message =
         data && "message" in data && typeof data.message === "string"
           ? data.message
-          : "Произошла ошибка. Попробуйте позже.";
+          : "Something went wrong. Please try again later.";
 
       if (response.status === 403) {
         setState({
           kind: "issuance_disabled",
-          message: "Выдача сертификатов еще не открыта.",
+          message: "Certificate issuance is not open yet.",
         });
         return;
       }
@@ -160,7 +161,7 @@ export function EmailRequestForm() {
       if (response.status === 404) {
         setState({
           kind: "not_found",
-          message: "Сертификат не найден.",
+          message: "Certificate not found.",
         });
         return;
       }
@@ -168,7 +169,7 @@ export function EmailRequestForm() {
       if (response.status === 429) {
         setState({
           kind: "rate_limited",
-          message: "Слишком много запросов. Подождите немного и попробуйте снова.",
+          message: "Too many requests. Please wait a moment and try again.",
         });
         return;
       }
@@ -177,7 +178,7 @@ export function EmailRequestForm() {
     } catch {
       setState({
         kind: "error",
-        message: "Не удалось связаться с сервером. Проверьте подключение и попробуйте снова.",
+        message: "Unable to reach the server. Check your connection and try again.",
       });
     }
   }
@@ -213,7 +214,7 @@ export function EmailRequestForm() {
         closeStream(streamRef);
         setState({
           kind: "error",
-          message: parsed.message || "Не удалось сгенерировать сертификат. Попробуйте еще раз.",
+          message: parsed.message || "Failed to generate certificate. Please try again.",
         });
         return;
       }
@@ -235,7 +236,7 @@ export function EmailRequestForm() {
       setState({
         kind: "error",
         message:
-          "Потеряли соединение с очередью генерации. Повторите запрос, и мы снова поднимем сертификат в приоритет.",
+          "Lost connection to the generation queue. Repeat the request and we will bump your certificate again.",
       });
     });
   }
@@ -266,13 +267,13 @@ export function EmailRequestForm() {
   const isLoading = isChecking || isRequesting || isWaiting;
 
   return (
-    <section className="panel-glow rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+    <section className="rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
-          <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
             Public issuance
           </p>
-          <h2 className="mt-3 text-2xl font-black text-white">Забрать сертификат</h2>
+          <h2 className="mt-3 text-2xl font-black text-white">Claim certificate</h2>
         </div>
         <ShieldCheck className="size-5 shrink-0 text-primary/85" />
       </div>
@@ -284,8 +285,8 @@ export function EmailRequestForm() {
           void handleSubmit(event);
         }}
       >
-        <label className="block text-sm font-medium text-white/72" htmlFor="email">
-          E-mail для сертификата
+        <label className="block text-sm font-medium text-white/80" htmlFor="email">
+          Certificate email
         </label>
 
         <div className="relative">
@@ -314,11 +315,11 @@ export function EmailRequestForm() {
           {isChecking ? (
             <>
               <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" />
-              Проверяем e-mail
+              Checking email
             </>
           ) : (
             <>
-              <span>Найти сертификаты</span>
+              <span>Find certificates</span>
               <ArrowRight aria-hidden="true" className="size-4" />
             </>
           )}
@@ -328,16 +329,16 @@ export function EmailRequestForm() {
       <div
         aria-live="polite"
         className={cn(
-          "mt-5 rounded-[1.5rem] border p-4",
+          "mt-5 rounded-2xl border p-4",
           state.kind === "idle" && "border-white/10 bg-white/[0.03] text-white/70",
-          state.kind === "checking" && "border-primary/25 bg-primary/[0.08] text-white/75",
+          state.kind === "checking" && "border-primary/25 bg-primary/[0.08] text-white/80",
           state.kind === "select" && "border-primary/30 bg-primary/10 text-white",
           (state.kind === "requesting" || state.kind === "waiting") &&
-            "border-primary/25 bg-primary/[0.08] text-white/75",
+            "border-primary/25 bg-primary/[0.08] text-white/80",
           state.kind === "success" && "border-primary/30 bg-primary/10 text-white",
           state.kind === "issuance_disabled" &&
             "border-amber-500/25 bg-amber-500/10 text-amber-100",
-          state.kind === "not_found" && "border-white/10 bg-white/[0.03] text-white/72",
+          state.kind === "not_found" && "border-white/10 bg-white/[0.03] text-white/75",
           (state.kind === "rate_limited" || state.kind === "error") &&
             "border-red-500/25 bg-red-500/10 text-red-100",
         )}
@@ -366,7 +367,7 @@ export function EmailRequestForm() {
           <StatusNotice
             icon={<ShieldCheck aria-hidden="true" className="size-5 text-amber-300" />}
             message={state.message}
-            title="Выдача отключена"
+            title="Issuance disabled"
           />
         )}
 
@@ -379,12 +380,12 @@ export function EmailRequestForm() {
                 onClick={retry}
               >
                 <RefreshCw aria-hidden="true" className="size-4" />
-                Попробовать еще раз
+                Try again
               </button>
             }
             icon={<AlertTriangle aria-hidden="true" className="size-5 text-white/90" />}
             message={state.message}
-            title="E-mail не найден"
+            title="Email not found"
           />
         )}
 
@@ -397,12 +398,12 @@ export function EmailRequestForm() {
                 onClick={retry}
               >
                 <RefreshCw aria-hidden="true" className="size-4" />
-                Повторить запрос
+                Retry request
               </button>
             }
             icon={<AlertTriangle aria-hidden="true" className="size-5 text-red-200" />}
             message={state.message}
-            title="Слишком много запросов"
+            title="Too many requests"
           />
         )}
 
@@ -415,12 +416,12 @@ export function EmailRequestForm() {
                 onClick={retry}
               >
                 <RefreshCw aria-hidden="true" className="size-4" />
-                Повторить запрос
+                Retry request
               </button>
             }
             icon={<AlertTriangle aria-hidden="true" className="size-5 text-red-200" />}
             message={state.message}
-            title="Ошибка запроса"
+            title="Request error"
           />
         )}
       </div>
@@ -442,13 +443,15 @@ function CertificateSelector({
       <div className="flex items-start gap-3">
         <BadgeCheck aria-hidden="true" className="mt-0.5 size-5 text-primary" />
         <div className="min-w-0">
-          <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">Found</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
+            Found
+          </p>
           <p className="mt-2 text-base font-semibold text-white">
-            {fullName ? `Сертификаты для ${fullName}` : "Доступные сертификаты"}
+            {fullName ? `Certificates for ${fullName}` : "Available certificates"}
           </p>
           <p className="mt-1 text-sm leading-6 text-white/70">
-            Готовые сертификаты можно скачать сразу. Если PDF еще не собран, мы поднимем его в
-            приоритетную очередь.
+            Ready certificates can be downloaded immediately. If the PDF is not built yet, we will
+            bump it to the priority queue.
           </p>
         </div>
       </div>
@@ -466,7 +469,7 @@ function CertificateSelector({
                   <div className="space-y-1">
                     <h3 className="text-base font-bold text-white">{certificate.template_name}</h3>
                     {certificate.category && (
-                      <p className="text-xs text-white/50">Категория: {certificate.category}</p>
+                      <p className="text-xs text-white/50">Category: {certificate.category}</p>
                     )}
                   </div>
 
@@ -482,7 +485,7 @@ function CertificateSelector({
                     href={buildApiUrl(certificate.download_url)}
                   >
                     <Download aria-hidden="true" className="size-3.5" />
-                    Скачать PDF
+                    Download PDF
                   </a>
                 ) : (
                   <button
@@ -506,8 +509,8 @@ function CertificateSelector({
 function StatusIdle({ message }: { message: string }) {
   return (
     <div className="space-y-3">
-      <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-white/45">Status</p>
-      <p className="max-w-md text-sm leading-6 text-white/72">{message}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/50">Status</p>
+      <p className="max-w-md text-sm leading-6 text-white/75">{message}</p>
     </div>
   );
 }
@@ -517,7 +520,7 @@ function StatusLoading() {
     <div className="space-y-3">
       <div className="flex items-center gap-2 text-primary">
         <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" />
-        <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
           Checking participant
         </p>
       </div>
@@ -535,13 +538,13 @@ function StatusRequesting({ templateName }: { templateName: string }) {
     <div className="space-y-3">
       <div className="flex items-center gap-2 text-primary">
         <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" />
-        <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
           Starting queue
         </p>
       </div>
       <p className="text-sm text-white/70">
-        Резервируем сертификат для шаблона &quot;{templateName}&quot; и поднимаем задачу в
-        приоритетную очередь.
+        Reserving certificate for template &quot;{templateName}&quot; and bumping the job to the
+        priority queue.
       </p>
     </div>
   );
@@ -557,20 +560,20 @@ function StatusWaiting({ state }: { state: Extract<RequestState, { kind: "waitin
       <div className="flex items-start gap-3">
         <Sparkles aria-hidden="true" className="mt-0.5 size-5 text-primary" />
         <div className="min-w-0">
-          <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
             Queue live
           </p>
           <p className="mt-2 text-base font-semibold text-white">
-            Генерируем сертификат для {state.fullName}
+            Generating certificate for {state.fullName}
           </p>
           <p className="mt-2 text-sm leading-6 text-white/70">{state.message}</p>
         </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <ProgressStep active title="Запрос принят" />
-        <ProgressStep active={!isConnecting} title="Очередь подключена" />
-        <ProgressStep active={isProcessing} title="PDF рендерится" />
+        <ProgressStep active title="Request accepted" />
+        <ProgressStep active={!isConnecting} title="Queue connected" />
+        <ProgressStep active={isProcessing} title="PDF rendering" />
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2">
@@ -582,7 +585,9 @@ function StatusWaiting({ state }: { state: Extract<RequestState, { kind: "waitin
         <div className="flex items-center gap-2 text-primary">
           <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" />
           <p className="text-sm font-medium text-white">
-            {isProcessing ? "Собираем PNG и PDF на сервере" : "Ждем ближайший свободный worker"}
+            {isProcessing
+              ? "Building PNG and PDF on the server"
+              : "Waiting for the next free worker"}
           </p>
         </div>
         <div className="mt-3 grid gap-2">
@@ -604,12 +609,14 @@ function StatusSuccess({ data }: { data: SuccessPayload }) {
       <div className="flex items-start gap-3">
         <BadgeCheck aria-hidden="true" className="mt-0.5 size-5 text-primary" />
         <div className="min-w-0">
-          <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">Success</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
+            Success
+          </p>
           <p className="mt-2 text-base font-semibold text-white">
-            Сертификат готов для {data.fullName}
+            Certificate ready for {data.fullName}
           </p>
           <p className="mt-2 text-sm leading-6 text-white/70">
-            {data.message} Шаблон: {data.templateName}.
+            {data.message} Template: {data.templateName}.
           </p>
         </div>
       </div>
@@ -618,7 +625,7 @@ function StatusSuccess({ data }: { data: SuccessPayload }) {
         <MetaPill label="Certificate ID" value={data.certificateId} mono />
         <MetaPill
           label="Verification code"
-          value={data.verificationCode ?? "Откройте ссылку верификации"}
+          value={data.verificationCode ?? "Open verification link"}
           mono={Boolean(data.verificationCode)}
         />
       </div>
@@ -626,14 +633,14 @@ function StatusSuccess({ data }: { data: SuccessPayload }) {
       <div className="flex flex-col gap-3 sm:flex-row">
         <a className="btn-hero glow-primary rounded-2xl bg-white/[0.06]" href={downloadHref}>
           <Download aria-hidden="true" className="size-4" />
-          Скачать PDF
+          Download PDF
         </a>
         <a
           className="btn-hero rounded-2xl border border-white/10 bg-white/[0.04]"
           href={verificationHref}
         >
           <BadgeCheck aria-hidden="true" className="size-4" />
-          Проверить сертификат
+          Verify certificate
         </a>
       </div>
     </div>
@@ -656,10 +663,10 @@ function StatusNotice({
       <div className="flex items-start gap-3">
         <div className="mt-0.5">{icon}</div>
         <div>
-          <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-white/45">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/50">
             {title}
           </p>
-          <p className="mt-2 text-sm leading-6 text-white/72">{message}</p>
+          <p className="mt-2 text-sm leading-6 text-white/75">{message}</p>
         </div>
       </div>
       {action ? action : null}
@@ -693,8 +700,8 @@ function MetaPill({
 }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-      <p className="font-pixel text-[10px] uppercase tracking-[0.18em] text-white/45">{label}</p>
-      <p className={cn("mt-2 text-sm text-white/78", mono && "font-mono text-[11px]")}>{value}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/50">{label}</p>
+      <p className={cn("mt-2 text-sm text-white/80", mono && "font-mono text-[11px]")}>{value}</p>
     </div>
   );
 }
@@ -703,38 +710,38 @@ function getCertificateActionMeta(certificate: AvailableCertificate) {
   switch (certificate.generation_status) {
     case "ready":
       return {
-        action: "Скачать PDF",
+        action: "Download PDF",
         dotClassName: "bg-primary",
         icon: <Download aria-hidden="true" className="size-3.5" />,
-        label: "Готов к скачиванию",
+        label: "Ready to download",
       };
     case "queued":
       return {
-        action: "Ускорить очередь",
+        action: "Bump queue",
         dotClassName: "bg-amber-300",
         icon: <Sparkles aria-hidden="true" className="size-3.5" />,
-        label: "Уже в очереди",
+        label: "Already queued",
       };
     case "processing":
       return {
-        action: "Следить за генерацией",
+        action: "Watch generation",
         dotClassName: "bg-primary",
         icon: <LoaderCircle aria-hidden="true" className="size-3.5 motion-safe:animate-spin" />,
-        label: "Собирается прямо сейчас",
+        label: "Building right now",
       };
     case "failed":
       return {
-        action: "Запустить заново",
+        action: "Restart build",
         dotClassName: "bg-red-300",
         icon: <RefreshCw aria-hidden="true" className="size-3.5" />,
-        label: "Предыдущая сборка не удалась",
+        label: "Previous build failed",
       };
     default:
       return {
-        action: "Сгенерировать",
+        action: "Generate",
         dotClassName: "bg-white/60",
         icon: <ArrowRight aria-hidden="true" className="size-3.5" />,
-        label: "Еще не собирался",
+        label: "Not built yet",
       };
   }
 }

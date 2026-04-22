@@ -1,8 +1,16 @@
 "use client";
 
-import { ArrowLeft, CheckCircle2, PencilLine, Plus, Tags, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  PencilLine,
+  Plus,
+  Tags,
+  Trash2,
+} from "lucide-react";
 import Link from "next/link";
-import { use, useEffect, useMemo, useState } from "react";
+import { use, useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import {
   type CategorySummary,
@@ -64,7 +72,7 @@ export default function TemplateCategoriesPage({ params }: Props) {
 
   if (isLoading || !template) {
     return (
-      <section className="rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 text-sm text-white/65 backdrop-blur-xl">
+      <section className="rounded-2xl border border-white/10 bg-panel/90 p-5 text-sm text-white/65 backdrop-blur-xl">
         Loading categories...
       </section>
     );
@@ -74,23 +82,18 @@ export default function TemplateCategoriesPage({ params }: Props) {
     <section className="space-y-6">
       <div className="max-w-3xl space-y-4">
         <Link
-          className="inline-flex items-center gap-2 text-sm text-white/60 hover:text-white transition"
+          className="inline-flex items-center gap-2 text-sm text-white/60 transition hover:text-white"
           href={`/admin/templates/${id}`}
         >
           <ArrowLeft className="size-4" />
           Back to template
         </Link>
 
-        <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5">
-          <Tags className="size-4 text-primary" />
-          <span className="font-pixel text-[10px] uppercase tracking-[0.2em] text-primary">
-            Categories
-          </span>
-        </div>
-
-        <h1 className="heading-hero text-gradient text-left">{template.template.name}</h1>
-        <p className="max-w-2xl text-sm leading-6 text-white/68 sm:text-base">
-          Категории для этого шаблона. Добавляйте, редактируйте и удаляйте.
+        <h1 className="heading-hero text-gradient text-left">
+          {template.template.name}
+        </h1>
+        <p className="max-w-2xl text-sm leading-6 text-white/70 sm:text-base">
+          Categories for this template. Add, edit and delete as needed.
         </p>
       </div>
 
@@ -104,13 +107,13 @@ export default function TemplateCategoriesPage({ params }: Props) {
 
         <div className="space-y-3">
           {categories.length === 0 ? (
-            <div className="rounded-[1.75rem] border border-white/10 bg-panel/90 p-8 text-center">
+            <div className="rounded-2xl border border-white/10 bg-panel/90 p-8 text-center">
               <CheckCircle2 className="mx-auto size-10 text-primary/80" />
               <h3 className="mt-4 text-lg font-black text-white">
-                В этом шаблоне пока нет категорий
+                No categories yet
               </h3>
               <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-white/60">
-                Добавьте категории через форму слева.
+                Add categories using the form on the left.
               </p>
             </div>
           ) : (
@@ -124,7 +127,9 @@ export default function TemplateCategoriesPage({ params }: Props) {
                   );
                 }}
                 onDelete={(categoryId) => {
-                  setCategories((current) => current.filter((c) => c.id !== categoryId));
+                  setCategories((current) =>
+                    current.filter((c) => c.id !== categoryId),
+                  );
                 }}
               />
             ))
@@ -144,12 +149,11 @@ function CategoryForm({
 }) {
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [isSaving, setIsSaving] = useState(false);
-  const [message, setMessage] = useState("Заполните название и добавьте категорию.");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim()) {
-      setMessage("Название категории обязательно.");
+      toast.error("Category name is required.");
       return;
     }
 
@@ -160,30 +164,36 @@ function CategoryForm({
         description: form.description.trim() || null,
         is_active: form.isActive,
       };
-      const { response, data } = await createTemplateCategory(templateId, payload);
+      const { response, data } = await createTemplateCategory(
+        templateId,
+        payload,
+      );
       if (!response.ok || !data) {
-        setMessage("Не удалось создать категорию.");
+        toast.error("Failed to create category.");
         return;
       }
       onCreated(data);
-      setMessage(`Категория ${data.name} добавлена.`);
+      toast.success(`Category "${data.name}" added.`);
       setForm(INITIAL_FORM);
     } catch {
-      setMessage("Операция не удалась. Попробуйте ещё раз.");
+      toast.error("Failed to create category.");
     } finally {
       setIsSaving(false);
     }
   }
 
   return (
-    <div className="rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
-      <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
+    <div className="rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
         Add category
       </p>
 
       <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
-        <label className="block text-sm font-medium text-white/72" htmlFor="cat-name">
-          Название
+        <label
+          className="block text-sm font-medium text-white/80"
+          htmlFor="cat-name"
+        >
+          Name
           <input
             id="cat-name"
             autoComplete="off"
@@ -196,23 +206,29 @@ function CategoryForm({
           />
         </label>
 
-        <label className="block text-sm font-medium text-white/72" htmlFor="cat-desc">
-          Описание
+        <label
+          className="block text-sm font-medium text-white/80"
+          htmlFor="cat-desc"
+        >
+          Description
           <textarea
             id="cat-desc"
             className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
             disabled={isSaving}
-            placeholder="Например: кейс для финалистов"
+            placeholder="e.g. finalists track"
             value={form.description}
-            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, description: e.target.value }))
+            }
           />
         </label>
 
-        <label className="flex min-h-12 items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/78">
+        <label className="flex min-h-12 items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/80">
           <span>
-            <span className="block font-medium text-white">Активная</span>
+            <span className="block font-medium text-white">Active</span>
             <span className="mt-1 block text-xs leading-5 text-white/50">
-              Неактивная останется в истории, но пропадёт из активного набора.
+              Inactive categories remain in history but disappear from the
+              active set.
             </span>
           </span>
           <input
@@ -220,19 +236,20 @@ function CategoryForm({
             className="size-4 accent-primary"
             disabled={isSaving}
             type="checkbox"
-            onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, isActive: e.target.checked }))
+            }
           />
         </label>
 
-        <button className="btn-hero glow-primary rounded-2xl bg-white/[0.05]" type="submit">
+        <button
+          className="btn-hero glow-primary rounded-2xl bg-white/[0.05]"
+          type="submit"
+        >
           <Plus className="size-4" />
           Add category
         </button>
       </form>
-
-      <div className="mt-4 rounded-[1.25rem] border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-white/65">
-        {message}
-      </div>
     </div>
   );
 }
@@ -267,10 +284,15 @@ function CategoryCard({
         category.id,
         payload,
       );
-      if (!response.ok || !data) return;
+      if (!response.ok || !data) {
+        toast.error("Failed to save category.");
+        return;
+      }
       onUpdate(data);
       setEditing(false);
+      toast.success("Category updated.");
     } catch {
+      toast.error("Failed to save category.");
     } finally {
       setIsSaving(false);
     }
@@ -281,14 +303,20 @@ function CategoryCard({
       setArmedDelete(true);
       return;
     }
-    const { response } = await deleteTemplateCategory(category.template_id, category.id);
+    const { response } = await deleteTemplateCategory(
+      category.template_id,
+      category.id,
+    );
     if (response.ok) {
       onDelete(category.id);
+      toast.success("Category deleted.");
+    } else {
+      toast.error("Failed to delete category.");
     }
   }
 
   return (
-    <div className="rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+    <div className="rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -303,7 +331,7 @@ function CategoryCard({
             )}
             <span
               className={cn(
-                "rounded-full px-3 py-1 text-[10px] font-pixel uppercase tracking-[0.18em]",
+                "rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em]",
                 category.is_active
                   ? "border border-primary/25 bg-primary/10 text-primary"
                   : "border border-white/10 bg-white/[0.04] text-white/55",
@@ -312,16 +340,18 @@ function CategoryCard({
               {category.is_active ? "Active" : "Archived"}
             </span>
           </div>
-          <p className="text-xs uppercase tracking-[0.18em] text-white/40">slug: {category.slug}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/40">
+            slug: {category.slug}
+          </p>
           {editing ? (
             <textarea
-              className="mt-1 w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-sm text-white/72 outline-none focus:border-primary/60"
+              className="mt-1 w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-sm text-white/80 outline-none focus:border-primary/60"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
           ) : (
-            <p className="text-sm leading-6 text-white/62">
-              {category.description ?? "Описание не добавлено."}
+            <p className="text-sm leading-6 text-white/65">
+              {category.description ?? "No description added."}
             </p>
           )}
         </div>

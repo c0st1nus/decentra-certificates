@@ -1,10 +1,10 @@
 "use client";
-
 import {
   AlignCenter,
   AlignLeft,
   AlignRight,
   ArrowDown,
+  ArrowLeft,
   ArrowUp,
   Copy,
   GripVertical,
@@ -19,8 +19,10 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import type { FormEvent, ReactNode, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 const FONT_PRELOAD_URLS = [
   "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap",
@@ -805,7 +807,7 @@ export function TemplateLayoutEditor({
       const { response, data } = await saveTemplateLayout(template.template.id, payload);
       if (!response.ok || !data) {
         setPreviewState("error");
-        setPreviewMessage("Layout save failed.");
+        toast.error("Layout save failed.");
         return;
       }
 
@@ -818,9 +820,10 @@ export function TemplateLayoutEditor({
       onSaved?.(nextLayout);
       setPreviewState((current) => (current === "error" ? "idle" : current));
       setPreviewMessage("Layout saved. Generate preview when you want to check the server render.");
+      toast.success("Layout saved.");
     } catch {
       setPreviewState("error");
-      setPreviewMessage("Layout save failed.");
+      toast.error("Layout save failed.");
     } finally {
       setIsSaving(false);
     }
@@ -851,6 +854,7 @@ export function TemplateLayoutEditor({
           setPreviewMessage("Preview render failed.");
         }
         setPreviewState("error");
+        toast.error("Preview render failed.");
         return;
       }
 
@@ -876,6 +880,7 @@ export function TemplateLayoutEditor({
         if (shouldShowStatus) {
           setPreviewMessage("Could not render the backend proof.");
         }
+        toast.error("Could not render the backend proof.");
       }
     }
   }
@@ -898,14 +903,25 @@ export function TemplateLayoutEditor({
   const layerCount = canvas.layers.length;
   const hasProof = previewUrl !== null;
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+    <section
+      className={cn(
+        "flex h-full min-h-0 flex-col overflow-hidden",
+        showHeader
+          ? "rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6 pt-1"
+          : "h-full w-full bg-[#0a0a12]",
+      )}
+    >
       {showHeader ? (
         <div className="shrink-0 border-b border-white/10 pb-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="max-w-2xl">
-              <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
-                Layout editor
-              </p>
+              <Link
+                className="inline-flex min-h-11 items-center gap-2 py-2 text-sm text-white/85 backdrop-blur-xl transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                href={`/admin/templates/${template.template.id}`}
+              >
+                <ArrowLeft className="size-4" />
+                Back to template
+              </Link>
               <h2 className="mt-3 text-2xl font-black text-white">{template.template.name}</h2>
             </div>
             <div className="flex flex-wrap items-center gap-2 self-start">
@@ -915,229 +931,250 @@ export function TemplateLayoutEditor({
             </div>
           </div>
         </div>
-      ) : null}
+      ) : (
+        <div className="shrink-0 flex items-center justify-between gap-3 pb-3">
+          <Link
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/70 transition hover:border-primary/30 hover:text-white"
+            href={`/admin/templates/${template.template.id}`}
+          >
+            <ArrowLeft className="size-3.5" />
+            Back
+          </Link>
+          <span className="min-w-0 truncate text-base font-semibold text-white">
+            {template.template.name}
+          </span>
+          <div className="w-[72px]" />
+        </div>
+      )}
 
       <form
-        className="mt-6 grid min-h-0 flex-1 gap-6 xl:grid-cols-[minmax(0,1.5fr)_420px]"
+        className={cn(
+          "grid min-h-0 flex-1 gap-6 xl:grid-cols-[minmax(0,1.5fr)_420px]",
+          showHeader ? "mt-6" : "mt-0",
+        )}
         onSubmit={(event) => void handleSave(event)}
       >
-        <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
-          <div className="rounded-[1.75rem] border border-white/10 bg-black/25 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-h-0 flex flex-col gap-4">
+          <div className="flex-1 flex flex-col min-h-0 rounded-2xl border border-white/10 bg-black/25 p-4">
+            <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 mb-3">
               <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-white/55">
                 <Sparkles className="size-4 text-primary" />
                 Live canvas
               </div>
             </div>
 
-            <div
-              ref={stageRef}
-              className="relative mt-4 overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#09090f]"
-              style={{
-                aspectRatio: `${layout.page_width} / ${layout.page_height}`,
-              }}
-            >
-              {/* Background image - loaded immediately from template source */}
-              {sourceImageUrl ? (
-                <img
-                  alt="Template background"
-                  className="absolute inset-0 h-full w-full object-fill"
-                  src={sourceImageUrl}
-                />
-              ) : (
-                <div className="absolute inset-0 bg-[#1a1a2e]" />
-              )}
+            <div className="flex-1 grid place-items-center overflow-hidden">
+              <div
+                ref={stageRef}
+                className="relative overflow-hidden rounded-xl border border-white/10 bg-[#09090f]"
+                style={{
+                  aspectRatio: `${layout.page_width} / ${layout.page_height}`,
+                  width: "100%",
+                  maxHeight: "100%",
+                }}
+              >
+                {/* Background image - loaded immediately from template source */}
+                {sourceImageUrl ? (
+                  <img
+                    alt="Template background"
+                    className="absolute inset-0 h-full w-full object-fill"
+                    src={sourceImageUrl}
+                  />
+                ) : (
+                  <div className="absolute inset-0 bg-[#1a1a2e]" />
+                )}
 
-              <div className="absolute inset-0">
-                {previewBoxStyles.map((box) => {
-                  const layer = canvas.layers.find((item) => item.id === box.id);
-                  if (!layer) {
-                    return null;
-                  }
+                <div className="absolute inset-0">
+                  {previewBoxStyles.map((box) => {
+                    const layer = canvas.layers.find((item) => item.id === box.id);
+                    if (!layer) {
+                      return null;
+                    }
 
-                  const isSelected = layer.id === selectedLayerId;
-                  const isText = layer.kind === "text";
-                  return (
-                    <div
-                      key={layer.id}
-                      className="absolute"
-                      style={{
-                        left: `${box.left}%`,
-                        top: `${box.top}%`,
-                        width: `${box.width}%`,
-                        height: `${box.height}%`,
-                      }}
-                    >
-                      <button
-                        aria-label={`Move ${layer.name}`}
-                        className={cn(
-                          "absolute inset-0 rounded-[1rem] border border-dashed bg-transparent text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
-                          isSelected
-                            ? "border-primary/80 bg-primary/10 shadow-[0_0_0_1px_rgba(255,255,255,0.06)]"
-                            : "border-white/15 hover:border-white/30 hover:bg-white/[0.03]",
-                          "cursor-move",
-                        )}
-                        type="button"
-                        onPointerDown={(event) => beginLayerDrag(layer, event)}
-                        onPointerMove={(event) => handleLayerDragMove(event)}
-                        onPointerUp={(event) => endLayerDrag(event)}
-                        onClick={() => selectLayer(layer.id)}
+                    const isSelected = layer.id === selectedLayerId;
+                    const isText = layer.kind === "text";
+                    return (
+                      <div
+                        key={layer.id}
+                        className="absolute"
+                        style={{
+                          left: `${box.left}%`,
+                          top: `${box.top}%`,
+                          width: `${box.width}%`,
+                          height: `${box.height}%`,
+                        }}
                       >
-                        {isText && layer.text ? (
-                          <span
-                            className="pointer-events-none absolute inset-0 overflow-hidden p-1"
-                            style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              justifyContent:
-                                layer.text.vertical_align === "center"
-                                  ? "center"
-                                  : layer.text.vertical_align === "bottom"
-                                    ? "flex-end"
-                                    : "flex-start",
-                            }}
-                          >
+                        <button
+                          aria-label={`Move ${layer.name}`}
+                          className={cn(
+                            "absolute inset-0 rounded-[1rem] border border-dashed bg-transparent text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                            isSelected
+                              ? "border-primary/80 bg-primary/10 shadow-[0_0_0_1px_rgba(255,255,255,0.06)]"
+                              : "border-white/15 hover:border-white/30 hover:bg-white/[0.03]",
+                            "cursor-move",
+                          )}
+                          type="button"
+                          onPointerDown={(event) => beginLayerDrag(layer, event)}
+                          onPointerMove={(event) => handleLayerDragMove(event)}
+                          onPointerUp={(event) => endLayerDrag(event)}
+                          onClick={() => selectLayer(layer.id)}
+                        >
+                          {isText && layer.text ? (
                             <span
+                              className="pointer-events-none absolute inset-0 overflow-hidden p-1"
                               style={{
-                                width: "100%",
-                                fontFamily: `"${layer.text.font_family}", sans-serif`,
-                                fontSize: `${Math.max(8, layer.text.font_size * 0.45)}px`,
-                                fontWeight: layer.text.font_weight,
-                                letterSpacing: `${(layer.text.letter_spacing ?? 0) * 0.45}px`,
-                                lineHeight: `${(layer.text.line_height ?? 130) / 100}`,
-                                color: layer.text.font_color_hex,
-                                textAlign: layer.text
-                                  .text_align as React.CSSProperties["textAlign"],
-                                wordBreak: "break-word",
+                                display: "flex",
+                                flexDirection: "column",
+                                justifyContent:
+                                  layer.text.vertical_align === "center"
+                                    ? "center"
+                                    : layer.text.vertical_align === "bottom"
+                                      ? "flex-end"
+                                      : "flex-start",
                               }}
                             >
-                              {resolveCanvasLayerText(
-                                layer.text,
-                                previewName,
-                                buildPreviewBindingValues(previewName, template),
-                              )}
+                              <span
+                                style={{
+                                  width: "100%",
+                                  fontFamily: `"${layer.text.font_family}", sans-serif`,
+                                  fontSize: `${Math.max(8, layer.text.font_size * 0.45)}px`,
+                                  fontWeight: layer.text.font_weight,
+                                  letterSpacing: `${(layer.text.letter_spacing ?? 0) * 0.45}px`,
+                                  lineHeight: `${(layer.text.line_height ?? 130) / 100}`,
+                                  color: layer.text.font_color_hex,
+                                  textAlign: layer.text
+                                    .text_align as React.CSSProperties["textAlign"],
+                                  wordBreak: "break-word",
+                                }}
+                              >
+                                {resolveCanvasLayerText(
+                                  layer.text,
+                                  previewName,
+                                  buildPreviewBindingValues(previewName, template),
+                                )}
+                              </span>
                             </span>
-                          </span>
-                        ) : isText ? (
-                          <span className="pointer-events-none absolute left-3 bottom-3 max-w-[calc(100%-24px)] rounded-full border border-white/10 bg-black/45 px-2 py-1 text-[11px] text-white/60">
-                            Text layer
-                          </span>
-                        ) : layer.kind === "image" && layer.image?.src ? (
-                          <span
-                            className="pointer-events-none absolute inset-0 overflow-hidden rounded-[1rem]"
-                            style={{
-                              padding: `${layer.image.border_radius ?? 0}px`,
-                            }}
-                          >
-                            <img
-                              alt={layer.name}
-                              className="pointer-events-none h-full w-full"
-                              src={layer.image.src}
+                          ) : isText ? (
+                            <span className="pointer-events-none absolute left-3 bottom-3 max-w-[calc(100%-24px)] rounded-full border border-white/10 bg-black/45 px-2 py-1 text-[11px] text-white/60">
+                              Text layer
+                            </span>
+                          ) : layer.kind === "image" && layer.image?.src ? (
+                            <span
+                              className="pointer-events-none absolute inset-0 overflow-hidden rounded-[1rem]"
                               style={{
-                                objectFit:
-                                  layer.image.fit === "contain"
-                                    ? "contain"
-                                    : layer.image.fit === "cover"
-                                      ? "cover"
-                                      : "fill",
-                                borderRadius: `${layer.image.border_radius ?? 0}px`,
+                                padding: `${layer.image.border_radius ?? 0}px`,
                               }}
+                            >
+                              <img
+                                alt={layer.name}
+                                className="pointer-events-none h-full w-full"
+                                src={layer.image.src}
+                                style={{
+                                  objectFit:
+                                    layer.image.fit === "contain"
+                                      ? "contain"
+                                      : layer.image.fit === "cover"
+                                        ? "cover"
+                                        : "fill",
+                                  borderRadius: `${layer.image.border_radius ?? 0}px`,
+                                }}
+                              />
+                            </span>
+                          ) : (
+                            <span className="pointer-events-none absolute left-3 bottom-3 rounded-full border border-white/10 bg-black/45 px-2 py-1 text-[11px] text-white/60">
+                              {layer.kind === "image" ? "Image layer" : "Layer"}
+                            </span>
+                          )}
+                        </button>
+
+                        {isSelected && (
+                          <>
+                            <ResizeHandle
+                              position="top-left"
+                              onPointerDown={(e) => beginResize(layer, "top-left", e)}
+                              onPointerMove={handleResizeMove}
+                              onPointerUp={endResize}
                             />
-                          </span>
-                        ) : (
-                          <span className="pointer-events-none absolute left-3 bottom-3 rounded-full border border-white/10 bg-black/45 px-2 py-1 text-[11px] text-white/60">
-                            {layer.kind === "image" ? "Image layer" : "Layer"}
-                          </span>
+                            <ResizeHandle
+                              position="top-right"
+                              onPointerDown={(e) => beginResize(layer, "top-right", e)}
+                              onPointerMove={handleResizeMove}
+                              onPointerUp={endResize}
+                            />
+                            <ResizeHandle
+                              position="bottom-left"
+                              onPointerDown={(e) => beginResize(layer, "bottom-left", e)}
+                              onPointerMove={handleResizeMove}
+                              onPointerUp={endResize}
+                            />
+                            <ResizeHandle
+                              position="bottom-right"
+                              onPointerDown={(e) => beginResize(layer, "bottom-right", e)}
+                              onPointerMove={handleResizeMove}
+                              onPointerUp={endResize}
+                            />
+                            <ResizeHandle
+                              position="top"
+                              onPointerDown={(e) => beginResize(layer, "top", e)}
+                              onPointerMove={handleResizeMove}
+                              onPointerUp={endResize}
+                            />
+                            <ResizeHandle
+                              position="bottom"
+                              onPointerDown={(e) => beginResize(layer, "bottom", e)}
+                              onPointerMove={handleResizeMove}
+                              onPointerUp={endResize}
+                            />
+                            <ResizeHandle
+                              position="left"
+                              onPointerDown={(e) => beginResize(layer, "left", e)}
+                              onPointerMove={handleResizeMove}
+                              onPointerUp={endResize}
+                            />
+                            <ResizeHandle
+                              position="right"
+                              onPointerDown={(e) => beginResize(layer, "right", e)}
+                              onPointerMove={handleResizeMove}
+                              onPointerUp={endResize}
+                            />
+                          </>
                         )}
-                      </button>
+                      </div>
+                    );
+                  })}
 
-                      {isSelected && (
-                        <>
-                          <ResizeHandle
-                            position="top-left"
-                            onPointerDown={(e) => beginResize(layer, "top-left", e)}
-                            onPointerMove={handleResizeMove}
-                            onPointerUp={endResize}
-                          />
-                          <ResizeHandle
-                            position="top-right"
-                            onPointerDown={(e) => beginResize(layer, "top-right", e)}
-                            onPointerMove={handleResizeMove}
-                            onPointerUp={endResize}
-                          />
-                          <ResizeHandle
-                            position="bottom-left"
-                            onPointerDown={(e) => beginResize(layer, "bottom-left", e)}
-                            onPointerMove={handleResizeMove}
-                            onPointerUp={endResize}
-                          />
-                          <ResizeHandle
-                            position="bottom-right"
-                            onPointerDown={(e) => beginResize(layer, "bottom-right", e)}
-                            onPointerMove={handleResizeMove}
-                            onPointerUp={endResize}
-                          />
-                          <ResizeHandle
-                            position="top"
-                            onPointerDown={(e) => beginResize(layer, "top", e)}
-                            onPointerMove={handleResizeMove}
-                            onPointerUp={endResize}
-                          />
-                          <ResizeHandle
-                            position="bottom"
-                            onPointerDown={(e) => beginResize(layer, "bottom", e)}
-                            onPointerMove={handleResizeMove}
-                            onPointerUp={endResize}
-                          />
-                          <ResizeHandle
-                            position="left"
-                            onPointerDown={(e) => beginResize(layer, "left", e)}
-                            onPointerMove={handleResizeMove}
-                            onPointerUp={endResize}
-                          />
-                          <ResizeHandle
-                            position="right"
-                            onPointerDown={(e) => beginResize(layer, "right", e)}
-                            onPointerMove={handleResizeMove}
-                            onPointerUp={endResize}
-                          />
-                        </>
-                      )}
+                  {/* Snap guides */}
+                  {snapGuides.vertical !== null && (
+                    <div
+                      className="pointer-events-none absolute top-0 bottom-0 w-px bg-primary/60"
+                      style={{
+                        left: `${(snapGuides.vertical / layout.page_width) * 100}%`,
+                      }}
+                    />
+                  )}
+                  {snapGuides.horizontal !== null && (
+                    <div
+                      className="pointer-events-none absolute left-0 right-0 h-px bg-primary/60"
+                      style={{
+                        top: `${(snapGuides.horizontal / layout.page_height) * 100}%`,
+                      }}
+                    />
+                  )}
+
+                  {previewState === "loading" ? (
+                    <div className="pointer-events-none absolute right-4 top-4 z-20">
+                      <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/75 px-4 py-2 text-xs text-white/75 shadow-lg backdrop-blur-xl">
+                        <LoaderCircle className="size-4 animate-spin" />
+                        Rendering preview
+                      </div>
                     </div>
-                  );
-                })}
-
-                {/* Snap guides */}
-                {snapGuides.vertical !== null && (
-                  <div
-                    className="pointer-events-none absolute top-0 bottom-0 w-px bg-primary/60"
-                    style={{
-                      left: `${(snapGuides.vertical / layout.page_width) * 100}%`,
-                    }}
-                  />
-                )}
-                {snapGuides.horizontal !== null && (
-                  <div
-                    className="pointer-events-none absolute left-0 right-0 h-px bg-primary/60"
-                    style={{
-                      top: `${(snapGuides.horizontal / layout.page_height) * 100}%`,
-                    }}
-                  />
-                )}
-
-                {previewState === "loading" ? (
-                  <div className="pointer-events-none absolute right-4 top-4 z-20">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/75 px-4 py-2 text-xs text-white/75 shadow-lg backdrop-blur-xl">
-                      <LoaderCircle className="size-4 animate-spin" />
-                      Rendering preview
-                    </div>
-                  </div>
-                ) : null}
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="shrink-0 grid gap-4 md:grid-cols-2">
             <button
               className="btn-hero inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white/80 transition hover:border-primary/30 hover:text-white"
               type="button"
@@ -1158,13 +1195,13 @@ export function TemplateLayoutEditor({
         </div>
 
         <aside className="min-h-0 space-y-4 overflow-y-auto pr-1">
-          <section className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4">
+          <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
                   Server preview
                 </p>
-                <p className="mt-2 text-sm leading-6 text-white/58">
+                <p className="mt-2 text-sm leading-6 text-white/65">
                   Generate the exported PNG from the backend renderer.
                 </p>
               </div>
@@ -1193,7 +1230,7 @@ export function TemplateLayoutEditor({
                 />
               </label>
 
-              <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white/58">
+              <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white/65">
                 {previewMessage}
               </div>
 
@@ -1209,8 +1246,8 @@ export function TemplateLayoutEditor({
             </div>
           </section>
 
-          <section className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4">
-            <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">
+          <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
               Layers
             </p>
             <div className="mt-3 space-y-2">
@@ -1295,8 +1332,8 @@ export function TemplateLayoutEditor({
             </div>
           </section>
 
-          <section className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4">
-            <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">
+          <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
               Properties
             </p>
 
@@ -1387,7 +1424,7 @@ export function TemplateLayoutEditor({
             )}
           </section>
 
-          <div className="sticky bottom-0 rounded-[1.5rem] border border-white/10 bg-panel/95 p-4 backdrop-blur-xl">
+          <div className="sticky bottom-0 rounded-xl border border-white/10 bg-panel/95 p-4 backdrop-blur-xl">
             <button
               className="btn-hero inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl bg-white/[0.05] px-4 py-3 text-sm text-white/80 transition hover:border-primary/30 hover:text-white"
               type="submit"
@@ -1420,14 +1457,14 @@ export function TemplateLayoutEditor({
 
       {isTextSettingsOpen && selectedLayer?.kind === "text" && selectedTextLayer ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-[1.75rem] border border-white/10 bg-panel/95 p-5 shadow-2xl sm:p-6">
+          <div className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-white/10 bg-panel/95 p-5 shadow-2xl sm:p-6">
             <div className="mb-5 flex items-start justify-between gap-4 border-b border-white/10 pb-4">
               <div>
-                <p className="font-pixel text-[10px] uppercase tracking-[0.22em] text-primary">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
                   Text settings
                 </p>
                 <h3 className="mt-3 text-xl font-black text-white">{selectedLayer.name}</h3>
-                <p className="mt-2 text-sm leading-6 text-white/58">
+                <p className="mt-2 text-sm leading-6 text-white/65">
                   Control typography, alignment and placeholders without crowding the main sidebar.
                 </p>
               </div>

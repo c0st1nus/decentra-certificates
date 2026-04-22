@@ -5,7 +5,7 @@ use entity::{
     prelude::{CertificateIssues, CertificateTemplates, Participants, TemplateLayouts},
     template_layouts,
 };
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -119,27 +119,42 @@ pub async fn get_job_status(
         return Ok(None);
     };
 
-    if !state
-        .storage
-        .object_exists(&issue.generated_pdf_path)
-        .await
-        .unwrap_or(false)
-    {
-        return Ok(None);
-    }
-
     let participant = Participants::find_by_id(issue.participant_id)
         .one(&state.db)
         .await
-        .context("failed to load participant for completed job")?
-        .context("participant not found for completed job")?;
+        .context("failed to load participant for job")?;
     let template = CertificateTemplates::find_by_id(issue.template_id)
         .one(&state.db)
         .await
-        .context("failed to load template for completed job")?
-        .context("template not found for completed job")?;
+        .context("failed to load template for job")?;
 
-    let status = completed_status(&issue, &participant, &template, "Сертификат готов");
+    let status = match issue.status.as_str() {
+        "completed" => {
+            let participant = participant.context("participant not found for completed job")?;
+            let template = template.context("template not found for completed job")?;
+            completed_status(&issue, &participant, &template, "Сертификат готов")
+        }
+        "failed" => {
+            let participant = participant.context("participant not found for failed job")?;
+            let template = template.context("template not found for failed job")?;
+            failed_status(&issue, &participant, &template)
+        }
+        "processing" => {
+            let participant = participant.context("participant not found for processing job")?;
+            let template = template.context("template not found for processing job")?;
+            processing_status(&issue, &participant, &template)
+        }
+        _ => {
+            let participant = participant.context("participant not found for queued job")?;
+            let template = template.context("template not found for queued job")?;
+            queued_status(
+                &issue,
+                &participant,
+                &template,
+                "Сертификат поставлен в очередь",
+            )
+        }
+    };
     write_job_status(state, &status).await?;
 
     Ok(Some(status))
@@ -152,13 +167,34 @@ pub async fn enqueue_issue(
     template: &certificate_templates::Model,
     priority: JobPriority,
 ) -> Result<CertificateJobStatus> {
-    let has_file = state
-        .storage
-        .object_exists(&issue.generated_pdf_path)
-        .await
-        .unwrap_or(false);
-    if has_file {
-        let status = completed_status(issue, participant, template, "Сертификат готов");
+    let template_changed = issue
+        .template_updated_at
+        .map(|ts| ts < template.updated_at)
+        .unwrap_or(true);
+
+    let has_file = if template_changed {
+        if state
+            .storage
+            .object_exists(&issue.generated_pdf_path)
+            .await
+            .unwrap_or(false)
+        {
+            let _ = state.storage.delete_object(&issue.generated_pdf_path).await;
+        }
+        false
+    } else {
+        state
+            .storage
+            .object_exists(&issue.generated_pdf_path)
+            .await
+            .unwrap_or(false)
+    };
+
+    if has_file && !template_changed {
+        if issue.status != "completed" {
+            update_issue_status(&state.db, issue, "completed", 0, None, None).await?;
+        }
+        let status = completed_status(issue, participant, template, "Certificate ready");
         write_job_status(state, &status).await?;
         return Ok(status);
     }
@@ -199,6 +235,7 @@ pub async fn enqueue_issue(
     status.status = "queued".to_owned();
     status.updated_at = Utc::now().to_rfc3339();
     write_job_status(state, &status).await?;
+    update_issue_status(&state.db, issue, "queued", 0, None, None).await?;
     state
         .redis
         .enqueue_scored(CERTIFICATE_QUEUE_KEY, &job_id, queue_score(priority, 0))
@@ -351,11 +388,21 @@ async fn process_job(state: &AppState, job_id: &str) -> Result<()> {
     status.updated_at = Utc::now().to_rfc3339();
     status.attempts += 1;
     write_job_status(state, &status).await?;
+    update_issue_status(&state.db, &issue, "processing", 1, None, None).await?;
 
     let result =
         certificates::render_issue_pdf(state, &issue, &participant, &template, &layout).await;
     match result {
         Ok(()) => {
+            update_issue_status(
+                &state.db,
+                &issue,
+                "completed",
+                0,
+                None,
+                Some(template.updated_at),
+            )
+            .await?;
             let completed = completed_status(&issue, &participant, &template, "Сертификат готов");
             write_job_status(state, &completed).await?;
             Ok(())
@@ -367,6 +414,7 @@ async fn process_job(state: &AppState, job_id: &str) -> Result<()> {
                 retry.message = "Повторяем генерацию после временной ошибки".to_owned();
                 retry.updated_at = Utc::now().to_rfc3339();
                 write_job_status(state, &retry).await?;
+                update_issue_status(&state.db, &issue, "queued", 0, None, None).await?;
                 state
                     .redis
                     .enqueue_scored(
@@ -380,6 +428,9 @@ async fn process_job(state: &AppState, job_id: &str) -> Result<()> {
                 return Ok(());
             }
 
+            let err_msg = err.to_string();
+            update_issue_status(&state.db, &issue, "failed", 0, Some(err_msg.clone()), None)
+                .await?;
             let failed = CertificateJobStatus {
                 job_id: issue.id.to_string(),
                 certificate_id: issue.certificate_id.clone(),
@@ -422,6 +473,39 @@ async fn write_job_status(state: &AppState, status: &CertificateJobStatus) -> Re
         .await
 }
 
+async fn update_issue_status(
+    db: &DatabaseConnection,
+    issue: &certificate_issues::Model,
+    status: &str,
+    attempts_delta: i32,
+    error_message: Option<String>,
+    template_updated_at: Option<chrono::DateTime<Utc>>,
+) -> Result<()> {
+    let now = Utc::now();
+    let mut active: certificate_issues::ActiveModel = issue.clone().into();
+    active.status = Set(status.to_owned());
+    active.attempts = Set(issue.attempts + attempts_delta);
+    active.updated_at = Set(now);
+    if let Some(msg) = error_message {
+        active.error_message = Set(Some(msg));
+    }
+    if let Some(ts) = template_updated_at {
+        active.template_updated_at = Set(Some(ts));
+    }
+    match status {
+        "queued" => active.queued_at = Set(Some(now)),
+        "processing" => active.processing_at = Set(Some(now)),
+        "completed" => active.completed_at = Set(Some(now)),
+        "failed" => active.failed_at = Set(Some(now)),
+        _ => {}
+    }
+    active
+        .update(db)
+        .await
+        .with_context(|| format!("failed to update certificate issue status for {}", issue.id))?;
+    Ok(())
+}
+
 fn queue_score(priority: JobPriority, delay_millis: i64) -> f64 {
     let base = Utc::now().timestamp_millis() + delay_millis;
     let adjusted = match priority {
@@ -448,6 +532,58 @@ fn next_queue_wait_duration(next_score: Option<f64>) -> std::time::Duration {
 
     let wait_millis = (next_score - now).min((QUEUE_IDLE_WAIT_SECONDS * 1000) as f64) as u64;
     std::time::Duration::from_millis(wait_millis)
+}
+
+fn processing_status(
+    issue: &certificate_issues::Model,
+    participant: &participants::Model,
+    template: &certificate_templates::Model,
+) -> CertificateJobStatus {
+    CertificateJobStatus {
+        job_id: issue.id.to_string(),
+        certificate_id: issue.certificate_id.clone(),
+        verification_code: Some(issue.verification_code.clone()),
+        status: "processing".to_owned(),
+        message: "Генерируем сертификат на сервере".to_owned(),
+        full_name: participant.full_name.clone(),
+        template_name: template.name.clone(),
+        download_url: None,
+        verification_url: Some(format!(
+            "/api/v1/public/certificates/verify/{}",
+            issue.verification_code
+        )),
+        attempts: issue.attempts as u32,
+        updated_at: Utc::now().to_rfc3339(),
+    }
+}
+
+fn failed_status(
+    issue: &certificate_issues::Model,
+    participant: &participants::Model,
+    template: &certificate_templates::Model,
+) -> CertificateJobStatus {
+    CertificateJobStatus {
+        job_id: issue.id.to_string(),
+        certificate_id: issue.certificate_id.clone(),
+        verification_code: Some(issue.verification_code.clone()),
+        status: "failed".to_owned(),
+        message: issue
+            .error_message
+            .clone()
+            .unwrap_or_else(|| "Не удалось сгенерировать сертификат".to_owned()),
+        full_name: participant.full_name.clone(),
+        template_name: template.name.clone(),
+        download_url: None,
+        verification_url: Some(format!(
+            "/api/v1/public/certificates/verify/{}",
+            issue.verification_code
+        )),
+        attempts: issue.attempts as u32,
+        updated_at: issue
+            .failed_at
+            .map(|t| t.to_rfc3339())
+            .unwrap_or_else(|| Utc::now().to_rfc3339()),
+    }
 }
 
 fn queued_status(

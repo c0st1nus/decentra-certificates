@@ -21,9 +21,7 @@ pub async fn run(state: &AppState) -> Result<()> {
         .await;
 
     let concurrent_tasks = 50;
-    println!(
-        "Spawning {concurrent_tasks} concurrent find_or_create_issue_record tasks..."
-    );
+    println!("Spawning {concurrent_tasks} concurrent find_or_create_issue_record tasks...");
 
     let start = Instant::now();
     let state = Arc::new(state.clone());

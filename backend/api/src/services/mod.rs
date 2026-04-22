@@ -1,6 +1,7 @@
 pub mod audit;
 pub mod auth;
 pub mod categories;
+pub mod certificate_issues;
 pub mod certificate_jobs;
 pub mod certificates;
 pub mod font_loader;

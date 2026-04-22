@@ -3,6 +3,7 @@
 import { FileUp, LoaderCircle, Upload } from "lucide-react";
 import type { FormEvent } from "react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { type ImportResponse, importParticipants } from "@/lib/admin-api";
 
@@ -19,17 +20,16 @@ export function ParticipantsImportForm({
 }: ParticipantsImportFormProps) {
   const [file, setFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [message, setMessage] = useState("CSV and XLSX uploads are supported.");
   const [result, setResult] = useState<ImportResponse | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!templateId) {
-      setMessage("Select a template first.");
+      toast.error("Select a template first.");
       return;
     }
     if (!file) {
-      setMessage("Choose a CSV or XLSX file first.");
+      toast.error("Choose a CSV or XLSX file first.");
       return;
     }
 
@@ -38,35 +38,34 @@ export function ParticipantsImportForm({
     form.append("file", file);
 
     setIsLoading(true);
-    setMessage(`Importing participants into ${templateName ?? "the selected template"}...`);
 
     try {
       const { response, data } = await importParticipants(form);
       if (!response.ok || !data) {
-        setMessage("Import failed.");
+        toast.error("Import failed.");
         setIsLoading(false);
         return;
       }
 
       setResult(data);
-      setMessage(`Imported ${data.inserted} new participants.`);
+      toast.success(`Imported ${data.inserted} new participants.`);
       onImported?.(data);
     } catch {
-      setMessage("Import failed.");
+      toast.error("Import failed.");
     } finally {
       setIsLoading(false);
     }
   }
 
   return (
-    <section className="rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+    <section className="rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
             Participants
           </p>
           <h2 className="mt-3 text-2xl font-black text-white">Import CSV/XLSX</h2>
-          <p className="mt-2 max-w-sm text-sm leading-6 text-white/58">
+          <p className="mt-2 max-w-sm text-sm leading-6 text-white/65">
             {templateName
               ? `This import will be linked to ${templateName}.`
               : "Select a template to bind incoming participants."}
@@ -76,14 +75,14 @@ export function ParticipantsImportForm({
       </div>
 
       <form className="mt-6 space-y-4" onSubmit={(event) => void handleSubmit(event)}>
-        <label className="block text-sm font-medium text-white/72" htmlFor="participants-file">
+        <label className="block text-sm font-medium text-white/80" htmlFor="participants-file">
           CSV or XLSX file
           <div className="mt-2 flex items-center gap-3 rounded-2xl border border-dashed border-white/15 bg-black/20 px-4 py-4">
             <Upload className="size-5 text-primary/80" />
             <input
               id="participants-file"
               accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              className="block w-full text-sm text-white/72 file:mr-4 file:rounded-full file:border-0 file:bg-primary/15 file:px-4 file:py-2 file:text-xs file:font-pixel file:uppercase file:tracking-[0.18em] file:text-primary hover:file:bg-primary/20"
+              className="block w-full text-sm text-white/75 file:mr-4 file:rounded-full file:border-0 file:bg-primary/15 file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:tracking-[0.18em] file:text-primary hover:file:bg-primary/20"
               disabled={isLoading || !templateId}
               type="file"
               onChange={(event) => setFile(event.target.files?.[0] ?? null)}
@@ -117,12 +116,8 @@ export function ParticipantsImportForm({
         <SummaryTile label="Skipped" value={result ? String(result.skipped) : "0"} />
       </div>
 
-      <div className="mt-5 rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-white/68">
-        {message}
-      </div>
-
       {result?.errors.length ? (
-        <div className="mt-5 overflow-hidden rounded-[1.5rem] border border-white/10">
+        <div className="mt-5 overflow-hidden rounded-2xl border border-white/10">
           <table className="w-full border-collapse text-left text-sm">
             <thead className="bg-black/30 text-white/60">
               <tr>
@@ -153,7 +148,7 @@ export function ParticipantsImportForm({
 function SummaryTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
-      <p className="text-xs uppercase tracking-[0.18em] text-white/45">{label}</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/50">{label}</p>
       <p className="mt-2 text-lg font-black text-white">{value}</p>
     </div>
   );

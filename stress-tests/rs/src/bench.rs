@@ -20,7 +20,9 @@ pub async fn ensure_test_template(state: &AppState) -> Result<certificate_templa
     }
 
     let template_id = Uuid::new_v4();
-    let source_key = state.storage.template_file_key(&template_id.to_string(), "template.png");
+    let source_key = state
+        .storage
+        .template_file_key(&template_id.to_string(), "template.png");
     let bytes = tokio::fs::read("stress-tests/fixtures/template.png")
         .await
         .context("failed to read template.png fixture")?;
@@ -98,10 +100,7 @@ pub fn build_test_bindings(full_name: &str) -> HashMap<String, String> {
         ("participant.full_name".to_owned(), full_name.to_owned()),
         ("full_name".to_owned(), full_name.to_owned()),
         ("name".to_owned(), full_name.to_owned()),
-        (
-            "participant.category".to_owned(),
-            "General".to_owned(),
-        ),
+        ("participant.category".to_owned(), "General".to_owned()),
         ("track_name".to_owned(), "General".to_owned()),
         ("template.name".to_owned(), "Stress Test".to_owned()),
         ("certificate_type".to_owned(), "Stress Test".to_owned()),

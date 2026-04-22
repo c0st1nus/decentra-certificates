@@ -416,6 +416,27 @@ pub async fn activate_template(
     get_template(db, template.id).await
 }
 
+pub async fn deactivate_template(
+    db: &DatabaseConnection,
+    id: Uuid,
+) -> Result<TemplateDetail, AppError> {
+    let template = CertificateTemplates::find_by_id(id)
+        .one(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?
+        .ok_or_else(|| AppError::NotFound("template not found".to_owned()))?;
+
+    let mut active_model: certificate_templates::ActiveModel = template.into();
+    active_model.is_active = Set(false);
+    active_model.updated_at = Set(Utc::now());
+    active_model
+        .update(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?;
+
+    get_template(db, id).await
+}
+
 pub async fn delete_template(
     db: &DatabaseConnection,
     storage: &StorageService,

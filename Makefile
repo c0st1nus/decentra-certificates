@@ -86,7 +86,7 @@ stress-clear-generated:
 	stress-tests/scripts/clear-generated.sh
 
 stress-rs:
-	cargo run -p stress-tests -- all
+	cargo run --release -p stress-tests -- all
 
 stress-rs-render:
 	cargo run -p stress-tests -- render

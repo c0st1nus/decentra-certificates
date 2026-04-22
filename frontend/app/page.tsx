@@ -15,10 +15,10 @@ export default function HomePage() {
               <BadgeCheck className="size-5 text-primary" />
             </div>
             <div className="min-w-0">
-              <p className="truncate font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
+              <p className="truncate text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
                 Decentrathon
               </p>
-              <p className="truncate text-sm text-white/58">Certificate claim page</p>
+              <p className="truncate text-sm text-white/60">Certificate claim page</p>
             </div>
           </div>
         </header>
@@ -27,19 +27,19 @@ export default function HomePage() {
           <div className="mx-auto w-full max-w-2xl space-y-8 text-center">
             <div className="space-y-5">
               <div className="inline-flex items-center gap-2 self-center rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5">
-                <span className="font-pixel text-[10px] uppercase tracking-[0.2em] text-primary">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary">
                   Decentrathon 5.0
                 </span>
               </div>
 
               <h1 className="heading-hero text-gradient justify-center">
-                Получите сертификат за участие в Decentrathon 5.0
+                Get your Decentrathon 5.0 certificate
               </h1>
 
-              <p className="mx-auto max-w-xl text-sm leading-6 text-white/68 sm:text-base">
-                Введите e-mail, указанный при регистрации. Если адрес есть в базе, мы либо сразу
-                отдадим готовый PDF, либо поднимем ваш сертификат в приоритетную очередь и покажем
-                live-статус сборки.
+              <p className="mx-auto max-w-xl text-sm leading-6 text-white/70 sm:text-base">
+                Enter the email you used during registration. If it is in our database, we will
+                either serve a ready PDF or bump your certificate to the priority queue and show a
+                live build status.
               </p>
             </div>
 
@@ -47,9 +47,9 @@ export default function HomePage() {
               <EmailRequestForm />
             </div>
 
-            <p className="text-xs leading-5 text-white/42">
-              Сертификат выдается только после серверной проверки базы участников и серверной
-              генерации PDF.
+            <p className="text-xs leading-5 text-white/50">
+              Certificates are issued only after server-side participant verification and
+              server-side PDF generation.
             </p>
           </div>
         </section>

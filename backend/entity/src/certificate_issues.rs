@@ -14,7 +14,16 @@ pub struct Model {
     pub generated_pdf_path: String,
     pub download_count: i32,
     pub last_downloaded_at: Option<DateTimeUtc>,
+    pub status: String,
+    pub attempts: i32,
+    pub error_message: Option<String>,
+    pub queued_at: Option<DateTimeUtc>,
+    pub processing_at: Option<DateTimeUtc>,
+    pub completed_at: Option<DateTimeUtc>,
+    pub failed_at: Option<DateTimeUtc>,
+    pub template_updated_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
+    pub updated_at: DateTimeUtc,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

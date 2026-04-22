@@ -6,3 +6,5 @@ pub mod m20260417_000005_add_template_roster_indexes;
 pub mod m20260417_000006_add_template_canvas_data;
 pub mod m20260420_000007_add_categories_and_template_category;
 pub mod m20260420_000008_fix_categories_to_be_template_scoped;
+pub mod m20260421_000009_add_certificate_issue_status;
+pub mod m20260422_000010_add_issue_template_version;

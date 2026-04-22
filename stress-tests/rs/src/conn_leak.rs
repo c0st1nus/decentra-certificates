@@ -10,9 +10,7 @@ pub async fn run(state: &AppState) -> Result<()> {
     let participant = ensure_test_participant(state, uuid::Uuid::nil(), "conn-leak").await?;
 
     let rapid_requests = 1000;
-    println!(
-        "Sending {rapid_requests} rapid check_available_certificates requests..."
-    );
+    println!("Sending {rapid_requests} rapid check_available_certificates requests...");
 
     let db_before = count_db_connections(state).await?;
     println!("  DB connections before: {db_before}");
@@ -32,10 +30,16 @@ pub async fn run(state: &AppState) -> Result<()> {
 
     let db_after = count_db_connections(state).await?;
     println!("  DB connections after: {db_after}");
-    println!("  Total time: {:?} ({:.1} req/sec)", elapsed, rapid_requests as f64 / elapsed.as_secs_f64());
+    println!(
+        "  Total time: {:?} ({:.1} req/sec)",
+        elapsed,
+        rapid_requests as f64 / elapsed.as_secs_f64()
+    );
 
     if db_after > db_before + 5 {
-        println!("  WARNING: Connection pool may be leaking (before={db_before}, after={db_after})");
+        println!(
+            "  WARNING: Connection pool may be leaking (before={db_before}, after={db_after})"
+        );
     } else {
         println!("  OK: Connections returned to pool properly.");
     }
@@ -44,8 +48,8 @@ pub async fn run(state: &AppState) -> Result<()> {
 }
 
 async fn count_db_connections(state: &AppState) -> Result<i64> {
-    use sea_orm::sea_query::{Expr, Query};
     use sea_orm::ConnectionTrait;
+    use sea_orm::sea_query::{Expr, Query};
 
     let select = Query::select()
         .expr(Expr::cust("count(*)::bigint"))

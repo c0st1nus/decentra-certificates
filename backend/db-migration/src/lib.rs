@@ -16,6 +16,8 @@ impl MigratorTrait for Migrator {
             Box::new(migrations::m20260417_000006_add_template_canvas_data::Migration),
             Box::new(migrations::m20260420_000007_add_categories_and_template_category::Migration),
             Box::new(migrations::m20260420_000008_fix_categories_to_be_template_scoped::Migration),
+            Box::new(migrations::m20260421_000009_add_certificate_issue_status::Migration),
+            Box::new(migrations::m20260422_000010_add_issue_template_version::Migration),
         ]
     }
 }

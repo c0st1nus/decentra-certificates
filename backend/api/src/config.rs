@@ -90,7 +90,7 @@ impl Settings {
             jwt: JwtSettings {
                 access_secret: env_required("JWT_ACCESS_SECRET")?,
                 refresh_secret: env_required("JWT_REFRESH_SECRET")?,
-                access_ttl_minutes: env_parse("JWT_ACCESS_TTL_MINUTES", 15)?,
+                access_ttl_minutes: env_parse("JWT_ACCESS_TTL_MINUTES", 60)?,
                 refresh_ttl_days: env_parse("JWT_REFRESH_TTL_DAYS", 30)?,
             },
             server: ServerSettings {

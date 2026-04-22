@@ -19,8 +19,8 @@ use crate::{
     services::{
         audit,
         auth::{AuthService, RefreshTokenRequest, SessionResponse},
-        categories as category_service, certificate_jobs, participants as participant_service,
-        settings,
+        categories as category_service, certificate_issues as issue_service, certificate_jobs,
+        participants as participant_service, settings,
         templates::{self, TemplateLayoutData},
     },
     state::AppState,
@@ -94,6 +94,14 @@ pub struct ParticipantListQuery {
 #[derive(Debug, Deserialize)]
 pub struct DeleteParticipantsQuery {
     pub event_code: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CertificateIssueListQuery {
+    pub template_id: Option<Uuid>,
+    pub status: Option<String>,
+    pub page: Option<u64>,
+    pub page_size: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -369,6 +377,9 @@ async fn update_template(
     )
     .await?;
     state.invalidate_template_background(template_id).await;
+    issue_service::invalidate_completed_issues_for_template(&state, template_id)
+        .await
+        .map_err(|err| AppError::Internal(anyhow::anyhow!("{err}")))?;
     if template.template.is_active {
         certificate_jobs::enqueue_all_for_template(
             &state,
@@ -413,6 +424,31 @@ async fn activate_template(
         &state.db,
         auth.0.id,
         "template.activate",
+        "certificate_template",
+        Some(template.template.id.to_string()),
+        serde_json::json!({
+            "name": &template.template.name,
+            "is_active": template.template.is_active,
+        }),
+    )
+    .await;
+    Ok(HttpResponse::Ok().json(template))
+}
+
+#[post("/templates/{id}/deactivate")]
+async fn deactivate_template(
+    state: web::Data<AppState>,
+    auth: AdminAuth,
+    path: web::Path<Uuid>,
+) -> Result<HttpResponse, AppError> {
+    let template = templates::deactivate_template(&state.db, path.into_inner()).await?;
+    state
+        .invalidate_template_background(template.template.id)
+        .await;
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "template.deactivate",
         "certificate_template",
         Some(template.template.id.to_string()),
         serde_json::json!({
@@ -478,6 +514,9 @@ async fn save_template_layout(
     )
     .await?;
     state.invalidate_template_background(template_id).await;
+    issue_service::invalidate_completed_issues_for_template(&state, template_id)
+        .await
+        .map_err(|err| AppError::Internal(anyhow::anyhow!("{err}")))?;
     if let Some(template) = CertificateTemplates::find_by_id(template_id)
         .one(&state.db)
         .await
@@ -818,6 +857,56 @@ async fn delete_category(
     Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })))
 }
 
+#[get("/certificate-issues")]
+async fn list_certificate_issues(
+    state: web::Data<AppState>,
+    query: web::Query<CertificateIssueListQuery>,
+) -> Result<HttpResponse, AppError> {
+    let response = issue_service::list_issues(
+        &state.db,
+        query.template_id,
+        query.status.clone(),
+        query.page.unwrap_or(1),
+        query.page_size.unwrap_or(20),
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(response))
+}
+
+#[post("/certificate-issues/{id}/requeue")]
+async fn requeue_certificate_issue(
+    state: web::Data<AppState>,
+    auth: AdminAuth,
+    path: web::Path<Uuid>,
+) -> Result<HttpResponse, AppError> {
+    auth.require_role(crate::services::auth::AdminRole::SuperAdmin)?;
+    issue_service::requeue_issue(&state, path.into_inner()).await?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })))
+}
+
+#[post("/templates/{id}/requeue-failed")]
+async fn requeue_failed_for_template(
+    state: web::Data<AppState>,
+    auth: AdminAuth,
+    path: web::Path<Uuid>,
+) -> Result<HttpResponse, AppError> {
+    auth.require_role(crate::services::auth::AdminRole::SuperAdmin)?;
+    let requeued = issue_service::requeue_failed_for_template(&state, path.into_inner()).await?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "status": "ok",
+        "requeued": requeued,
+    })))
+}
+
+#[get("/templates/{id}/generation-progress")]
+async fn get_generation_progress(
+    state: web::Data<AppState>,
+    path: web::Path<Uuid>,
+) -> Result<HttpResponse, AppError> {
+    let progress = issue_service::get_generation_progress(&state.db, path.into_inner()).await?;
+    Ok(HttpResponse::Ok().json(progress))
+}
+
 pub fn configure_public_auth(cfg: &mut web::ServiceConfig) {
     cfg.service(login).service(refresh);
 }
@@ -833,6 +922,7 @@ pub fn configure_protected(cfg: &mut web::ServiceConfig) {
         .service(get_template_source)
         .service(update_template)
         .service(activate_template)
+        .service(deactivate_template)
         .service(delete_template)
         .service(save_template_layout)
         .service(preview_template)
@@ -845,7 +935,11 @@ pub fn configure_protected(cfg: &mut web::ServiceConfig) {
         .service(list_fonts)
         .service(import_participants)
         .service(list_participants)
-        .service(delete_participants);
+        .service(delete_participants)
+        .service(list_certificate_issues)
+        .service(requeue_certificate_issue)
+        .service(requeue_failed_for_template)
+        .service(get_generation_progress);
 }
 
 fn template_layout_from_request(layout: &TemplateLayoutRequest) -> templates::TemplateLayoutData {

@@ -40,14 +40,7 @@ pub async fn run(state: &AppState) -> Result<()> {
     println!("Warmup complete");
 
     // PNG benchmark
-    benchmark_render_png(
-        state,
-        &template,
-        &layout,
-        &participant.full_name,
-        &bindings,
-    )
-    .await?;
+    benchmark_render_png(state, &template, &layout, &participant.full_name, &bindings).await?;
 
     // PDF benchmark
     benchmark_render_pdf(state, &template, &layout, &bindings).await?;
@@ -121,13 +114,8 @@ async fn benchmark_render_pdf(
     for n in [1, 5, 10, 25] {
         let start = Instant::now();
         for _ in 0..n {
-            let _ = scene_renderer::render_scene_pdf(
-                state,
-                template,
-                layout,
-                bindings.clone(),
-            )
-            .await?;
+            let _ =
+                scene_renderer::render_scene_pdf(state, template, layout, bindings.clone()).await?;
         }
         let elapsed = start.elapsed();
         let avg = elapsed / n as u32;

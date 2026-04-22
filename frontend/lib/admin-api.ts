@@ -23,13 +23,10 @@ export interface AdminRefreshResponse {
   expires_in_seconds: number;
 }
 
-export interface IssuanceStatusResponse {
-  enabled: boolean;
-  has_active_template: boolean;
-  active_template_name: string | null;
-  participant_count: number;
-  has_layout: boolean;
-  ready_to_enable: boolean;
+export interface StoredSession {
+  access_token: string;
+  refresh_token: string;
+  expires_at: number;
 }
 
 export interface TemplateLayoutData {
@@ -121,6 +118,8 @@ export interface CategorySummary {
   updated_at: string;
 }
 
+export type CertificateStatus = "not_created" | "queued" | "processing" | "completed" | "failed";
+
 export interface ParticipantSummary {
   id: string;
   event_code: string;
@@ -128,6 +127,19 @@ export interface ParticipantSummary {
   full_name: string;
   category: string | null;
   imported_at: string;
+  certificate_status: CertificateStatus;
+  certificate_id: string | null;
+  attempts: number | null;
+  last_error: string | null;
+}
+
+export interface GenerationProgress {
+  total: number;
+  not_created: number;
+  queued: number;
+  processing: number;
+  completed: number;
+  failed: number;
 }
 
 export interface ParticipantListResponse {
@@ -153,14 +165,16 @@ export interface ImportResponse {
 
 const ACCESS_TOKEN_KEY = "decentra_admin_access_token";
 const REFRESH_TOKEN_KEY = "decentra_admin_refresh_token";
+const EXPIRES_AT_KEY = "decentra_admin_expires_at";
 
-export function getAdminSession(): AdminSession | null {
+export function getStoredSession(): StoredSession | null {
   if (typeof window === "undefined") {
     return null;
   }
 
   const accessToken = window.localStorage.getItem(ACCESS_TOKEN_KEY);
   const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY);
+  const expiresAtRaw = window.localStorage.getItem(EXPIRES_AT_KEY);
   if (!accessToken || !refreshToken) {
     return null;
   }
@@ -168,18 +182,12 @@ export function getAdminSession(): AdminSession | null {
   return {
     access_token: accessToken,
     refresh_token: refreshToken,
-    token_type: "Bearer",
-    expires_in_seconds: 0,
-    admin: {
-      id: "",
-      login: "",
-      role: "operator",
-    },
+    expires_at: expiresAtRaw ? Number(expiresAtRaw) : 0,
   };
 }
 
 export function hasAdminSession() {
-  return getAdminSession() !== null;
+  return getStoredSession() !== null;
 }
 
 export function setAdminSession(
@@ -193,13 +201,16 @@ export function setAdminSession(
   window.localStorage.setItem(ACCESS_TOKEN_KEY, session.access_token);
   if ("refresh_token" in session) {
     window.localStorage.setItem(REFRESH_TOKEN_KEY, session.refresh_token);
-  } else if (!window.localStorage.getItem(REFRESH_TOKEN_KEY)) {
-    window.localStorage.removeItem(REFRESH_TOKEN_KEY);
   }
+
+  const expiresAt = Date.now() + session.expires_in_seconds * 1000;
+  window.localStorage.setItem(EXPIRES_AT_KEY, String(expiresAt));
 
   if (profile) {
     window.localStorage.setItem(`${ACCESS_TOKEN_KEY}:profile`, JSON.stringify(profile));
   }
+
+  window.dispatchEvent(new Event("auth:storage:change"));
 }
 
 export function getStoredAdminProfile(): AdminProfile | null {
@@ -226,6 +237,7 @@ export function clearAdminSession() {
 
   window.localStorage.removeItem(ACCESS_TOKEN_KEY);
   window.localStorage.removeItem(REFRESH_TOKEN_KEY);
+  window.localStorage.removeItem(EXPIRES_AT_KEY);
   window.localStorage.removeItem(`${ACCESS_TOKEN_KEY}:profile`);
 }
 
@@ -242,14 +254,14 @@ export async function adminLogin(login: string, password: string) {
 }
 
 export async function adminLogout() {
-  const session = getStoredSessionTokens();
+  const session = getStoredSession();
   if (!session) {
     clearAdminSession();
     return;
   }
 
   await adminRequest(
-    "/api/v1/admin/auth/logout",
+    "/api/v1/admin/logout",
     {
       body: JSON.stringify({ refresh_token: session.refresh_token }),
       headers: {
@@ -264,21 +276,7 @@ export async function adminLogout() {
 }
 
 export async function fetchAdminMe() {
-  return adminRequestJson<{ admin: AdminProfile }>("/api/v1/admin/auth/me");
-}
-
-export async function fetchIssuanceStatus() {
-  return adminRequestJson<IssuanceStatusResponse>("/api/v1/admin/issuance/status");
-}
-
-export async function updateIssuanceStatus(enabled: boolean) {
-  return adminRequestJson<IssuanceStatusResponse>("/api/v1/admin/issuance/status", {
-    body: JSON.stringify({ enabled }),
-    headers: {
-      "Content-Type": "application/json",
-    },
-    method: "PATCH",
-  });
+  return adminRequestJson<{ admin: AdminProfile }>("/api/v1/admin/me");
 }
 
 export async function fetchTemplates() {
@@ -364,6 +362,12 @@ export async function updateTemplate(id: string, form: FormData) {
 
 export async function activateTemplate(id: string) {
   return adminRequestJson<TemplateDetail>(`/api/v1/admin/templates/${id}/activate`, {
+    method: "POST",
+  });
+}
+
+export async function deactivateTemplate(id: string) {
+  return adminRequestJson<TemplateDetail>(`/api/v1/admin/templates/${id}/deactivate`, {
     method: "POST",
   });
 }
@@ -457,21 +461,34 @@ export async function deleteParticipants(eventCode: string) {
   );
 }
 
-function getStoredSessionTokens() {
-  if (typeof window === "undefined") {
-    return null;
+export async function fetchGenerationProgress(templateId: string) {
+  return adminRequestJson<GenerationProgress>(
+    `/api/v1/admin/templates/${templateId}/generation-progress`,
+  );
+}
+
+export async function requeueCertificateIssue(issueId: string) {
+  return adminRequestJson<{ status: string }>(
+    `/api/v1/admin/certificate-issues/${issueId}/requeue`,
+    { method: "POST" },
+  );
+}
+
+export async function requeueFailedForTemplate(templateId: string) {
+  return adminRequestJson<{ status: string; requeued: number }>(
+    `/api/v1/admin/templates/${templateId}/requeue-failed`,
+    { method: "POST" },
+  );
+}
+
+export async function tryRefreshSession(): Promise<boolean> {
+  const session = getStoredSession();
+  if (!session?.refresh_token) {
+    return false;
   }
 
-  const accessToken = window.localStorage.getItem(ACCESS_TOKEN_KEY);
-  const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY);
-  if (!accessToken || !refreshToken) {
-    return null;
-  }
-
-  return {
-    access_token: accessToken,
-    refresh_token: refreshToken,
-  };
+  const refreshed = await refreshAdminSession(session.refresh_token);
+  return refreshed !== null;
 }
 
 async function adminRequestJson<T>(
@@ -484,7 +501,7 @@ async function adminRequestJson<T>(
 }
 
 async function adminRequest(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
-  const session = getStoredSessionTokens();
+  const session = getStoredSession();
   const headers = new Headers(init.headers);
   if (session?.access_token) {
     headers.set("Authorization", `Bearer ${session.access_token}`);
@@ -501,7 +518,7 @@ async function adminRequest(path: string, init: RequestInit = {}, retry = true):
 
   const refreshed = await refreshAdminSession(session.refresh_token);
   if (!refreshed) {
-    clearAdminSession();
+    window.dispatchEvent(new CustomEvent("auth:expired"));
     return response;
   }
 

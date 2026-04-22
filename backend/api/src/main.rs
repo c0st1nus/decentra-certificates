@@ -1,12 +1,12 @@
 use std::io;
 
 use actix_web::{App, HttpServer, middleware::Logger, web};
+use db_migration::Migrator;
 use decentra_certificates_api::app::{build_app, build_cors};
 use decentra_certificates_api::config::Settings;
 use decentra_certificates_api::services::certificate_jobs;
 use decentra_certificates_api::services::settings as settings_service;
 use decentra_certificates_api::state::AppState;
-use db_migration::Migrator;
 use jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER as JWT_CRYPTO_PROVIDER;
 use sea_orm::Database;
 use sea_orm_migration::MigratorTraitSelf;

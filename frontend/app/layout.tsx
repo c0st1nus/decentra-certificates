@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import type { Metadata, Viewport } from "next";
 
+import { Providers } from "@/components/providers";
 import { fontMono, fontPixel, fontSans } from "@/config/fonts";
 
 import "./globals.css";
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
     default: "Decentrathon Certificates",
     template: "%s | Decentrathon Certificates",
   },
-  description: "Платформа выдачи сертификатов для участников и организаторов Decentrathon.",
+  description: "Certificate issuance platform for Decentrathon participants and organizers.",
 };
 
 export const viewport: Viewport = {
@@ -19,7 +20,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html className="dark" lang="ru">
+    <html className="dark" lang="en">
       <body
         className={clsx(
           "min-h-screen bg-background text-foreground antialiased",
@@ -28,7 +29,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           fontPixel.variable,
         )}
       >
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

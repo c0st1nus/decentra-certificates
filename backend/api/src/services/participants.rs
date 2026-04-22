@@ -21,6 +21,10 @@ pub struct ParticipantSummary {
     pub full_name: String,
     pub category: Option<String>,
     pub imported_at: chrono::DateTime<Utc>,
+    pub certificate_status: String,
+    pub certificate_id: Option<String>,
+    pub attempts: Option<i32>,
+    pub last_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -94,8 +98,26 @@ pub async fn list_participants(
         .await
         .map_err(|err| AppError::Internal(err.into()))?;
 
+    let participant_ids: Vec<Uuid> = items.iter().map(|p| p.id).collect();
+    let issues = if participant_ids.is_empty() {
+        vec![]
+    } else {
+        entity::certificate_issues::Entity::find()
+            .filter(entity::certificate_issues::Column::ParticipantId.is_in(participant_ids))
+            .all(db)
+            .await
+            .map_err(|err| AppError::Internal(err.into()))?
+    };
+    let issue_map: HashMap<Uuid, &entity::certificate_issues::Model> = issues
+        .iter()
+        .map(|issue| (issue.participant_id, issue))
+        .collect();
+
     Ok(ParticipantListResponse {
-        items: items.into_iter().map(to_summary).collect(),
+        items: items
+            .into_iter()
+            .map(|p| to_summary(&p, issue_map.get(&p.id).copied()))
+            .collect(),
         total,
         page,
         page_size,
@@ -400,14 +422,30 @@ fn normalize_email(email: &str) -> String {
     email.trim().to_lowercase()
 }
 
-fn to_summary(model: participants::Model) -> ParticipantSummary {
+fn to_summary(
+    model: &participants::Model,
+    issue: Option<&entity::certificate_issues::Model>,
+) -> ParticipantSummary {
+    let (status, cert_id, attempts, last_error) = match issue {
+        Some(i) => (
+            i.status.clone(),
+            Some(i.certificate_id.clone()),
+            Some(i.attempts),
+            i.error_message.clone(),
+        ),
+        None => ("not_created".to_owned(), None, None, None),
+    };
     ParticipantSummary {
         id: model.id,
-        event_code: model.event_code,
-        email: model.email,
-        full_name: model.full_name,
-        category: model.category,
+        event_code: model.event_code.clone(),
+        email: model.email.clone(),
+        full_name: model.full_name.clone(),
+        category: model.category.clone(),
         imported_at: model.imported_at,
+        certificate_status: status,
+        certificate_id: cert_id,
+        attempts,
+        last_error,
     }
 }
 

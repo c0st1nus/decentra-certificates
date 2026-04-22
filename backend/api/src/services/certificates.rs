@@ -402,6 +402,7 @@ pub async fn find_or_create_issue_record(
     let certificate_id = Ulid::new().to_string().to_lowercase();
     let verification_code = Ulid::new().to_string().to_lowercase();
     let output_key = state.storage.generated_file_key(&certificate_id);
+    let now = Utc::now();
     let issue = certificate_issues::ActiveModel {
         id: Set(uuid::Uuid::new_v4()),
         certificate_id: Set(certificate_id.clone()),
@@ -411,7 +412,16 @@ pub async fn find_or_create_issue_record(
         generated_pdf_path: Set(output_key),
         download_count: Set(0),
         last_downloaded_at: Set(None),
-        created_at: Set(Utc::now()),
+        status: Set("not_created".to_owned()),
+        attempts: Set(0),
+        error_message: Set(None),
+        queued_at: Set(None),
+        processing_at: Set(None),
+        completed_at: Set(None),
+        failed_at: Set(None),
+        template_updated_at: Set(Some(template.updated_at)),
+        created_at: Set(now),
+        updated_at: Set(now),
     };
 
     match issue.insert(&state.db).await {
@@ -645,7 +655,7 @@ async fn resolve_delivery_status(
     issue: Option<&certificate_issues::Model>,
 ) -> Result<&'static str, AppError> {
     let Some(issue) = issue else {
-        return Ok("not_requested");
+        return Ok("not_created");
     };
 
     if state
@@ -657,20 +667,13 @@ async fn resolve_delivery_status(
         return Ok("ready");
     }
 
-    if let Some(job) = certificate_jobs::get_job_status(state, &issue.id.to_string())
-        .await
-        .map_err(AppError::Internal)?
-    {
-        return Ok(match job.status.as_str() {
-            "queued" => "queued",
-            "processing" => "processing",
-            "failed" => "failed",
-            "completed" => "ready",
-            _ => "not_requested",
-        });
-    }
-
-    Ok("not_requested")
+    Ok(match issue.status.as_str() {
+        "queued" => "queued",
+        "processing" => "processing",
+        "failed" => "failed",
+        "completed" => "ready",
+        _ => "not_created",
+    })
 }
 
 #[cfg(test)]

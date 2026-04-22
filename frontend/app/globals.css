@@ -59,9 +59,9 @@ html {
 body {
   min-height: 100dvh;
   margin: 0;
-  background: radial-gradient(circle at top, rgba(140, 216, 18, 0.12), transparent 28%),
-    radial-gradient(circle at 18% 18%, rgba(102, 43, 177, 0.14), transparent 30%),
-    radial-gradient(circle at 82% 20%, rgba(140, 216, 18, 0.06), transparent 24%),
+  background: radial-gradient(circle at top, rgba(140, 216, 18, 0.08), transparent 28%),
+    radial-gradient(circle at 18% 18%, rgba(102, 43, 177, 0.1), transparent 30%),
+    radial-gradient(circle at 82% 20%, rgba(140, 216, 18, 0.04), transparent 24%),
     var(--color-background);
   color: var(--color-foreground);
   font-family: var(--font-sans);
@@ -85,22 +85,6 @@ body {
   animation: gradientShift 6s ease-in-out infinite;
 }
 
-.panel-glow {
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03), 0 0 40px rgba(102, 43, 177, 0.14), 0 0 70px
-    rgba(140, 216, 18, 0.09);
-}
-
-.glow-primary {
-  box-shadow: 0 0 15px rgba(140, 216, 18, 0.4), 0 0 45px rgba(140, 216, 18, 0.15), 0 0 80px
-    rgba(140, 216, 18, 0.05);
-  transition: box-shadow 240ms ease, transform 240ms ease;
-}
-
-.glow-primary:hover {
-  box-shadow: 0 0 20px rgba(140, 216, 18, 0.6), 0 0 60px rgba(140, 216, 18, 0.25), 0 0 100px
-    rgba(140, 216, 18, 0.1);
-}
-
 .section-divider {
   height: 1px;
   background: linear-gradient(
@@ -112,30 +96,9 @@ body {
   );
 }
 
-.cta-button {
-  display: inline-flex;
-  width: 100%;
-  align-items: center;
-  justify-content: center;
-  gap: 0.625rem;
-  border-radius: 1rem;
-  border: 1px solid rgba(140, 216, 18, 0.35);
-  background: linear-gradient(135deg, rgba(140, 216, 18, 0.24), rgba(102, 43, 177, 0.22));
-  padding: 0.95rem 1.25rem;
-  color: white;
-  font-weight: 700;
-  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
-  box-shadow: 0 0 18px rgba(140, 216, 18, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-
-.cta-button:hover {
-  transform: translateY(-1px);
-  border-color: rgba(140, 216, 18, 0.7);
-}
-
 @layer components {
   .btn-hero {
-    @apply inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-5 py-3 font-pixel text-[10px] uppercase tracking-[0.18em] text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:w-auto;
+    @apply inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:w-auto;
   }
 
   .heading-hero {

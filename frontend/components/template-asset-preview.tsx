@@ -68,10 +68,10 @@ export function TemplateAssetPreview({
 
   if (state.kind === "loading") {
     return (
-      <div className="flex min-h-[320px] items-center justify-center rounded-[1.5rem] border border-white/10 bg-black/20 text-sm text-white/62">
+      <div className="flex min-h-[320px] items-center justify-center rounded-2xl border border-white/10 bg-black/20 text-sm text-white/65">
         <div className="inline-flex items-center gap-2">
           <LoaderCircle aria-hidden="true" className="size-4 animate-spin text-primary" />
-          Загружаю исходный шаблон...
+          Loading template source...
         </div>
       </div>
     );
@@ -79,12 +79,12 @@ export function TemplateAssetPreview({
 
   if (state.kind === "error") {
     return (
-      <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 rounded-[1.5rem] border border-red-500/20 bg-red-500/10 px-6 text-center text-sm text-red-100">
+      <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-6 text-center text-sm text-red-100">
         <FileText aria-hidden="true" className="size-10 text-red-200" />
         <div className="space-y-2">
-          <p className="font-medium">Не удалось отрисовать ассет шаблона.</p>
+          <p className="font-medium">Could not render template asset.</p>
           <p className="leading-6 text-red-100/80">
-            Обновите страницу или повторно загрузите файл, если он был заменён недавно.
+            Refresh the page or re-upload the file if it was recently replaced.
           </p>
         </div>
         <button
@@ -102,7 +102,7 @@ export function TemplateAssetPreview({
   const isPdf = sourceKind.toLowerCase() === "pdf" || state.contentType.includes("pdf");
 
   return (
-    <div className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-black/20">
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/20">
       {isPdf ? (
         <iframe
           className="h-[560px] w-full bg-white"
@@ -117,12 +117,12 @@ export function TemplateAssetPreview({
         />
       )}
 
-      <div className="flex items-center justify-between gap-3 border-t border-white/10 bg-black/35 px-4 py-3 text-sm text-white/60">
+      <div className="flex items-center justify-between gap-3 border-t border-white/10 bg-black/35 px-4 py-3 text-sm text-white/65">
         <div className="inline-flex items-center gap-2">
           <FileImage aria-hidden="true" className="size-4 text-primary/85" />
-          Исходный файл шаблона
+          Template source file
         </div>
-        <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-pixel uppercase tracking-[0.18em] text-white/75">
+        <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/75">
           {sourceKind.toUpperCase()}
         </span>
       </div>

@@ -2,29 +2,31 @@
 
 import {
   ArrowRight,
-  Layers3,
+  Check,
   LoaderCircle,
   PencilLine,
+  Power,
   ScanLine,
   Tags,
-  ToggleRight,
+  Trash2,
   Users,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { TemplateAssetPreview } from "@/components/template-asset-preview";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
-  type IssuanceStatusResponse,
   type TemplateDetail,
   activateTemplate,
+  deactivateTemplate,
   deleteTemplate,
-  fetchIssuanceStatus,
   fetchTemplate,
-  updateIssuanceStatus,
   updateTemplate,
 } from "@/lib/admin-api";
+import { cn, formatCompactNumber } from "@/lib/utils";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -37,27 +39,25 @@ export default function TemplateDetailPage({ params }: Props) {
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [issuance, setIssuance] = useState<IssuanceStatusResponse | null>(null);
-  const [issuanceLoading, setIssuanceLoading] = useState(false);
+  const [isTogglingActive, setIsTogglingActive] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
 
     async function load() {
-      const [templateResponse, issuanceResponse] = await Promise.all([
-        fetchTemplate(id),
-        fetchIssuanceStatus(),
-      ]);
-      if (!isMounted) {
-        return;
-      }
+      try {
+        const { data } = await fetchTemplate(id);
+        if (!isMounted) return;
 
-      if (templateResponse.data) {
-        setTemplate(templateResponse.data);
-        setName(templateResponse.data.template.name);
-      }
-      if (issuanceResponse.data) {
-        setIssuance(issuanceResponse.data);
+        if (data) {
+          setTemplate(data);
+          setName(data.template.name);
+        }
+      } catch {
+        if (!isMounted) return;
+      } finally {
+        if (isMounted) setIsLoading(false);
       }
     }
 
@@ -69,6 +69,7 @@ export default function TemplateDetailPage({ params }: Props) {
 
   async function handleSave() {
     if (!name.trim()) {
+      toast.error("Template name is required.");
       return;
     }
 
@@ -83,6 +84,7 @@ export default function TemplateDetailPage({ params }: Props) {
     try {
       const { response, data } = await updateTemplate(id, form);
       if (!response.ok || !data) {
+        toast.error("Failed to save template.");
         setIsSaving(false);
         return;
       }
@@ -90,16 +92,36 @@ export default function TemplateDetailPage({ params }: Props) {
       setTemplate(data);
       setName(data.template.name);
       setFile(null);
+      toast.success("Template updated.");
     } catch {
+      toast.error("Failed to save template.");
     } finally {
       setIsSaving(false);
     }
   }
 
-  async function handleActivate() {
-    const { data } = await activateTemplate(id);
-    if (data) {
-      setTemplate(data);
+  async function handleToggleActive() {
+    if (!template) return;
+    setIsTogglingActive(true);
+
+    try {
+      if (template.template.is_active) {
+        const { data } = await deactivateTemplate(id);
+        if (data) {
+          setTemplate(data);
+          toast.success("Template deactivated.");
+        }
+      } else {
+        const { data } = await activateTemplate(id);
+        if (data) {
+          setTemplate(data);
+          toast.success("Template activated.");
+        }
+      }
+    } catch {
+      toast.error("Failed to update template status.");
+    } finally {
+      setIsTogglingActive(false);
     }
   }
 
@@ -108,51 +130,54 @@ export default function TemplateDetailPage({ params }: Props) {
       return;
     }
 
-    const { response } = await deleteTemplate(id);
-    if (response.ok) {
-      router.replace("/admin/templates");
-    }
-  }
-
-  async function toggleIssuance() {
-    if (!issuance) return;
-    setIssuanceLoading(true);
     try {
-      const { data } = await updateIssuanceStatus(!issuance.enabled);
-      if (data) setIssuance(data);
+      const { response } = await deleteTemplate(id);
+      if (response.ok) {
+        toast.success("Template deleted.");
+        router.replace("/admin/templates");
+      } else {
+        toast.error("Failed to delete template.");
+      }
     } catch {
-    } finally {
-      setIssuanceLoading(false);
+      toast.error("Failed to delete template.");
     }
   }
 
-  if (!template) {
+  if (isLoading) {
     return (
-      <section className="rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 text-sm text-white/65 backdrop-blur-xl">
-        Loading template...
+      <section className="space-y-6">
+        <Skeleton className="h-24 rounded-2xl" />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Skeleton className="h-32 rounded-2xl" />
+          <Skeleton className="h-32 rounded-2xl" />
+        </div>
+        <Skeleton className="h-96 rounded-2xl" />
       </section>
     );
   }
 
+  if (!template) {
+    return (
+      <section className="rounded-2xl border border-white/10 bg-panel/90 p-5 text-sm text-white/70 backdrop-blur-xl">
+        Template not found.
+      </section>
+    );
+  }
+
+  const t = template.template;
+
   return (
     <section className="space-y-6">
       <div className="max-w-3xl space-y-4">
-        <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5">
-          <Layers3 className="size-4 text-primary" />
-          <span className="font-pixel text-[10px] uppercase tracking-[0.2em] text-primary">
-            Template workspace
-          </span>
-        </div>
-
-        <h1 className="heading-hero text-gradient text-left">{template.template.name}</h1>
-        <p className="max-w-2xl text-sm leading-6 text-white/68 sm:text-base">
-          Управление шаблоном: исходник, layout, категории, участники и выдача сертификатов.
+        <h1 className="heading-hero text-gradient text-left">{t.name}</h1>
+        <p className="max-w-2xl text-sm leading-6 text-white/70 sm:text-base">
+          Manage template: source file, layout, categories, participants and certificate issuance.
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <Link
-          className="group flex flex-col gap-3 rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-primary/30 hover:bg-white/[0.04]"
+          className="group flex flex-col gap-3 rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-primary/30 hover:bg-white/[0.04]"
           href={`/admin/templates/${id}/participants`}
         >
           <div className="flex items-center gap-3">
@@ -160,22 +185,22 @@ export default function TemplateDetailPage({ params }: Props) {
               <Users className="size-4 text-primary" />
             </div>
             <div>
-              <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
                 Participants
               </p>
-              <p className="text-sm font-medium text-white/80">Управление списком</p>
+              <p className="text-sm font-medium text-white/85">Manage roster</p>
             </div>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-2xl font-black text-white">
-              {formatCount(template.template.participant_count)}
+              {formatCompactNumber(t.participant_count)}
             </span>
             <ArrowRight className="size-5 text-primary/85 transition group-hover:translate-x-0.5" />
           </div>
         </Link>
 
         <Link
-          className="group flex flex-col gap-3 rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-primary/30 hover:bg-white/[0.04]"
+          className="group flex flex-col gap-3 rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-primary/30 hover:bg-white/[0.04]"
           href={`/admin/templates/${id}/categories`}
         >
           <div className="flex items-center gap-3">
@@ -183,183 +208,145 @@ export default function TemplateDetailPage({ params }: Props) {
               <Tags className="size-4 text-primary" />
             </div>
             <div>
-              <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
                 Categories
               </p>
-              <p className="text-sm font-medium text-white/80">Категории шаблона</p>
+              <p className="text-sm font-medium text-white/85">Template categories</p>
             </div>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-2xl font-black text-white">
-              {formatCount(template.template.category_count)}
+              {formatCompactNumber(t.category_count)}
             </span>
             <ArrowRight className="size-5 text-primary/85 transition group-hover:translate-x-0.5" />
           </div>
         </Link>
+      </div>
 
-        <div className="flex flex-col gap-3 rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl">
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/10">
-              <ToggleRight className="size-4 text-primary" />
-            </div>
-            <div>
-              <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
-                Issuance
-              </p>
-              <p className="text-sm font-medium text-white/80">Публичная выдача</p>
-            </div>
+      <div className="rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+        <div className="grid gap-4">
+          <label className="block text-sm font-medium text-white/80" htmlFor="template-name">
+            Template name
+            <input
+              id="template-name"
+              className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </label>
+
+          <label className="block text-sm font-medium text-white/80" htmlFor="template-file">
+            Replace source file
+            <input
+              id="template-file"
+              className="mt-2 block w-full rounded-2xl border border-dashed border-white/15 bg-black/20 px-4 py-4 text-sm text-white/75 file:mr-4 file:rounded-full file:border-0 file:bg-primary/15 file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:tracking-[0.18em] file:text-primary hover:file:bg-primary/20"
+              accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
+              type="file"
+              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            />
+          </label>
+
+          <div className="rounded-2xl border border-white/10 bg-black/25 p-4 text-sm leading-6 text-white/65">
+            {file
+              ? `Selected file: ${file.name}. Save changes to persist it and refresh the source preview below.`
+              : "If you change the source file, save it here first. The preview below always shows the already saved asset, not a local draft."}
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-white/60">
-              {issuance?.enabled ? "Enabled" : "Disabled"}
-            </span>
+
+          <div className="flex flex-wrap items-center gap-2">
             <button
-              className="rounded-full border border-primary/25 bg-primary/10 px-3 py-1.5 text-xs text-primary transition hover:border-primary/40 hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={issuanceLoading || (!issuance?.enabled && !issuance?.ready_to_enable)}
+              className="btn-hero glow-primary rounded-2xl bg-white/[0.05]"
+              disabled={isSaving}
               type="button"
-              onClick={() => void toggleIssuance()}
+              onClick={() => void handleSave()}
             >
-              {issuanceLoading ? (
-                <LoaderCircle className="size-3.5 animate-spin" />
-              ) : issuance?.enabled ? (
-                "Disable"
+              {isSaving ? (
+                <>
+                  <LoaderCircle className="size-4 animate-spin" />
+                  Saving
+                </>
               ) : (
-                "Enable"
+                <>
+                  <PencilLine className="size-4" />
+                  Save
+                </>
               )}
+            </button>
+
+            <Link
+              className="btn-hero rounded-2xl border border-sky-400/20 bg-sky-400/10 text-sky-100"
+              href={`/admin/templates/${t.id}/layout`}
+            >
+              <ScanLine className="size-4" />
+              Editor
+            </Link>
+
+            <button
+              className={cn(
+                "btn-hero rounded-2xl border transition disabled:cursor-not-allowed disabled:opacity-50",
+                t.is_active
+                  ? "border-primary/25 bg-primary/10 text-primary"
+                  : "border-white/10 bg-white/[0.04] text-white/75 hover:border-primary/30 hover:text-white",
+              )}
+              disabled={isTogglingActive}
+              type="button"
+              onClick={() => void handleToggleActive()}
+            >
+              {isTogglingActive ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : t.is_active ? (
+                <>
+                  <Check className="size-4" />
+                  Active
+                </>
+              ) : (
+                <>
+                  <Power className="size-4" />
+                  Activate
+                </>
+              )}
+            </button>
+
+            <button
+              className="btn-hero ml-auto rounded-2xl border border-red-500/20 bg-red-500/10 text-red-100"
+              type="button"
+              onClick={() => void handleDelete()}
+            >
+              <Trash2 className="size-4" />
             </button>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
-        <div className="rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
-          <div className="grid gap-4">
-            <label className="block text-sm font-medium text-white/72" htmlFor="template-name">
-              Template name
-              <input
-                id="template-name"
-                className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </label>
+      <div className="space-y-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
+          Source preview
+        </p>
+        <TemplateAssetPreview sourceKind={t.source_kind} templateId={t.id} templateName={t.name} />
+      </div>
 
-            <label className="block text-sm font-medium text-white/72" htmlFor="template-file">
-              Replace source file
-              <input
-                id="template-file"
-                className="mt-2 block w-full rounded-2xl border border-dashed border-white/15 bg-black/20 px-4 py-4 text-sm text-white/72 file:mr-4 file:rounded-full file:border-0 file:bg-primary/15 file:px-4 file:py-2 file:text-xs file:font-pixel file:uppercase file:tracking-[0.18em] file:text-primary hover:file:bg-primary/20"
-                accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
-                type="file"
-                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-              />
-            </label>
-
-            <div className="rounded-[1.5rem] border border-white/10 bg-black/25 p-4 text-sm leading-6 text-white/62">
-              {file
-                ? `Selected file: ${file.name}. Save changes to persist it and refresh the source preview below.`
-                : "Если меняете исходный файл, сначала сохраните его здесь. Ниже всегда показывается уже сохранённый ассет, а не локальный draft."}
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                className="btn-hero glow-primary rounded-2xl bg-white/[0.05]"
-                type="button"
-                onClick={() => void handleSave()}
-              >
-                {isSaving ? (
-                  <>
-                    <LoaderCircle className="size-4 animate-spin" />
-                    Saving
-                  </>
-                ) : (
-                  <>
-                    <PencilLine className="size-4" />
-                    Save changes
-                  </>
-                )}
-              </button>
-              {!template.template.is_active ? (
-                <button
-                  className="btn-hero rounded-2xl border border-primary/25 bg-primary/10 text-primary"
-                  type="button"
-                  onClick={() => void handleActivate()}
-                >
-                  Activate
-                </button>
-              ) : null}
-              <Link
-                className="btn-hero rounded-2xl border border-sky-400/20 bg-sky-400/10 text-sky-100"
-                href={`/admin/templates/${template.template.id}/layout`}
-              >
-                <ScanLine className="size-4" />
-                Open canvas editor
-              </Link>
-              <button
-                className="btn-hero rounded-2xl border border-red-500/20 bg-red-500/10 text-red-100"
-                type="button"
-                onClick={() => void handleDelete()}
-              >
-                Delete
-              </button>
-            </div>
-
-            <div className="section-divider mt-2" />
-
-            <div className="space-y-3">
-              <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
-                Source preview
-              </p>
-              <TemplateAssetPreview
-                sourceKind={template.template.source_kind}
-                templateId={template.template.id}
-                templateName={template.template.name}
-              />
-            </div>
-          </div>
-        </div>
-
-        <aside className="panel-glow rounded-[1.75rem] border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
-          <p className="font-pixel text-[10px] uppercase tracking-[0.24em] text-primary">
-            Asset summary
-          </p>
-          <div className="mt-4 space-y-3">
-            <InfoRow label="Active" value={template.template.is_active ? "Yes" : "No"} />
-            <InfoRow label="Categories" value={String(template.template.category_count)} />
-            <InfoRow
-              label="Participants"
-              value={formatCount(template.template.participant_count)}
-            />
-            <InfoRow label="Issued" value={formatCount(template.template.issued_count)} />
-            <InfoRow label="Source" value={template.template.source_kind.toUpperCase()} />
-            <InfoRow label="Layout" value={template.template.has_layout ? "Ready" : "Missing"} />
-            <InfoRow
-              label="Updated"
-              value={new Date(template.template.updated_at).toLocaleString()}
-            />
-          </div>
-
-          <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-black/25 p-4 text-sm leading-6 text-white/62">
-            Здесь живёт всё, что относится именно к этому шаблону: исходник, layout, локальные
-            категории и список участников, привязанный к его event-коду.
-          </div>
-        </aside>
+      <div className="flex flex-wrap gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/65">
+          <Users className="size-3 text-primary/70" />
+          {formatCompactNumber(t.participant_count)} participants
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/65">
+          <Tags className="size-3 text-primary/70" />
+          {t.category_count} categories
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/65">
+          {t.source_kind.toUpperCase()}
+        </span>
+        <span
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs",
+            t.has_layout
+              ? "border-primary/20 bg-primary/5 text-primary/80"
+              : "border-amber-500/20 bg-amber-500/5 text-amber-400/80",
+          )}
+        >
+          {t.has_layout ? "Layout ready" : "Layout missing"}
+        </span>
       </div>
     </section>
   );
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-      <span className="text-sm text-white/58">{label}</span>
-      <span className="font-pixel text-[10px] uppercase tracking-[0.18em] text-primary">
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function formatCount(value: number) {
-  return new Intl.NumberFormat("ru-RU").format(value);
 }
