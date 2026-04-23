@@ -23,17 +23,35 @@ export function TelegramSubscriptionModal({
   const [settings, setSettings] = useState<{ channelUrl: string; clientId: string | null } | null>(
     null,
   );
+  const [isSettingsLoading, setIsSettingsLoading] = useState(false);
   const [status, setStatus] = useState<"idle" | "checking" | "subscribed" | "not_subscribed">(
     "idle",
   );
 
   useEffect(() => {
     if (!open) return;
-    getTelegramSettings().then(({ data }) => {
-      if (data) {
+    let cancelled = false;
+
+    setStatus("idle");
+    setIsSettingsLoading(true);
+
+    getTelegramSettings()
+      .then(({ data }) => {
+        if (cancelled || !data) {
+          return;
+        }
+
         setSettings({ channelUrl: data.channel_url, clientId: data.client_id });
-      }
-    });
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsSettingsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   const handleVerify = useCallback(
@@ -92,8 +110,9 @@ export function TelegramSubscriptionModal({
         ) : (
           <BrowserFlow
             channelUrl={channelUrl}
-            clientId={settings?.clientId}
+            clientId={isSettingsLoading ? undefined : (settings?.clientId ?? null)}
             handleVerify={handleVerify}
+            isSettingsLoading={isSettingsLoading}
             status={status}
           />
         )}
@@ -168,30 +187,51 @@ function BrowserFlow({
   channelUrl,
   clientId,
   handleVerify,
+  isSettingsLoading,
   status,
 }: {
   channelUrl: string;
   clientId: string | null | undefined;
   handleVerify: (auth: TelegramAuthPayload) => void;
+  isSettingsLoading: boolean;
   status: string;
 }) {
+  const [sdkState, setSdkState] = useState<"loading" | "ready" | "timeout">("loading");
   const { ready, login } = useTelegramLogin(clientId, {
     onSuccess: (idToken) => {
       handleVerify({ auth_type: "id_token", value: idToken });
     },
+    onError: () => {
+      setSdkState("timeout");
+    },
   });
-  const [sdkState, setSdkState] = useState<"loading" | "ready" | "timeout">("loading");
 
   useEffect(() => {
+    if (isSettingsLoading) {
+      setSdkState("loading");
+      return;
+    }
+
     if (ready) {
       setSdkState("ready");
       return;
     }
+
     const timer = setTimeout(() => {
       setSdkState((prev) => (prev === "loading" ? "timeout" : prev));
     }, 5000);
+
     return () => clearTimeout(timer);
-  }, [ready]);
+  }, [isSettingsLoading, ready]);
+
+  if (isSettingsLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-white/60">
+        <LoaderCircle className="size-4 motion-safe:animate-spin" />
+        Loading Telegram login...
+      </div>
+    );
+  }
 
   if (!clientId) {
     return (

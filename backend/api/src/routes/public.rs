@@ -39,6 +39,11 @@ pub struct TelegramAuthPayload {
     pub value: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct DownloadCertificateQuery {
+    disposition: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct VerificationLookupResponse {
     pub status: &'static str,
@@ -233,16 +238,18 @@ async fn certificate_job_events(
 async fn download_certificate(
     state: web::Data<AppState>,
     path: web::Path<String>,
+    query: web::Query<DownloadCertificateQuery>,
 ) -> Result<HttpResponse, AppError> {
     let certificate_id = path.into_inner();
     let (pdf, filename) = certificates::download_certificate(&state, &certificate_id).await?;
+    let content_disposition = match query.disposition.as_deref() {
+        Some("inline") => format!("inline; filename=\"{filename}.pdf\""),
+        _ => format!("attachment; filename=\"{filename}.pdf\""),
+    };
 
     Ok(HttpResponse::Ok()
         .insert_header((header::CONTENT_TYPE, "application/pdf"))
-        .insert_header((
-            header::CONTENT_DISPOSITION,
-            format!("attachment; filename=\"{filename}.pdf\""),
-        ))
+        .insert_header((header::CONTENT_DISPOSITION, content_disposition))
         .body(pdf))
 }
 

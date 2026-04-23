@@ -17,7 +17,7 @@ export function CertificateDownloadButton({
 
   if (isTma) {
     return (
-      <button className={className} type="button" onClick={() => openLink(href)}>
+      <button className={className} type="button" onClick={() => openLink(buildInlineHref(href))}>
         {children}
       </button>
     );
@@ -28,4 +28,10 @@ export function CertificateDownloadButton({
       {children}
     </a>
   );
+}
+
+function buildInlineHref(href: string) {
+  const url = new URL(href, window.location.href);
+  url.searchParams.set("disposition", "inline");
+  return url.toString();
 }
