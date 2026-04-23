@@ -25,6 +25,7 @@ interface TelegramWebApp {
   platform: string;
   version: string;
   openTelegramLink: (url: string) => void;
+  openLink: (url: string, options?: { try_instant_view?: boolean }) => void;
   showPopup: (params: {
     title?: string;
     message: string;

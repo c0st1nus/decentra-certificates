@@ -18,6 +18,7 @@ interface TelegramWebApp {
   platform: string;
   version: string;
   openTelegramLink: (url: string) => void;
+  openLink: (url: string, options?: { try_instant_view?: boolean }) => void;
   showPopup: (params: {
     title?: string;
     message: string;
@@ -32,6 +33,7 @@ interface TelegramContextValue {
   ready: () => void;
   expand: () => void;
   openChannel: (url: string) => void;
+  openLink: (url: string) => void;
 }
 
 const TelegramContext = createContext<TelegramContextValue>({
@@ -41,6 +43,7 @@ const TelegramContext = createContext<TelegramContextValue>({
   ready: () => {},
   expand: () => {},
   openChannel: () => {},
+  openLink: () => {},
 });
 
 export function TelegramProvider({ children }: { children: React.ReactNode }) {
@@ -80,9 +83,18 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
     window.Telegram?.WebApp?.openTelegramLink(url);
   }, []);
 
+  const openLink = useCallback((url: string) => {
+    const webApp = window.Telegram?.WebApp;
+    if (webApp?.openLink) {
+      webApp.openLink(url, { try_instant_view: false });
+    } else {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  }, []);
+
   const value = useMemo(
-    () => ({ isTma, initData, telegramUser, ready, expand, openChannel }),
-    [isTma, initData, telegramUser, ready, expand, openChannel],
+    () => ({ isTma, initData, telegramUser, ready, expand, openChannel, openLink }),
+    [isTma, initData, telegramUser, ready, expand, openChannel, openLink],
   );
 
   return <TelegramContext.Provider value={value}>{children}</TelegramContext.Provider>;

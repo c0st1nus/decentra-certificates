@@ -15,6 +15,7 @@ import type { FormEvent, MutableRefObject, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { CertificateDownloadButton } from "@/components/certificate-download-button";
 import { TelegramSubscriptionModal } from "@/components/telegram-subscription-modal";
 import {
   type AvailableCertificate,
@@ -552,13 +553,13 @@ function CertificateSelector({
                 </div>
 
                 {certificate.download_url ? (
-                  <a
+                  <CertificateDownloadButton
                     className="inline-flex min-h-10 items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-2 text-xs text-primary transition-colors hover:border-primary/40 hover:bg-primary/15 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                     href={buildApiUrl(certificate.download_url)}
                   >
                     <Download aria-hidden="true" className="size-3.5" />
                     Download PDF
-                  </a>
+                  </CertificateDownloadButton>
                 ) : (
                   <button
                     className="inline-flex min-h-10 items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-2 text-xs text-primary transition-colors hover:border-primary/40 hover:bg-primary/15 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -703,10 +704,13 @@ function StatusSuccess({ data }: { data: SuccessPayload }) {
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">
-        <a className="btn-hero glow-primary rounded-2xl bg-white/[0.06]" href={downloadHref}>
+        <CertificateDownloadButton
+          className="btn-hero glow-primary rounded-2xl bg-white/[0.06]"
+          href={downloadHref}
+        >
           <Download aria-hidden="true" className="size-4" />
           Download PDF
-        </a>
+        </CertificateDownloadButton>
         <a
           className="btn-hero rounded-2xl border border-white/10 bg-white/[0.04]"
           href={verificationHref}

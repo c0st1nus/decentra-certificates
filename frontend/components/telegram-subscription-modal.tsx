@@ -180,6 +180,27 @@ function BrowserFlow({
       handleVerify({ auth_type: "id_token", value: idToken });
     },
   });
+  const [sdkState, setSdkState] = useState<"loading" | "ready" | "timeout">("loading");
+
+  useEffect(() => {
+    if (ready) {
+      setSdkState("ready");
+      return;
+    }
+    const timer = setTimeout(() => {
+      setSdkState((prev) => (prev === "loading" ? "timeout" : prev));
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [ready]);
+
+  if (!clientId) {
+    return (
+      <div className="flex items-start gap-2 rounded-2xl border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
+        <AlertCircle className="mt-0.5 size-4 shrink-0" />
+        <span>Configuration error: Telegram login is not set up.</span>
+      </div>
+    );
+  }
 
   const canLogin = ready && Boolean(clientId);
 
@@ -204,6 +225,16 @@ function BrowserFlow({
             <MessageCircle className="size-4" />
             Log in with Telegram
           </button>
+
+          {sdkState === "timeout" && (
+            <div className="flex items-start gap-2 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
+              <AlertCircle className="mt-0.5 size-4 shrink-0" />
+              <span>
+                Telegram login is temporarily unavailable. Please try again later or open this page
+                from the Telegram app.
+              </span>
+            </div>
+          )}
 
           <p className="text-center text-xs text-white/40">
             After logging in, we will check your channel subscription automatically.
