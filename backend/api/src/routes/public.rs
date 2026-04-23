@@ -56,6 +56,13 @@ pub struct SubscriptionStatusResponse {
     pub user_id: Option<i64>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct TelegramSettingsResponse {
+    pub channel_url: String,
+    pub subscription_required: bool,
+    pub client_id: Option<String>,
+}
+
 struct JobEventStreamState {
     app_state: web::Data<AppState>,
     job_id: String,
@@ -99,6 +106,15 @@ async fn check_certificates(
     let response = certificates::check_available_certificates(&state, &payload.email).await?;
 
     Ok(HttpResponse::Ok().json(response))
+}
+
+#[get("/telegram/settings")]
+async fn telegram_settings(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+    Ok(HttpResponse::Ok().json(TelegramSettingsResponse {
+        channel_url: state.settings.telegram.channel_url.clone(),
+        subscription_required: state.settings.telegram.subscription_required,
+        client_id: state.settings.telegram.client_id.clone(),
+    }))
 }
 
 #[post("/telegram/verify-subscription")]
@@ -251,6 +267,7 @@ async fn verify_certificate(
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(request_certificate)
         .service(check_certificates)
+        .service(telegram_settings)
         .service(verify_subscription)
         .service(get_certificate_job)
         .service(certificate_job_events)

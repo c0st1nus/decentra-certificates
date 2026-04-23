@@ -4,8 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const TELEGRAM_LOGIN_SCRIPT = "https://telegram.org/js/telegram-login.js";
 
-const CLIENT_ID = process.env.NEXT_PUBLIC_TELEGRAM_CLIENT_ID ?? "";
-
 interface TelegramLoginCallbacks {
   onSuccess?: (idToken: string) => void;
   onError?: (error: string) => void;
@@ -23,7 +21,10 @@ interface TelegramLoginSdk {
   ) => void;
 }
 
-export function useTelegramLogin(callbacks?: TelegramLoginCallbacks) {
+export function useTelegramLogin(
+  clientId: string | null | undefined,
+  callbacks?: TelegramLoginCallbacks,
+) {
   const [ready, setReady] = useState(false);
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
@@ -63,12 +64,12 @@ export function useTelegramLogin(callbacks?: TelegramLoginCallbacks) {
   }, []);
 
   const login = useCallback(() => {
-    if (!window.Telegram?.Login || !CLIENT_ID) {
+    if (!window.Telegram?.Login || !clientId) {
       callbacksRef.current?.onError?.("Telegram Login SDK not ready or CLIENT_ID missing");
       return;
     }
 
-    const clientIdNum = Number(CLIENT_ID);
+    const clientIdNum = Number(clientId);
     if (!Number.isFinite(clientIdNum)) {
       callbacksRef.current?.onError?.("invalid TELEGRAM_CLIENT_ID");
       return;
@@ -89,7 +90,7 @@ export function useTelegramLogin(callbacks?: TelegramLoginCallbacks) {
         }
       },
     );
-  }, []);
+  }, [clientId]);
 
   return { ready, login };
 }

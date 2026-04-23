@@ -107,6 +107,28 @@ export async function checkCertificates(email: string, telegramAuth?: TelegramAu
   };
 }
 
+export interface TelegramSettingsResponse {
+  channel_url: string;
+  subscription_required: boolean;
+  client_id: string | null;
+}
+
+export async function getTelegramSettings() {
+  const response = await fetch(buildApiUrl("/api/v1/public/telegram/settings"));
+  const data = await parseJson<TelegramSettingsResponse>(response);
+  return { data, response };
+}
+
+export async function verifySubscription(telegramAuth: TelegramAuthPayload) {
+  const response = await fetch(buildApiUrl("/api/v1/public/telegram/verify-subscription"), {
+    body: JSON.stringify({ telegram_auth: telegramAuth }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  });
+  const data = await parseJson<{ subscribed: boolean; user_id: number | null }>(response);
+  return { data, response };
+}
+
 type ResponseBody = CertificateRequestSuccess | CertificateRequestQueued | ApiErrorBody;
 
 async function parseJson<T>(response: Response): Promise<T | null> {

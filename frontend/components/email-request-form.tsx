@@ -15,7 +15,7 @@ import type { FormEvent, MutableRefObject, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { ChannelSubscriptionBlock } from "@/components/channel-subscription-block";
+import { TelegramSubscriptionModal } from "@/components/telegram-subscription-modal";
 import {
   type AvailableCertificate,
   type CertificateJobStatus,
@@ -67,6 +67,10 @@ export function EmailRequestForm() {
   const [email, setEmail] = useState("");
   const [state, setState] = useState<RequestState>({ kind: "idle" });
   const [telegramAuth, setTelegramAuth] = useState<TelegramAuthPayload | undefined>(undefined);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [pendingCertificate, setPendingCertificate] = useState<AvailableCertificate | undefined>(
+    undefined,
+  );
   const streamRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -74,6 +78,27 @@ export function EmailRequestForm() {
       closeStream(streamRef);
     };
   }, []);
+
+  function handleNotSubscribed() {
+    setShowSubscriptionModal(true);
+    setState({
+      kind: "not_subscribed",
+      message: "You must subscribe to our Telegram channel to claim certificates.",
+    });
+  }
+
+  async function retryAfterVerification(auth: TelegramAuthPayload) {
+    setTelegramAuth(auth);
+    setShowSubscriptionModal(false);
+    toast.success("Telegram channel subscription confirmed");
+
+    if (pendingCertificate) {
+      setPendingCertificate(undefined);
+      await handleRequestCertificate(pendingCertificate, auth);
+    } else {
+      await submitAgain();
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -95,16 +120,13 @@ export function EmailRequestForm() {
           const msg =
             data && "message" in data && typeof data.message === "string" ? data.message : "";
           if (msg === "not_subscribed_to_channel") {
-            setState({
-              kind: "not_subscribed",
-              message: "You must subscribe to our Telegram channel to claim certificates.",
-            });
-          } else {
-            setState({
-              kind: "issuance_disabled",
-              message: "Certificate issuance is not open yet.",
-            });
+            handleNotSubscribed();
+            return;
           }
+          setState({
+            kind: "issuance_disabled",
+            message: "Certificate issuance is not open yet.",
+          });
           return;
         }
 
@@ -141,7 +163,10 @@ export function EmailRequestForm() {
     }
   }
 
-  async function handleRequestCertificate(certificate: AvailableCertificate) {
+  async function handleRequestCertificate(
+    certificate: AvailableCertificate,
+    auth?: TelegramAuthPayload,
+  ) {
     closeStream(streamRef);
     setState({ kind: "requesting", certificate });
 
@@ -149,7 +174,7 @@ export function EmailRequestForm() {
       const { data, response } = await requestCertificate(
         email.trim(),
         certificate.template_id,
-        telegramAuth,
+        auth ?? telegramAuth,
       );
 
       if (response.ok && isSuccessResponse(data)) {
@@ -169,10 +194,8 @@ export function EmailRequestForm() {
 
       if (response.status === 403) {
         if (message === "not_subscribed_to_channel") {
-          setState({
-            kind: "not_subscribed",
-            message: "You must subscribe to our Telegram channel to claim certificates.",
-          });
+          setPendingCertificate(certificate);
+          handleNotSubscribed();
         } else {
           setState({
             kind: "issuance_disabled",
@@ -335,14 +358,6 @@ export function EmailRequestForm() {
           />
         </div>
 
-        <ChannelSubscriptionBlock
-          onSubscriptionLost={() => setTelegramAuth(undefined)}
-          onSubscriptionVerified={(auth) => {
-            setTelegramAuth(auth);
-            toast.success("Telegram channel subscription confirmed");
-          }}
-        />
-
         <button className="btn-hero glow-primary w-full rounded-2xl bg-white/[0.05]" type="submit">
           {isChecking ? (
             <>
@@ -476,6 +491,12 @@ export function EmailRequestForm() {
           />
         )}
       </div>
+
+      <TelegramSubscriptionModal
+        open={showSubscriptionModal}
+        onClose={() => setShowSubscriptionModal(false)}
+        onVerified={(auth) => void retryAfterVerification(auth)}
+      />
     </section>
   );
 }

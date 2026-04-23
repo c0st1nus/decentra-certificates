@@ -25,6 +25,7 @@ pub struct Settings {
 pub struct TelegramSettings {
     pub bot_token: Option<String>,
     pub channel_id: Option<String>,
+    pub channel_url: String,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub subscription_required: bool,
@@ -127,6 +128,7 @@ impl Settings {
             telegram: TelegramSettings {
                 bot_token: env_optional("TELEGRAM_BOT_TOKEN"),
                 channel_id: env_optional("TELEGRAM_CHANNEL_ID"),
+                channel_url: env_string("TELEGRAM_CHANNEL_URL", "https://t.me/channelname"),
                 client_id: env_optional("TELEGRAM_CLIENT_ID"),
                 client_secret: env_optional("TELEGRAM_CLIENT_SECRET"),
                 subscription_required: env_parse("TELEGRAM_SUBSCRIPTION_REQUIRED", false)?,
