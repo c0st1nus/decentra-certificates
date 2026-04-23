@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  ArrowRight,
-  LoaderCircle,
-  LockKeyhole,
-  ShieldCheck,
-  User,
-} from "lucide-react";
+import { ArrowRight, LoaderCircle, LockKeyhole, ShieldCheck, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useState } from "react";
@@ -74,10 +68,7 @@ export function AdminLoginForm() {
           void handleSubmit(event);
         }}
       >
-        <label
-          className="block text-sm font-medium text-white/80"
-          htmlFor="login"
-        >
+        <label className="block text-sm font-medium text-white/80" htmlFor="login">
           Login
         </label>
         <div className="relative">
@@ -96,10 +87,7 @@ export function AdminLoginForm() {
           />
         </div>
 
-        <label
-          className="block text-sm font-medium text-white/80"
-          htmlFor="password"
-        >
+        <label className="block text-sm font-medium text-white/80" htmlFor="password">
           Password
         </label>
         <div className="relative">
@@ -119,16 +107,10 @@ export function AdminLoginForm() {
           />
         </div>
 
-        <button
-          className="btn-hero glow-primary w-full rounded-2xl bg-white/5"
-          type="submit"
-        >
+        <button className="btn-hero glow-primary w-full rounded-2xl bg-white/5" type="submit">
           {isLoading ? (
             <>
-              <LoaderCircle
-                aria-hidden="true"
-                className="size-4 animate-spin"
-              />
+              <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
               Signing in
             </>
           ) : (

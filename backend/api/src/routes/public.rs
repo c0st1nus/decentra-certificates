@@ -7,19 +7,36 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
-use crate::{error::AppError, services::certificates, state::AppState};
+use crate::{
+    error::AppError,
+    services::{certificates, telegram},
+    state::AppState,
+};
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct CertificateRequest {
     #[validate(email(message = "invalid email format"))]
     pub email: String,
     pub template_id: Option<Uuid>,
+    pub telegram_auth: Option<TelegramAuthPayload>,
 }
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct CheckCertificatesRequest {
     #[validate(email(message = "invalid email format"))]
     pub email: String,
+    pub telegram_auth: Option<TelegramAuthPayload>,
+}
+
+#[derive(Debug, Deserialize, Validate)]
+pub struct VerifySubscriptionRequest {
+    pub telegram_auth: TelegramAuthPayload,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TelegramAuthPayload {
+    pub auth_type: String,
+    pub value: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -31,6 +48,12 @@ pub struct VerificationLookupResponse {
     pub full_name: String,
     pub template_name: String,
     pub issued_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SubscriptionStatusResponse {
+    pub subscribed: bool,
+    pub user_id: Option<i64>,
 }
 
 struct JobEventStreamState {
@@ -49,6 +72,8 @@ async fn request_certificate(
     payload
         .validate()
         .map_err(|err| AppError::BadRequest(err.to_string()))?;
+
+    verify_telegram_subscription_if_required(&state, payload.telegram_auth.as_ref()).await?;
 
     match certificates::issue_certificate(&state, &payload.email, payload.template_id).await? {
         certificates::IssueCertificateResult::Ready(response) => {
@@ -69,9 +94,25 @@ async fn check_certificates(
         .validate()
         .map_err(|err| AppError::BadRequest(err.to_string()))?;
 
+    verify_telegram_subscription_if_required(&state, payload.telegram_auth.as_ref()).await?;
+
     let response = certificates::check_available_certificates(&state, &payload.email).await?;
 
     Ok(HttpResponse::Ok().json(response))
+}
+
+#[post("/telegram/verify-subscription")]
+async fn verify_subscription(
+    state: web::Data<AppState>,
+    payload: web::Json<VerifySubscriptionRequest>,
+) -> Result<HttpResponse, AppError> {
+    let (subscribed, user_id) =
+        check_telegram_subscription(&state, Some(&payload.telegram_auth)).await?;
+
+    Ok(HttpResponse::Ok().json(SubscriptionStatusResponse {
+        subscribed,
+        user_id,
+    }))
 }
 
 #[get("/certificates/jobs/{job_id}")]
@@ -210,6 +251,7 @@ async fn verify_certificate(
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(request_certificate)
         .service(check_certificates)
+        .service(verify_subscription)
         .service(get_certificate_job)
         .service(certificate_job_events)
         .service(download_certificate)
@@ -218,4 +260,75 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 
 fn is_terminal_status(status: &str) -> bool {
     matches!(status, "completed" | "failed")
+}
+
+async fn verify_telegram_subscription_if_required(
+    state: &AppState,
+    auth: Option<&TelegramAuthPayload>,
+) -> Result<(), AppError> {
+    if !state.settings.telegram.subscription_required {
+        return Ok(());
+    }
+
+    let (subscribed, _) = check_telegram_subscription(state, auth).await?;
+    if !subscribed {
+        return Err(AppError::Forbidden(
+            "not_subscribed_to_channel".to_owned(),
+        ));
+    }
+
+    Ok(())
+}
+
+async fn check_telegram_subscription(
+    state: &AppState,
+    auth: Option<&TelegramAuthPayload>,
+) -> Result<(bool, Option<i64>), AppError> {
+    let auth = match auth {
+        Some(a) => a,
+        None => return Ok((false, None)),
+    };
+
+    let bot_token = state
+        .settings
+        .telegram
+        .bot_token
+        .as_deref()
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("TELEGRAM_BOT_TOKEN not configured")))?;
+
+    let channel_id = state
+        .settings
+        .telegram
+        .channel_id
+        .as_deref()
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("TELEGRAM_CHANNEL_ID not configured")))?;
+
+    let user = match auth.auth_type.as_str() {
+        "init_data" => telegram::validate_init_data(&auth.value, bot_token)
+            .map_err(|err| AppError::BadRequest(format!("invalid telegram initData: {err}")))?,
+        "id_token" => {
+            let client_id = state
+                .settings
+                .telegram
+                .client_id
+                .as_deref()
+                .ok_or_else(|| {
+                    AppError::Internal(anyhow::anyhow!("TELEGRAM_CLIENT_ID not configured"))
+                })?;
+            telegram::validate_id_token(&auth.value, client_id)
+                .await
+                .map_err(|err| AppError::BadRequest(format!("invalid telegram id_token: {err}")))?
+        }
+        other => {
+            return Err(AppError::BadRequest(format!(
+                "unsupported telegram auth type: {other}"
+            )))
+        }
+    };
+
+    let subscribed = telegram::check_channel_subscription(user.id, channel_id, bot_token)
+        .await
+        .map_err(|err| AppError::Internal(anyhow::anyhow!("telegram api error: {err}")))?;
+
+    Ok((subscribed, Some(user.id)))
 }

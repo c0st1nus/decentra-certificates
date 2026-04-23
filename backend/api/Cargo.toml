@@ -32,6 +32,9 @@ dotenvy.workspace = true
 entity = { package = "decentra-certificates-entity", path = "../entity" }
 db-migration = { package = "decentra-certificates-db-migration", path = "../db-migration" }
 csv.workspace = true
+hmac.workspace = true
+hex.workspace = true
+urlencoding.workspace = true
 flate2.workspace = true
 futures-util.workspace = true
 jpeg-encoder.workspace = true

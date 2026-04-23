@@ -13,4 +13,5 @@ pub mod settings;
 pub mod storage;
 pub mod svg_generator;
 pub mod svg_renderer;
+pub mod telegram;
 pub mod templates;

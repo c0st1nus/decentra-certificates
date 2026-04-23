@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  ArrowLeft,
-  CheckCircle2,
-  PencilLine,
-  Plus,
-  Tags,
-  Trash2,
-} from "lucide-react";
+import { ArrowLeft, CheckCircle2, PencilLine, Plus, Tags, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -89,9 +82,7 @@ export default function TemplateCategoriesPage({ params }: Props) {
           Back to template
         </Link>
 
-        <h1 className="heading-hero text-gradient text-left">
-          {template.template.name}
-        </h1>
+        <h1 className="heading-hero text-gradient text-left">{template.template.name}</h1>
         <p className="max-w-2xl text-sm leading-6 text-white/70 sm:text-base">
           Categories for this template. Add, edit and delete as needed.
         </p>
@@ -109,9 +100,7 @@ export default function TemplateCategoriesPage({ params }: Props) {
           {categories.length === 0 ? (
             <div className="rounded-2xl border border-white/10 bg-panel/90 p-8 text-center">
               <CheckCircle2 className="mx-auto size-10 text-primary/80" />
-              <h3 className="mt-4 text-lg font-black text-white">
-                No categories yet
-              </h3>
+              <h3 className="mt-4 text-lg font-black text-white">No categories yet</h3>
               <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-white/60">
                 Add categories using the form on the left.
               </p>
@@ -127,9 +116,7 @@ export default function TemplateCategoriesPage({ params }: Props) {
                   );
                 }}
                 onDelete={(categoryId) => {
-                  setCategories((current) =>
-                    current.filter((c) => c.id !== categoryId),
-                  );
+                  setCategories((current) => current.filter((c) => c.id !== categoryId));
                 }}
               />
             ))
@@ -164,10 +151,7 @@ function CategoryForm({
         description: form.description.trim() || null,
         is_active: form.isActive,
       };
-      const { response, data } = await createTemplateCategory(
-        templateId,
-        payload,
-      );
+      const { response, data } = await createTemplateCategory(templateId, payload);
       if (!response.ok || !data) {
         toast.error("Failed to create category.");
         return;
@@ -189,10 +173,7 @@ function CategoryForm({
       </p>
 
       <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
-        <label
-          className="block text-sm font-medium text-white/80"
-          htmlFor="cat-name"
-        >
+        <label className="block text-sm font-medium text-white/80" htmlFor="cat-name">
           Name
           <input
             id="cat-name"
@@ -206,10 +187,7 @@ function CategoryForm({
           />
         </label>
 
-        <label
-          className="block text-sm font-medium text-white/80"
-          htmlFor="cat-desc"
-        >
+        <label className="block text-sm font-medium text-white/80" htmlFor="cat-desc">
           Description
           <textarea
             id="cat-desc"
@@ -217,9 +195,7 @@ function CategoryForm({
             disabled={isSaving}
             placeholder="e.g. finalists track"
             value={form.description}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, description: e.target.value }))
-            }
+            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
           />
         </label>
 
@@ -227,8 +203,7 @@ function CategoryForm({
           <span>
             <span className="block font-medium text-white">Active</span>
             <span className="mt-1 block text-xs leading-5 text-white/50">
-              Inactive categories remain in history but disappear from the
-              active set.
+              Inactive categories remain in history but disappear from the active set.
             </span>
           </span>
           <input
@@ -236,16 +211,11 @@ function CategoryForm({
             className="size-4 accent-primary"
             disabled={isSaving}
             type="checkbox"
-            onChange={(e) =>
-              setForm((f) => ({ ...f, isActive: e.target.checked }))
-            }
+            onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))}
           />
         </label>
 
-        <button
-          className="btn-hero glow-primary rounded-2xl bg-white/[0.05]"
-          type="submit"
-        >
+        <button className="btn-hero glow-primary rounded-2xl bg-white/[0.05]" type="submit">
           <Plus className="size-4" />
           Add category
         </button>
@@ -303,10 +273,7 @@ function CategoryCard({
       setArmedDelete(true);
       return;
     }
-    const { response } = await deleteTemplateCategory(
-      category.template_id,
-      category.id,
-    );
+    const { response } = await deleteTemplateCategory(category.template_id, category.id);
     if (response.ok) {
       onDelete(category.id);
       toast.success("Category deleted.");

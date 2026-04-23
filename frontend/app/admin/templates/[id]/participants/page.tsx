@@ -64,11 +64,7 @@ function statusBadgeClasses(tone: string) {
   return map[tone] ?? map.white;
 }
 
-async function loadParticipants(
-  templateId: string,
-  filters: ParticipantFilters,
-  page: number,
-) {
+async function loadParticipants(templateId: string, filters: ParticipantFilters, page: number) {
   const { data } = await fetchParticipants({
     category: filters.category || undefined,
     email: filters.email || undefined,
@@ -94,8 +90,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
   const [email, setEmail] = useState("");
   const [category, setCategory] = useState("");
   const [certStatus, setCertStatus] = useState<CertificateStatus | "">("");
-  const [participants, setParticipants] =
-    useState<ParticipantListResponse | null>(null);
+  const [participants, setParticipants] = useState<ParticipantListResponse | null>(null);
   const [progress, setProgress] = useState<GenerationProgress | null>(null);
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
@@ -105,9 +100,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
   const filteredParticipants = useMemo(() => {
     if (!participants) return null;
     if (!certStatus) return participants;
-    const items = participants.items.filter(
-      (p) => p.certificate_status === certStatus,
-    );
+    const items = participants.items.filter((p) => p.certificate_status === certStatus);
     return { ...participants, items, total: items.length };
   }, [participants, certStatus]);
 
@@ -115,10 +108,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
     let isMounted = true;
     async function load() {
       try {
-        const [{ data: tpl }, prg] = await Promise.all([
-          fetchTemplate(id),
-          loadProgress(id),
-        ]);
+        const [{ data: tpl }, prg] = await Promise.all([fetchTemplate(id), loadProgress(id)]);
         if (!isMounted) return;
         setTemplate(tpl ?? null);
         setProgress(prg);
@@ -166,15 +156,9 @@ export default function TemplateParticipantsPage({ params }: Props) {
     }
     const { response } = await deleteParticipants(id);
     if (response.ok) {
-      setParticipants((current) =>
-        current ? { ...current, items: [], total: 0 } : current,
-      );
+      setParticipants((current) => (current ? { ...current, items: [], total: 0 } : current));
       if (page === 1) {
-        const refreshed = await loadParticipants(
-          id,
-          { category, email, certStatus: "" },
-          1,
-        );
+        const refreshed = await loadParticipants(id, { category, email, certStatus: "" }, 1);
         setParticipants(refreshed);
       } else {
         setPage(1);
@@ -191,11 +175,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
     setRequeueingId(issueId);
     try {
       await requeueCertificateIssue(issueId);
-      const refreshed = await loadParticipants(
-        id,
-        { category, email, certStatus: "" },
-        page,
-      );
+      const refreshed = await loadParticipants(id, { category, email, certStatus: "" }, page);
       setParticipants(refreshed);
       await refreshProgress();
       toast.success("Certificate requeued.");
@@ -208,16 +188,11 @@ export default function TemplateParticipantsPage({ params }: Props) {
 
   async function handleRequeueAllFailed() {
     if (!id) return;
-    if (!window.confirm("Requeue all failed certificates for this template?"))
-      return;
+    if (!window.confirm("Requeue all failed certificates for this template?")) return;
     setBulkRequeueing(true);
     try {
       await requeueFailedForTemplate(id);
-      const refreshed = await loadParticipants(
-        id,
-        { category, email, certStatus: "" },
-        page,
-      );
+      const refreshed = await loadParticipants(id, { category, email, certStatus: "" }, page);
       setParticipants(refreshed);
       await refreshProgress();
       toast.success("All failed certificates requeued.");
@@ -246,9 +221,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
   }
 
   const readyPercent =
-    progress && progress.total > 0
-      ? Math.round((progress.completed / progress.total) * 100)
-      : 0;
+    progress && progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
 
   return (
     <section className="space-y-6">
@@ -261,12 +234,9 @@ export default function TemplateParticipantsPage({ params }: Props) {
           Back to template
         </Link>
 
-        <h1 className="heading-hero text-gradient text-left">
-          {template.template.name}
-        </h1>
+        <h1 className="heading-hero text-gradient text-left">{template.template.name}</h1>
         <p className="max-w-2xl text-sm leading-6 text-white/70 sm:text-base">
-          Import, filter, and track certificate generation status for every
-          participant.
+          Import, filter, and track certificate generation status for every participant.
         </p>
       </div>
 
@@ -280,9 +250,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
               <p className="mt-1 text-sm text-white/70">
                 {progress.completed} of {progress.total} certificates ready
                 {progress.failed > 0 && (
-                  <span className="ml-2 text-red-300">
-                    ({progress.failed} failed)
-                  </span>
+                  <span className="ml-2 text-red-300">({progress.failed} failed)</span>
                 )}
               </p>
             </div>
@@ -319,16 +287,12 @@ export default function TemplateParticipantsPage({ params }: Props) {
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
                   )}
                   onClick={() => {
-                    setCertStatus((prev) =>
-                      prev === key ? "" : (key as CertificateStatus),
-                    );
+                    setCertStatus((prev) => (prev === key ? "" : (key as CertificateStatus)));
                     setPage(1);
                   }}
                   type="button"
                 >
-                  <span className="font-medium capitalize">
-                    {key.replace("_", " ")}
-                  </span>
+                  <span className="font-medium capitalize">{key.replace("_", " ")}</span>
                   <span className="opacity-70">{count}</span>
                 </button>
               ) : null,
@@ -358,11 +322,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
           templateId={id}
           templateName={template.template.name}
           onImported={async () => {
-            const refreshed = await loadParticipants(
-              id,
-              { category, email, certStatus: "" },
-              page,
-            );
+            const refreshed = await loadParticipants(id, { category, email, certStatus: "" }, page);
             setParticipants(refreshed);
             await refreshProgress();
           }}
@@ -407,9 +367,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
                     value={certStatus}
                     onChange={(event) => {
                       setPage(1);
-                      setCertStatus(
-                        event.target.value as CertificateStatus | "",
-                      );
+                      setCertStatus(event.target.value as CertificateStatus | "");
                     }}
                   >
                     <option value="">All statuses</option>
@@ -441,9 +399,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
                 <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
                   Current list
                 </p>
-                <h2 className="mt-3 text-2xl font-black text-white">
-                  Imported rows
-                </h2>
+                <h2 className="mt-3 text-2xl font-black text-white">Imported rows</h2>
               </div>
               <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/70">
                 {filteredParticipants?.total ?? 0} rows
@@ -459,9 +415,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
                       <th className="px-4 py-3 font-medium">Name</th>
                       <th className="px-4 py-3 font-medium">Category</th>
                       <th className="px-4 py-3 font-medium">Certificate</th>
-                      <th className="px-4 py-3 font-medium text-right">
-                        Actions
-                      </th>
+                      <th className="px-4 py-3 font-medium text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -476,10 +430,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
                       ))
                     ) : (
                       <tr>
-                        <td
-                          className="px-4 py-8 text-center text-white/55"
-                          colSpan={5}
-                        >
+                        <td className="px-4 py-8 text-center text-white/55" colSpan={5}>
                           {certStatus
                             ? `No participants with status "${certStatus.replace("_", " ")}".`
                             : "No rows loaded yet."}
@@ -500,9 +451,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
               <div className="flex items-center gap-2">
                 <button
                   className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/70 transition disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={
-                    !filteredParticipants || filteredParticipants.page <= 1
-                  }
+                  disabled={!filteredParticipants || filteredParticipants.page <= 1}
                   type="button"
                   onClick={() => setPage((current) => Math.max(1, current - 1))}
                 >
@@ -512,8 +461,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
                   className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/70 transition disabled:cursor-not-allowed disabled:opacity-40"
                   disabled={
                     !filteredParticipants ||
-                    filteredParticipants.page *
-                      filteredParticipants.page_size >=
+                    filteredParticipants.page * filteredParticipants.page_size >=
                       filteredParticipants.total
                   }
                   type="button"
@@ -595,9 +543,6 @@ function formatParticipantRange(participants: ParticipantListResponse) {
     return "0";
   }
   const start = (participants.page - 1) * participants.page_size + 1;
-  const end = Math.min(
-    participants.page * participants.page_size,
-    participants.total,
-  );
+  const end = Math.min(participants.page * participants.page_size, participants.total);
   return `${start}-${end}`;
 }

@@ -15,11 +15,13 @@ import type { FormEvent, MutableRefObject, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { ChannelSubscriptionBlock } from "@/components/channel-subscription-block";
 import {
   type AvailableCertificate,
   type CertificateJobStatus,
   type CertificateRequestQueued,
   type CertificateRequestSuccess,
+  type TelegramAuthPayload,
   buildApiUrl,
   checkCertificates,
   requestCertificate,
@@ -55,6 +57,7 @@ type RequestState =
   | { kind: "issuance_disabled"; message: string }
   | { kind: "not_found"; message: string }
   | { kind: "rate_limited"; message: string }
+  | { kind: "not_subscribed"; message: string }
   | { kind: "error"; message: string };
 
 const initialMessage =
@@ -63,6 +66,7 @@ const initialMessage =
 export function EmailRequestForm() {
   const [email, setEmail] = useState("");
   const [state, setState] = useState<RequestState>({ kind: "idle" });
+  const [telegramAuth, setTelegramAuth] = useState<TelegramAuthPayload | undefined>(undefined);
   const streamRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -84,14 +88,23 @@ export function EmailRequestForm() {
     setState({ kind: "checking" });
 
     try {
-      const { data, response } = await checkCertificates(normalizedEmail);
+      const { data, response } = await checkCertificates(normalizedEmail, telegramAuth);
 
       if (!response.ok || !data) {
         if (response.status === 403) {
-          setState({
-            kind: "issuance_disabled",
-            message: "Certificate issuance is not open yet.",
-          });
+          const msg =
+            data && "message" in data && typeof data.message === "string" ? data.message : "";
+          if (msg === "not_subscribed_to_channel") {
+            setState({
+              kind: "not_subscribed",
+              message: "You must subscribe to our Telegram channel to claim certificates.",
+            });
+          } else {
+            setState({
+              kind: "issuance_disabled",
+              message: "Certificate issuance is not open yet.",
+            });
+          }
           return;
         }
 
@@ -133,7 +146,11 @@ export function EmailRequestForm() {
     setState({ kind: "requesting", certificate });
 
     try {
-      const { data, response } = await requestCertificate(email.trim(), certificate.template_id);
+      const { data, response } = await requestCertificate(
+        email.trim(),
+        certificate.template_id,
+        telegramAuth,
+      );
 
       if (response.ok && isSuccessResponse(data)) {
         setState({ kind: "success", payload: normalizeSuccess(data) });
@@ -151,10 +168,17 @@ export function EmailRequestForm() {
           : "Something went wrong. Please try again later.";
 
       if (response.status === 403) {
-        setState({
-          kind: "issuance_disabled",
-          message: "Certificate issuance is not open yet.",
-        });
+        if (message === "not_subscribed_to_channel") {
+          setState({
+            kind: "not_subscribed",
+            message: "You must subscribe to our Telegram channel to claim certificates.",
+          });
+        } else {
+          setState({
+            kind: "issuance_disabled",
+            message: "Certificate issuance is not open yet.",
+          });
+        }
         return;
       }
 
@@ -311,6 +335,14 @@ export function EmailRequestForm() {
           />
         </div>
 
+        <ChannelSubscriptionBlock
+          onSubscriptionLost={() => setTelegramAuth(undefined)}
+          onSubscriptionVerified={(auth) => {
+            setTelegramAuth(auth);
+            toast.success("Telegram channel subscription confirmed");
+          }}
+        />
+
         <button className="btn-hero glow-primary w-full rounded-2xl bg-white/[0.05]" type="submit">
           {isChecking ? (
             <>
@@ -339,6 +371,7 @@ export function EmailRequestForm() {
           state.kind === "issuance_disabled" &&
             "border-amber-500/25 bg-amber-500/10 text-amber-100",
           state.kind === "not_found" && "border-white/10 bg-white/[0.03] text-white/75",
+          state.kind === "not_subscribed" && "border-red-500/25 bg-red-500/10 text-red-100",
           (state.kind === "rate_limited" || state.kind === "error") &&
             "border-red-500/25 bg-red-500/10 text-red-100",
         )}
@@ -386,6 +419,24 @@ export function EmailRequestForm() {
             icon={<AlertTriangle aria-hidden="true" className="size-5 text-white/90" />}
             message={state.message}
             title="Email not found"
+          />
+        )}
+
+        {state.kind === "not_subscribed" && (
+          <StatusNotice
+            action={
+              <button
+                className="btn-hero mt-4 w-full rounded-2xl border border-white/10 bg-white/[0.04]"
+                type="button"
+                onClick={retry}
+              >
+                <RefreshCw aria-hidden="true" className="size-4" />
+                Retry request
+              </button>
+            }
+            icon={<AlertTriangle aria-hidden="true" className="size-5 text-red-200" />}
+            message={state.message}
+            title="Subscription required"
           />
         )}
 

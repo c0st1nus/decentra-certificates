@@ -64,9 +64,18 @@ export function buildApiUrl(path: string) {
   return new URL(path, API_BASE_URL).toString();
 }
 
-export async function requestCertificate(email: string, templateId?: string) {
+export interface TelegramAuthPayload {
+  auth_type: string;
+  value: string;
+}
+
+export async function requestCertificate(
+  email: string,
+  templateId?: string,
+  telegramAuth?: TelegramAuthPayload,
+) {
   const response = await fetch(buildApiUrl("/api/v1/public/certificates/request"), {
-    body: JSON.stringify({ email, template_id: templateId }),
+    body: JSON.stringify({ email, template_id: templateId, telegram_auth: telegramAuth }),
     headers: {
       "Content-Type": "application/json",
     },
@@ -81,9 +90,9 @@ export async function requestCertificate(email: string, templateId?: string) {
   };
 }
 
-export async function checkCertificates(email: string) {
+export async function checkCertificates(email: string, telegramAuth?: TelegramAuthPayload) {
   const response = await fetch(buildApiUrl("/api/v1/public/certificates/check"), {
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, telegram_auth: telegramAuth }),
     headers: {
       "Content-Type": "application/json",
     },

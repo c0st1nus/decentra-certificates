@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  BadgeCheck,
-  Layers3,
-  LayoutDashboard,
-  LogOut,
-  ShieldCheck,
-} from "lucide-react";
+import { BadgeCheck, Layers3, LayoutDashboard, LogOut, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
@@ -38,9 +32,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { isAuthenticated, isLoading, logout } = useAuth();
-  const isCanvasEditorRoute = /^\/admin\/templates\/[^/]+\/layout$/.test(
-    pathname,
-  );
+  const isCanvasEditorRoute = /^\/admin\/templates\/[^/]+\/layout$/.test(pathname);
 
   useEffect(() => {
     if (isLoading) return;
@@ -80,9 +72,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       <main className="relative min-h-screen overflow-hidden">
         <GridBackground />
         <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
-          <div className="flex flex-1 items-center justify-center py-8">
-            {children}
-          </div>
+          <div className="flex flex-1 items-center justify-center py-8">{children}</div>
         </div>
       </main>
     );
@@ -93,11 +83,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   }
 
   if (isCanvasEditorRoute) {
-    return (
-      <main className="h-screen w-screen overflow-hidden bg-[#0a0a12] p-3">
-        {children}
-      </main>
-    );
+    return <main className="h-screen w-screen overflow-hidden bg-[#0a0a12] p-3">{children}</main>;
   }
 
   return (

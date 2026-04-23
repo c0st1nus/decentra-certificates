@@ -18,6 +18,16 @@ pub struct Settings {
     pub certificate_render_scale: f32,
     pub preview_render_scale: f32,
     pub stress_test_mode: bool,
+    pub telegram: TelegramSettings,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct TelegramSettings {
+    pub bot_token: Option<String>,
+    pub channel_id: Option<String>,
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
+    pub subscription_required: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -114,6 +124,13 @@ impl Settings {
             certificate_render_scale: env_parse("CERTIFICATE_RENDER_SCALE", 1.5_f32)?,
             preview_render_scale: env_parse("PREVIEW_RENDER_SCALE", 1.25_f32)?,
             stress_test_mode: env_parse("STRESS_TEST_MODE", false)?,
+            telegram: TelegramSettings {
+                bot_token: env_optional("TELEGRAM_BOT_TOKEN"),
+                channel_id: env_optional("TELEGRAM_CHANNEL_ID"),
+                client_id: env_optional("TELEGRAM_CLIENT_ID"),
+                client_secret: env_optional("TELEGRAM_CLIENT_SECRET"),
+                subscription_required: env_parse("TELEGRAM_SUBSCRIPTION_REQUIRED", false)?,
+            },
         })
     }
 
