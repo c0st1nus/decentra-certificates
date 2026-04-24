@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use hmac::{Hmac, Mac};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer, de};
 use sha2::Sha256;
 use std::collections::HashMap;
 
@@ -177,11 +177,29 @@ struct TelegramIdTokenClaims {
     _iat: i64,
     #[serde(rename = "exp")]
     _exp: i64,
+    #[serde(deserialize_with = "deserialize_user_id")]
     id: i64,
     name: Option<String>,
     preferred_username: Option<String>,
     #[serde(rename = "phone_number")]
     _phone_number: Option<String>,
+}
+
+fn deserialize_user_id<'de, D>(deserializer: D) -> std::result::Result<i64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum UserId {
+        Number(i64),
+        String(String),
+    }
+
+    match UserId::deserialize(deserializer)? {
+        UserId::Number(id) => Ok(id),
+        UserId::String(id) => id.parse::<i64>().map_err(de::Error::custom),
+    }
 }
 
 // minimal constant-time comparison to avoid timing attacks
