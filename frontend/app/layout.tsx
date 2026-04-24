@@ -1,6 +1,5 @@
 import clsx from "clsx";
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
 
 import { Providers } from "@/components/providers";
 import { fontMono, fontPixel, fontSans } from "@/config/fonts";
@@ -22,9 +21,6 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html className="dark" lang="en">
-      <head>
-        <Script src="https://telegram.org/js/telegram-web-app.js?62" strategy="beforeInteractive" />
-      </head>
       <body
         className={clsx(
           "min-h-screen bg-background text-foreground antialiased",
