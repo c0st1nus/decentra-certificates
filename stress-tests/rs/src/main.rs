@@ -12,6 +12,7 @@ mod conn_leak;
 mod dedup_bench;
 mod import_bench;
 mod render_bench;
+mod reset_generated;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -29,6 +30,7 @@ async fn main() -> Result<()> {
         "import" => run_import_bench().await?,
         "dedup" => run_dedup_bench().await?,
         "conn-leak" => run_conn_leak().await?,
+        "reset-generated" => run_reset_generated().await?,
         "all" => {
             run_render_bench().await?;
             run_import_bench().await?;
@@ -53,6 +55,7 @@ Commands:
   import     - Benchmark participant import (CSV)
   dedup      - Test race conditions in find_or_create_issue_record
   conn-leak  - Test connection pool behavior under load
+  reset-generated - Delete generated PDFs and reset issue state for queued HTTP tests
   all        - Run all benchmarks
 "
     );
@@ -101,6 +104,15 @@ async fn run_conn_leak() -> Result<()> {
     let state = init_state().await?;
     let start = Instant::now();
     conn_leak::run(&state).await?;
+    println!("Total time: {:?}", start.elapsed());
+    Ok(())
+}
+
+async fn run_reset_generated() -> Result<()> {
+    println!("\n========== RESET GENERATED CERTIFICATES ==========");
+    let state = init_state().await?;
+    let start = Instant::now();
+    reset_generated::run(&state).await?;
     println!("Total time: {:?}", start.elapsed());
     Ok(())
 }

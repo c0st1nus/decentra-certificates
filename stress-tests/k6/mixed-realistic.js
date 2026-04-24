@@ -64,7 +64,7 @@ export default function () {
     const code = `verify${randomInt(1, 10000)}`;
     const res = http.get(`${API_BASE}/api/v1/public/certificates/verify/${code}`, {
       tags: { name: 'mixed_verify' },
-      expectedStatuses: [200, 404],
+      responseCallback: http.expectedStatuses(200, 404),
     });
     check(res, {
       'verify status is 200 or 404': (r) => r.status === 200 || r.status === 404,

@@ -12,7 +12,7 @@ export const options = {
     { duration: '10s', target: 0 },
   ],
   thresholds: {
-    http_req_duration: ['p(50)<1000', 'p(95)<5000', 'p(99)<10000'],
+    http_req_duration: ['p(50)<2000', 'p(95)<5000', 'p(99)<10000'],
     http_req_failed: ['rate<0.05'],
   },
 };
@@ -23,7 +23,7 @@ let templateId = null;
 export function setup() {
   const token = loginAdmin();
 
-  // Find the stress-test-template
+  // Find the active stress-test-template created by seed-http-data.sh.
   const listRes = http.get(`${API_BASE}/api/v1/admin/templates`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -32,9 +32,17 @@ export function setup() {
   if (listRes.status === 200) {
     const items = listRes.json();
     for (let i = 0; i < items.length; i++) {
-      if (items[i].template && items[i].template.name === 'stress-test-template') {
+      if (items[i].template && items[i].template.name === 'stress-test-template' && items[i].template.is_active) {
         tid = items[i].template.id;
         break;
+      }
+    }
+    if (!tid) {
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].template && items[i].template.name === 'stress-test-template') {
+          tid = items[i].template.id;
+          break;
+        }
       }
     }
   }

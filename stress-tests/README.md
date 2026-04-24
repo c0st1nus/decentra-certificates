@@ -71,6 +71,7 @@ make stress-rs-render       # Бенчмарк рендеринга PNG + PDF
 make stress-rs-import       # Бенчмарк импорта CSV (1k, 5k, 10k)
 make stress-rs-dedup        # Race condition test (find_or_create_issue_record)
 make stress-rs-conn-leak    # Тест утечки DB connections
+make stress-rs-reset-generated # Сброс generated PDF/status для queued HTTP теста
 ```
 
 ### Что измеряют
@@ -124,13 +125,21 @@ API_BASE=http://127.0.0.1:8080 ADMIN_LOGIN=admin ADMIN_PASSWORD=secret make stre
 docker stats
 
 # PostgreSQL active connections
-docker exec decentra-certificates-postgres-1 psql -U postgres -c "SELECT count(*) FROM pg_stat_activity;"
+docker exec decentra-certificates-postgres psql -U postgres -c "SELECT count(*) FROM pg_stat_activity;"
 
 # Redis queue depth
-docker exec decentra-certificates-redis-1 redis-cli ZCARD certificates:queue
+docker exec decentra-certificates-redis redis-cli ZCARD certificates:queue
 
 # Redis memory
-docker exec decentra-certificates-redis-1 redis-cli INFO memory
+docker exec decentra-certificates-redis redis-cli INFO memory
+```
+
+Для корректного теста на 2 физических ядрах / 4 потоках запускайте production backend с affinity на четыре logical CPU одного NUMA node, например `taskset -c 0-3`, и выставляйте `HTTP_WORKERS=4`, `CERTIFICATE_WORKERS=4`, `RENDER_PARALLELISM=4`.
+
+Для записи RAM/CPU во время прогона можно использовать:
+
+```bash
+PID_FILE=stress-tests/results/backend.pid OUTPUT=stress-tests/results/resource-monitor.csv stress-tests/scripts/monitor-resources.sh
 ```
 
 ## Интерпретация результатов
@@ -141,6 +150,8 @@ docker exec decentra-certificates-redis-1 redis-cli INFO memory
 |---|---|
 | P95 latency (ready certificates) | < 1000 мс |
 | P99 latency (ready certificates) | < 3000 мс |
+| P50 latency (admin preview, 2 cores / 4 threads) | < 2000 мс |
+| P95 latency (admin preview, 2 cores / 4 threads) | < 5000 мс |
 | Error rate | < 1% |
 | Render throughput (PNG) | > 5 renders/sec |
 | Render throughput (PDF) | > 2 renders/sec |

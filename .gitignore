@@ -1,3 +1,5 @@
 /target
 .env
 uploads
+stress-tests/.tmp
+stress-tests/results

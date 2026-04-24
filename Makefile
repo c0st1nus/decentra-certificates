@@ -3,6 +3,7 @@ SHELL := /bin/sh
 .PHONY: help install up down logs ps backend frontend migrate migrate-down \
 	seed-admin check test lint fmt dev setup \
 	stress-fixtures stress-seed stress-rs \
+	stress-rs-reset-generated \
 	stress-k6-smoke stress-k6-ready stress-k6-queued stress-k6-preview \
 	stress-k6-import stress-k6-mixed stress-k6-all
 
@@ -89,16 +90,19 @@ stress-rs:
 	cargo run --release -p stress-tests -- all
 
 stress-rs-render:
-	cargo run -p stress-tests -- render
+	cargo run --release -p stress-tests -- render
 
 stress-rs-import:
-	cargo run -p stress-tests -- import
+	cargo run --release -p stress-tests -- import
 
 stress-rs-dedup:
-	cargo run -p stress-tests -- dedup
+	cargo run --release -p stress-tests -- dedup
 
 stress-rs-conn-leak:
-	cargo run -p stress-tests -- conn-leak
+	cargo run --release -p stress-tests -- conn-leak
+
+stress-rs-reset-generated:
+	cargo run --release -p stress-tests -- reset-generated
 
 K6 := docker run --rm -i --network host \
 	-v $(PWD)/stress-tests/k6:/k6 \

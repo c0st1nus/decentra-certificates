@@ -4,10 +4,11 @@ use anyhow::Result;
 use decentra_certificates_api::services::certificates::check_available_certificates;
 use decentra_certificates_api::state::AppState;
 
-use crate::bench::ensure_test_participant;
+use crate::bench::{ensure_test_participant, ensure_test_template};
 
 pub async fn run(state: &AppState) -> Result<()> {
-    let participant = ensure_test_participant(state, uuid::Uuid::nil(), "conn-leak").await?;
+    let template = ensure_test_template(state).await?;
+    let participant = ensure_test_participant(state, template.id, "conn-leak").await?;
 
     let rapid_requests = 1000;
     println!("Sending {rapid_requests} rapid check_available_certificates requests...");
