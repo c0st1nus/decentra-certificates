@@ -168,17 +168,17 @@ fn resolve_text_content(
     binding_values: &HashMap<String, String>,
 ) -> String {
     let mut result = text.content.clone();
+    let mut replaced_placeholder = false;
     for (key, value) in binding_values {
         let placeholder = format!("{{{{{}}}}}", key);
-        result = result.replace(&placeholder, value);
+        if result.contains(&placeholder) {
+            replaced_placeholder = true;
+            result = result.replace(&placeholder, value);
+        }
     }
 
     let trimmed = result.trim();
-    if !trimmed.is_empty() && trimmed != text.content.trim() {
-        return result;
-    }
-
-    if !trimmed.is_empty() && !trimmed.contains("{{") {
+    if !trimmed.is_empty() && replaced_placeholder {
         return result;
     }
 
@@ -190,6 +190,10 @@ fn resolve_text_content(
         && let Some(value) = binding_values.get(binding)
     {
         return value.clone();
+    }
+
+    if !trimmed.is_empty() && !trimmed.contains("{{") {
+        return result;
     }
 
     result

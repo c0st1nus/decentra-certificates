@@ -7,12 +7,16 @@ pub fn svg_to_vector_pdf(svg: &str, font_db: &FontDatabase) -> Result<Vec<u8>> {
         fontdb: (*font_db.db).clone().into(),
         ..svg2pdf::usvg::Options::default()
     };
+    let conversion_options = svg2pdf::ConversionOptions {
+        embed_text: false,
+        ..svg2pdf::ConversionOptions::default()
+    };
 
     let tree =
         svg2pdf::usvg::Tree::from_str(svg, &options).context("Failed to parse SVG for PDF")?;
     svg2pdf::to_pdf(
         &tree,
-        svg2pdf::ConversionOptions::default(),
+        conversion_options,
         svg2pdf::PageOptions::default(),
     )
     .map_err(|err| anyhow::anyhow!("Failed to convert SVG to vector PDF: {err}"))

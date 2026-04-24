@@ -747,7 +747,7 @@ pub(crate) fn default_canvas_for_layout(layout: &TemplateLayoutData) -> Template
             visible: true,
             locked: false,
             text: Some(TemplateCanvasText {
-                content: "Preview Participant".to_owned(),
+                content: "{{participant.full_name}}".to_owned(),
                 binding: Some("participant.full_name".to_owned()),
                 font_family: layout.font_family.clone(),
                 font_size: layout.font_size,
