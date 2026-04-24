@@ -8,6 +8,7 @@
   --color-background: #050505;
   --color-foreground: #f4f4f5;
   --color-panel: #0d0d13;
+  --color-canvas: #0a0a12;
   --color-primary: #8cd812;
   --color-secondary: #662bb1;
 }
@@ -97,8 +98,36 @@ body {
 }
 
 @layer components {
+  .admin-panel {
+    @apply rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6;
+  }
+
+  .admin-eyebrow {
+    @apply text-[10px] font-semibold uppercase tracking-[0.24em] text-primary;
+  }
+
+  .admin-input {
+    @apply w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-80;
+  }
+
+  .admin-input-icon {
+    @apply py-3.5 pl-11 pr-4;
+  }
+
+  .admin-file-input {
+    @apply block w-full text-sm text-white/75 file:mr-4 file:rounded-full file:border-0 file:bg-primary/15 file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:tracking-[0.18em] file:text-primary hover:file:bg-primary/20;
+  }
+
+  .admin-muted-pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/65;
+  }
+
   .btn-hero {
     @apply inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:w-auto;
+  }
+
+  .glow-primary {
+    box-shadow: 0 0 28px rgba(140, 216, 18, 0.12);
   }
 
   .heading-hero {

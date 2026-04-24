@@ -296,9 +296,7 @@ async fn verify_telegram_subscription_if_required(
 
     let (subscribed, _) = check_telegram_subscription(state, auth).await?;
     if !subscribed {
-        return Err(AppError::Forbidden(
-            "not_subscribed_to_channel".to_owned(),
-        ));
+        return Err(AppError::Forbidden("not_subscribed_to_channel".to_owned()));
     }
 
     Ok(())
@@ -346,7 +344,7 @@ async fn check_telegram_subscription(
         other => {
             return Err(AppError::BadRequest(format!(
                 "unsupported telegram auth type: {other}"
-            )))
+            )));
         }
     };
 

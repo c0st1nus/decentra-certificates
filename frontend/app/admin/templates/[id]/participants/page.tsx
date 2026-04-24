@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  AlertCircle,
-  ArrowLeft,
   CheckCircle2,
   Clock,
   Filter,
@@ -10,13 +8,13 @@ import {
   RotateCcw,
   Search,
   Trash2,
-  Users,
   XCircle,
 } from "lucide-react";
-import Link from "next/link";
 import { use, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { AdminPageHeader } from "@/components/admin-page-header";
+import { AdminPanel } from "@/components/admin-panel";
 import { ParticipantsImportForm } from "@/components/participants-import-form";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -225,28 +223,18 @@ export default function TemplateParticipantsPage({ params }: Props) {
 
   return (
     <section className="space-y-6">
-      <div className="max-w-3xl space-y-4">
-        <Link
-          className="inline-flex items-center gap-2 text-sm text-white/60 transition hover:text-white"
-          href={`/admin/templates/${id}`}
-        >
-          <ArrowLeft className="size-4" />
-          Back to template
-        </Link>
-
-        <h1 className="heading-hero text-gradient text-left">{template.template.name}</h1>
-        <p className="max-w-2xl text-sm leading-6 text-white/70 sm:text-base">
-          Import, filter, and track certificate generation status for every participant.
-        </p>
-      </div>
+      <AdminPageHeader
+        backHref={`/admin/templates/${id}`}
+        backLabel="Back to template"
+        description="Import, filter, and track certificate generation status for every participant."
+        title={template.template.name}
+      />
 
       {progress && progress.total > 0 && (
-        <div className="rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+        <AdminPanel>
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
-                Generation progress
-              </p>
+              <p className="admin-eyebrow">Generation progress</p>
               <p className="mt-1 text-sm text-white/70">
                 {progress.completed} of {progress.total} certificates ready
                 {progress.failed > 0 && (
@@ -314,7 +302,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
               Requeue all failed
             </button>
           )}
-        </div>
+        </AdminPanel>
       )}
 
       <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
@@ -329,14 +317,14 @@ export default function TemplateParticipantsPage({ params }: Props) {
         />
 
         <div className="space-y-4">
-          <div className="rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+          <AdminPanel>
             <div className="grid gap-3 sm:grid-cols-3">
               <label className="block text-sm font-medium text-white/80">
                 Email filter
                 <div className="relative mt-2">
                   <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-primary/65" />
                   <input
-                    className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 pl-11 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+                    className="admin-input admin-input-icon"
                     placeholder="Search by email..."
                     value={email}
                     onChange={(event) => {
@@ -349,7 +337,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
               <label className="block text-sm font-medium text-white/80">
                 Category
                 <input
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+                  className="admin-input mt-2"
                   placeholder="Filter category..."
                   value={category}
                   onChange={(event) => {
@@ -363,7 +351,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
                 <div className="relative mt-2">
                   <Filter className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-primary/65" />
                   <select
-                    className="w-full appearance-none rounded-2xl border border-white/10 bg-black/35 px-4 py-3 pl-11 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+                    className="admin-input admin-input-icon appearance-none"
                     value={certStatus}
                     onChange={(event) => {
                       setPage(1);
@@ -391,14 +379,12 @@ export default function TemplateParticipantsPage({ params }: Props) {
                 Delete roster
               </button>
             </div>
-          </div>
+          </AdminPanel>
 
-          <div className="rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+          <AdminPanel>
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
-                  Current list
-                </p>
+                <p className="admin-eyebrow">Current list</p>
                 <h2 className="mt-3 text-2xl font-black text-white">Imported rows</h2>
               </div>
               <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/70">
@@ -471,7 +457,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
                 </button>
               </div>
             </div>
-          </div>
+          </AdminPanel>
         </div>
       </div>
     </section>

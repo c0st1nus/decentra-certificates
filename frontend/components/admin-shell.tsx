@@ -1,6 +1,6 @@
 "use client";
 
-import { BadgeCheck, Layers3, LayoutDashboard, LogOut, ShieldCheck } from "lucide-react";
+import { Layers3, LayoutDashboard } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
@@ -59,7 +59,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       <main className="relative min-h-screen overflow-hidden">
         <GridBackground />
         <div className="mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-4 py-10">
-          <div className="rounded-2xl border border-white/10 bg-panel/90 px-6 py-5 text-sm text-white/70 backdrop-blur-xl">
+          <div className="admin-panel px-6 py-5 text-sm text-white/70">
             Loading admin session...
           </div>
         </div>
@@ -83,7 +83,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   }
 
   if (isCanvasEditorRoute) {
-    return <main className="h-screen w-screen overflow-hidden bg-[#0a0a12] p-3">{children}</main>;
+    return <main className="h-screen w-screen overflow-hidden bg-canvas p-3">{children}</main>;
   }
 
   return (

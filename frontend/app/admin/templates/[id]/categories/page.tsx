@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowLeft, CheckCircle2, PencilLine, Plus, Tags, Trash2 } from "lucide-react";
-import Link from "next/link";
+import { CheckCircle2, PencilLine, Plus, Trash2 } from "lucide-react";
 import { use, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { AdminPageHeader } from "@/components/admin-page-header";
+import { AdminPanel } from "@/components/admin-panel";
 import {
   type CategorySummary,
   type TemplateDetail,
@@ -65,28 +66,20 @@ export default function TemplateCategoriesPage({ params }: Props) {
 
   if (isLoading || !template) {
     return (
-      <section className="rounded-2xl border border-white/10 bg-panel/90 p-5 text-sm text-white/65 backdrop-blur-xl">
+      <AdminPanel as="section" className="text-sm text-white/65">
         Loading categories...
-      </section>
+      </AdminPanel>
     );
   }
 
   return (
     <section className="space-y-6">
-      <div className="max-w-3xl space-y-4">
-        <Link
-          className="inline-flex items-center gap-2 text-sm text-white/60 transition hover:text-white"
-          href={`/admin/templates/${id}`}
-        >
-          <ArrowLeft className="size-4" />
-          Back to template
-        </Link>
-
-        <h1 className="heading-hero text-gradient text-left">{template.template.name}</h1>
-        <p className="max-w-2xl text-sm leading-6 text-white/70 sm:text-base">
-          Categories for this template. Add, edit and delete as needed.
-        </p>
-      </div>
+      <AdminPageHeader
+        backHref={`/admin/templates/${id}`}
+        backLabel="Back to template"
+        description="Categories for this template. Add, edit and delete as needed."
+        title={template.template.name}
+      />
 
       <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
         <CategoryForm
@@ -98,13 +91,13 @@ export default function TemplateCategoriesPage({ params }: Props) {
 
         <div className="space-y-3">
           {categories.length === 0 ? (
-            <div className="rounded-2xl border border-white/10 bg-panel/90 p-8 text-center">
+            <AdminPanel className="p-8 text-center">
               <CheckCircle2 className="mx-auto size-10 text-primary/80" />
               <h3 className="mt-4 text-lg font-black text-white">No categories yet</h3>
               <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-white/60">
                 Add categories using the form on the left.
               </p>
-            </div>
+            </AdminPanel>
           ) : (
             categories.map((category) => (
               <CategoryCard
@@ -167,10 +160,8 @@ function CategoryForm({
   }
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
-        Add category
-      </p>
+    <AdminPanel>
+      <p className="admin-eyebrow">Add category</p>
 
       <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
         <label className="block text-sm font-medium text-white/80" htmlFor="cat-name">
@@ -178,7 +169,7 @@ function CategoryForm({
           <input
             id="cat-name"
             autoComplete="off"
-            className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+            className="admin-input mt-2"
             disabled={isSaving}
             spellCheck={false}
             type="text"
@@ -191,7 +182,7 @@ function CategoryForm({
           Description
           <textarea
             id="cat-desc"
-            className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+            className="admin-input mt-2"
             disabled={isSaving}
             placeholder="e.g. finalists track"
             value={form.description}
@@ -220,7 +211,7 @@ function CategoryForm({
           Add category
         </button>
       </form>
-    </div>
+    </AdminPanel>
   );
 }
 
@@ -283,7 +274,7 @@ function CategoryCard({
   }
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+    <AdminPanel>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -372,6 +363,6 @@ function CategoryCard({
           </button>
         </div>
       </div>
-    </div>
+    </AdminPanel>
   );
 }

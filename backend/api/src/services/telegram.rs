@@ -96,12 +96,9 @@ pub async fn validate_id_token(id_token: &str, client_id: &str) -> Result<Telegr
     validation.set_issuer(&["https://oauth.telegram.org"]);
     validation.set_audience(&[client_id]);
 
-    let token_data = jsonwebtoken::decode::<TelegramIdTokenClaims>(
-        id_token,
-        &decoding_key,
-        &validation,
-    )
-    .map_err(|err| anyhow::anyhow!("id_token validation failed: {err}"))?;
+    let token_data =
+        jsonwebtoken::decode::<TelegramIdTokenClaims>(id_token, &decoding_key, &validation)
+            .map_err(|err| anyhow::anyhow!("id_token validation failed: {err}"))?;
 
     let claims = token_data.claims;
 
@@ -140,14 +137,9 @@ pub async fn check_channel_subscription(
         .result
         .ok_or_else(|| anyhow::anyhow!("empty result from Telegram API"))?;
 
-    let status = result["status"]
-        .as_str()
-        .unwrap_or("unknown");
+    let status = result["status"].as_str().unwrap_or("unknown");
 
-    Ok(matches!(
-        status,
-        "member" | "administrator" | "creator"
-    ))
+    Ok(matches!(status, "member" | "administrator" | "creator"))
 }
 
 async fn fetch_telegram_jwks() -> Result<Vec<jsonwebtoken::jwk::Jwk>> {

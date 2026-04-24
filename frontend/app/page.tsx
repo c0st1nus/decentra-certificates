@@ -15,9 +15,7 @@ export default function HomePage() {
               <BadgeCheck className="size-5 text-primary" />
             </div>
             <div className="min-w-0">
-              <p className="truncate text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
-                Decentrathon
-              </p>
+              <p className="admin-eyebrow truncate">Decentrathon</p>
               <p className="truncate text-sm text-white/60">Certificate claim page</p>
             </div>
           </div>

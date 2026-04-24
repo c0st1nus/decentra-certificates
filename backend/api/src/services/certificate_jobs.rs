@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    services::{certificates, settings},
+    services::{certificates, settings, urls},
     state::AppState,
 };
 
@@ -548,10 +548,7 @@ fn processing_status(
         full_name: participant.full_name.clone(),
         template_name: template.name.clone(),
         download_url: None,
-        verification_url: Some(format!(
-            "/api/v1/public/certificates/verify/{}",
-            issue.verification_code
-        )),
+        verification_url: Some(urls::certificate_verification_url(&issue.verification_code)),
         attempts: issue.attempts as u32,
         updated_at: Utc::now().to_rfc3339(),
     }
@@ -574,10 +571,7 @@ fn failed_status(
         full_name: participant.full_name.clone(),
         template_name: template.name.clone(),
         download_url: None,
-        verification_url: Some(format!(
-            "/api/v1/public/certificates/verify/{}",
-            issue.verification_code
-        )),
+        verification_url: Some(urls::certificate_verification_url(&issue.verification_code)),
         attempts: issue.attempts as u32,
         updated_at: issue
             .failed_at
@@ -601,10 +595,7 @@ fn queued_status(
         full_name: participant.full_name.clone(),
         template_name: template.name.clone(),
         download_url: None,
-        verification_url: Some(format!(
-            "/api/v1/public/certificates/verify/{}",
-            issue.verification_code
-        )),
+        verification_url: Some(urls::certificate_verification_url(&issue.verification_code)),
         attempts: 0,
         updated_at: Utc::now().to_rfc3339(),
     }
@@ -624,14 +615,8 @@ fn completed_status(
         message: message.to_owned(),
         full_name: participant.full_name.clone(),
         template_name: template.name.clone(),
-        download_url: Some(format!(
-            "/api/v1/public/certificates/{}/download",
-            issue.certificate_id
-        )),
-        verification_url: Some(format!(
-            "/api/v1/public/certificates/verify/{}",
-            issue.verification_code
-        )),
+        download_url: Some(urls::certificate_download_url(&issue.certificate_id)),
+        verification_url: Some(urls::certificate_verification_url(&issue.verification_code)),
         attempts: 1,
         updated_at: Utc::now().to_rfc3339(),
     }

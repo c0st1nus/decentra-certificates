@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { AdminPanel } from "@/components/admin-panel";
 import { TemplateCard } from "@/components/template-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type TemplateDetail, deleteTemplate, fetchTemplates } from "@/lib/admin-api";
@@ -72,7 +73,7 @@ export default function AdminPage() {
           ))}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-white/10 bg-panel/90 p-10 text-center backdrop-blur-xl">
+        <AdminPanel className="flex flex-col items-center justify-center gap-4 p-10 text-center">
           <p className="text-sm text-white/70">No templates uploaded yet.</p>
           <Link
             className="btn-hero glow-primary rounded-2xl bg-white/[0.05]"
@@ -81,7 +82,7 @@ export default function AdminPage() {
             <Plus className="size-4" />
             Upload first template
           </Link>
-        </div>
+        </AdminPanel>
       )}
     </section>
   );

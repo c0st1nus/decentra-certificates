@@ -906,9 +906,7 @@ export function TemplateLayoutEditor({
     <section
       className={cn(
         "flex h-full min-h-0 flex-col overflow-hidden",
-        showHeader
-          ? "rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6 pt-1"
-          : "h-full w-full bg-[#0a0a12]",
+        showHeader ? "admin-panel pt-1" : "h-full w-full bg-canvas",
       )}
     >
       {showHeader ? (
@@ -1223,7 +1221,7 @@ export function TemplateLayoutEditor({
               <label className="block text-sm font-medium text-white/72">
                 Preview name
                 <input
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition placeholder:text-white/30 focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+                  className="admin-input mt-2 placeholder:text-white/30"
                   placeholder="Preview Participant"
                   value={previewName}
                   onChange={(event) => setPreviewName(event.target.value)}
@@ -1505,7 +1503,7 @@ function TextLayerEditor({
           <label className="block text-sm font-medium text-white/72">
             Content
             <textarea
-              className="mt-2 min-h-32 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+              className="admin-input mt-2 min-h-32 text-sm placeholder:text-white/30"
               placeholder="Awarded to {{participant.full_name}}"
               value={text.content}
               onChange={(event) =>
@@ -1838,7 +1836,7 @@ function SelectField({
     <label className="block text-sm font-medium text-white/72">
       {label}
       <select
-        className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+        className="admin-input mt-2"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
@@ -2043,7 +2041,7 @@ function TextField({
     <label className="block text-sm font-medium text-white/72">
       {label}
       <input
-        className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition placeholder:text-white/30 focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+        className="admin-input mt-2 placeholder:text-white/30"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />

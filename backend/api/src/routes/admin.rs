@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use actix_multipart::Multipart;
 use actix_web::{HttpResponse, delete, get, patch, post, put, web};
 use entity::{
@@ -7,7 +5,6 @@ use entity::{
     prelude::{CertificateTemplates, Participants, TemplateLayouts},
     template_layouts,
 };
-use futures_util::StreamExt;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -16,6 +13,10 @@ use validator::Validate;
 use crate::{
     error::AppError,
     middleware::auth::AdminAuth,
+    routes::multipart::{
+        collect_multipart, infer_source_kind, is_supported_participant_import, is_xlsx_file,
+        required_field, required_file,
+    },
     services::{
         audit,
         auth::{AuthService, RefreshTokenRequest, SessionResponse},
@@ -71,6 +72,26 @@ pub struct TemplateLayoutRequest {
     pub canvas: Option<templates::TemplateCanvasData>,
 }
 
+impl From<&TemplateLayoutRequest> for TemplateLayoutData {
+    fn from(layout: &TemplateLayoutRequest) -> Self {
+        Self {
+            page_width: layout.page_width,
+            page_height: layout.page_height,
+            name_x: layout.name_x,
+            name_y: layout.name_y,
+            name_max_width: layout.name_max_width,
+            name_box_height: layout.name_box_height,
+            font_family: layout.font_family.clone(),
+            font_size: layout.font_size,
+            font_color_hex: layout.font_color_hex.clone(),
+            text_align: layout.text_align.clone(),
+            vertical_align: layout.vertical_align.clone(),
+            auto_shrink: layout.auto_shrink,
+            canvas: layout.canvas.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Validate)]
 pub struct TemplatePreviewRequest {
     pub preview_name: Option<String>,
@@ -111,19 +132,6 @@ pub struct CategoryUpsertRequest {
     #[validate(length(max = 1000))]
     pub description: Option<String>,
     pub is_active: bool,
-}
-
-#[derive(Default)]
-struct MultipartForm {
-    fields: HashMap<String, String>,
-    files: Vec<UploadedFile>,
-}
-
-struct UploadedFile {
-    field_name: String,
-    file_name: Option<String>,
-    content_type: Option<String>,
-    bytes: Vec<u8>,
 }
 
 #[post("/login")]
@@ -493,26 +501,8 @@ async fn save_template_layout(
         .validate()
         .map_err(|err| AppError::BadRequest(err.to_string()))?;
 
-    let layout = templates::save_layout(
-        &state.db,
-        template_id,
-        TemplateLayoutData {
-            page_width: payload.page_width,
-            page_height: payload.page_height,
-            name_x: payload.name_x,
-            name_y: payload.name_y,
-            name_max_width: payload.name_max_width,
-            name_box_height: payload.name_box_height,
-            font_family: payload.font_family.clone(),
-            font_size: payload.font_size,
-            font_color_hex: payload.font_color_hex.clone(),
-            text_align: payload.text_align.clone(),
-            vertical_align: payload.vertical_align.clone(),
-            auto_shrink: payload.auto_shrink,
-            canvas: payload.canvas.clone(),
-        },
-    )
-    .await?;
+    let layout =
+        templates::save_layout(&state.db, template_id, TemplateLayoutData::from(&*payload)).await?;
     state.invalidate_template_background(template_id).await;
     issue_service::invalidate_completed_issues_for_template(&state, template_id)
         .await
@@ -573,7 +563,7 @@ async fn preview_template(
         &state,
         template_id,
         preview_name,
-        payload.layout.as_ref().map(template_layout_from_request),
+        payload.layout.as_ref().map(TemplateLayoutData::from),
     )
     .await?;
 
@@ -614,7 +604,7 @@ async fn save_template_snapshot(
         &state,
         template_id,
         preview_name,
-        payload.layout.as_ref().map(template_layout_from_request),
+        payload.layout.as_ref().map(TemplateLayoutData::from),
     )
     .await?;
 
@@ -940,155 +930,6 @@ pub fn configure_protected(cfg: &mut web::ServiceConfig) {
         .service(requeue_certificate_issue)
         .service(requeue_failed_for_template)
         .service(get_generation_progress);
-}
-
-fn template_layout_from_request(layout: &TemplateLayoutRequest) -> templates::TemplateLayoutData {
-    templates::TemplateLayoutData {
-        page_width: layout.page_width,
-        page_height: layout.page_height,
-        name_x: layout.name_x,
-        name_y: layout.name_y,
-        name_max_width: layout.name_max_width,
-        name_box_height: layout.name_box_height,
-        font_family: layout.font_family.clone(),
-        font_size: layout.font_size,
-        font_color_hex: layout.font_color_hex.clone(),
-        text_align: layout.text_align.clone(),
-        vertical_align: layout.vertical_align.clone(),
-        auto_shrink: layout.auto_shrink,
-        canvas: layout.canvas.clone(),
-    }
-}
-
-async fn collect_multipart(mut payload: Multipart) -> Result<MultipartForm, AppError> {
-    let mut form = MultipartForm::default();
-
-    while let Some(item) = payload.next().await {
-        let mut field =
-            item.map_err(|err| AppError::BadRequest(format!("invalid multipart body: {err}")))?;
-        let disposition = field.content_disposition().cloned().ok_or_else(|| {
-            AppError::BadRequest("multipart field is missing disposition".to_owned())
-        })?;
-        let field_name = disposition
-            .get_name()
-            .map(ToOwned::to_owned)
-            .ok_or_else(|| AppError::BadRequest("multipart field is missing name".to_owned()))?;
-        let file_name = disposition.get_filename().map(ToOwned::to_owned);
-        let content_type = field.content_type().map(|value| value.to_string());
-        let mut bytes = Vec::new();
-
-        while let Some(chunk) = field.next().await {
-            let chunk = chunk.map_err(|err| {
-                AppError::BadRequest(format!(
-                    "failed to read multipart field `{field_name}`: {err}"
-                ))
-            })?;
-            bytes.extend_from_slice(&chunk);
-        }
-
-        if file_name.is_some() {
-            form.files.push(UploadedFile {
-                field_name,
-                file_name,
-                content_type,
-                bytes,
-            });
-            continue;
-        }
-
-        let value = String::from_utf8(bytes).map_err(|_| {
-            AppError::BadRequest(format!("multipart field `{field_name}` is not valid utf-8"))
-        })?;
-        form.fields.insert(field_name, value.trim().to_owned());
-    }
-
-    Ok(form)
-}
-
-fn required_field<'a>(
-    fields: &'a HashMap<String, String>,
-    name: &str,
-) -> Result<&'a str, AppError> {
-    fields
-        .get(name)
-        .map(String::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| AppError::BadRequest(format!("missing required field `{name}`")))
-}
-
-fn required_file<'a>(
-    files: &'a [UploadedFile],
-    field_name: &str,
-) -> Result<&'a UploadedFile, AppError> {
-    files
-        .iter()
-        .find(|file| file.field_name == field_name)
-        .ok_or_else(|| AppError::BadRequest(format!("missing required file `{field_name}`")))
-}
-
-fn infer_source_kind(
-    explicit_source_kind: Option<&str>,
-    content_type: Option<&str>,
-    file_name: &str,
-) -> Result<String, AppError> {
-    if let Some(source_kind) = explicit_source_kind.filter(|value| !value.is_empty()) {
-        return Ok(source_kind.to_lowercase());
-    }
-
-    let extension = std::path::Path::new(file_name)
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or("")
-        .to_lowercase();
-
-    let inferred = match extension.as_str() {
-        "png" => "png",
-        "jpg" | "jpeg" => "jpeg",
-        "pdf" => "pdf",
-        _ => match content_type.unwrap_or("") {
-            "image/png" => "png",
-            "image/jpeg" => "jpeg",
-            "application/pdf" => "pdf",
-            _ => "",
-        },
-    };
-
-    if inferred.is_empty() {
-        return Err(AppError::BadRequest(
-            "template file must be PNG, JPG, JPEG or PDF".to_owned(),
-        ));
-    }
-
-    Ok(inferred.to_owned())
-}
-
-fn is_supported_participant_import(file_name: Option<&str>, content_type: Option<&str>) -> bool {
-    is_csv_file(file_name, content_type) || is_xlsx_file(file_name, content_type)
-}
-
-fn is_csv_file(file_name: Option<&str>, content_type: Option<&str>) -> bool {
-    match file_name
-        .and_then(|value| std::path::Path::new(value).extension())
-        .and_then(|value| value.to_str())
-        .map(|value| value.to_lowercase())
-    {
-        Some(extension) if extension == "csv" => true,
-        _ => matches!(content_type, Some("text/csv") | Some("application/csv")),
-    }
-}
-
-fn is_xlsx_file(file_name: Option<&str>, content_type: Option<&str>) -> bool {
-    match file_name
-        .and_then(|value| std::path::Path::new(value).extension())
-        .and_then(|value| value.to_str())
-        .map(|value| value.to_lowercase())
-    {
-        Some(extension) if extension == "xlsx" => true,
-        _ => matches!(
-            content_type,
-            Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        ),
-    }
 }
 
 async fn issuance_status(state: &AppState) -> Result<IssuanceStatusResponse, AppError> {

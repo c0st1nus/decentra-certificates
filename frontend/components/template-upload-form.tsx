@@ -5,8 +5,10 @@ import type { FormEvent } from "react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { AdminPanel } from "@/components/admin-panel";
+import { FileInputField } from "@/components/file-input-field";
+import { InfoTile } from "@/components/info-tile";
 import { type TemplateDetail, createTemplate } from "@/lib/admin-api";
-import { cn } from "@/lib/utils";
 
 type TemplateUploadFormProps = {
   onSaved?: (template: TemplateDetail) => void;
@@ -54,12 +56,10 @@ export function TemplateUploadForm({
   }
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+    <AdminPanel as="section">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
-            Templates
-          </p>
+          <p className="admin-eyebrow">Templates</p>
           <h2 className="mt-3 text-2xl font-black text-white">{title}</h2>
         </div>
         <FileImage aria-hidden="true" className="size-5 text-primary/85" />
@@ -71,7 +71,7 @@ export function TemplateUploadForm({
             Template name
             <input
               id="template-name"
-              className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+              className="admin-input mt-2"
               disabled={isLoading}
               placeholder="Main stage certificate"
               value={name}
@@ -80,26 +80,15 @@ export function TemplateUploadForm({
           </label>
         </div>
 
-        <label className="block text-sm font-medium text-white/80" htmlFor="template-file">
-          Asset file
-          <div className="mt-2 flex items-center gap-3 rounded-2xl border border-dashed border-white/15 bg-black/20 px-4 py-4">
-            <FileImage aria-hidden="true" className="size-5 text-primary/80" />
-            <input
-              id="template-file"
-              accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
-              className="block w-full text-sm text-white/75 file:mr-4 file:rounded-full file:border-0 file:bg-primary/15 file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:tracking-[0.18em] file:text-primary hover:file:bg-primary/20"
-              disabled={isLoading}
-              type="file"
-              onChange={(event) => {
-                const nextFile = event.target.files?.[0] ?? null;
-                setFile(nextFile);
-              }}
-            />
-          </div>
-          <p className="mt-2 text-xs leading-5 text-white/55">
-            Format will be detected automatically from the selected file.
-          </p>
-        </label>
+        <FileInputField
+          accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
+          disabled={isLoading}
+          helperText="Format will be detected automatically from the selected file."
+          icon={<FileImage aria-hidden="true" className="size-5 text-primary/80" />}
+          id="template-file"
+          label="Asset file"
+          onFileChange={setFile}
+        />
 
         <div className="grid gap-3 sm:grid-cols-2">
           <InfoTile label="Selected file" value={file?.name ?? "No file yet"} />
@@ -123,7 +112,7 @@ export function TemplateUploadForm({
           )}
         </button>
       </form>
-    </section>
+    </AdminPanel>
   );
 }
 
@@ -136,13 +125,4 @@ function detectTemplateSourceKind(fileName: string) {
     return "jpeg";
   }
   return "png";
-}
-
-function InfoTile({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/50">{label}</p>
-      <p className="mt-2 truncate text-sm text-white/75">{value}</p>
-    </div>
-  );
 }

@@ -1,5 +1,6 @@
 use chrono::Utc;
 use entity::{
+    certificate_templates,
     prelude::{CertificateTemplates, TemplateCategories},
     template_categories,
 };
@@ -35,7 +36,7 @@ pub async fn list_categories(
     db: &DatabaseConnection,
     template_id: Uuid,
 ) -> Result<Vec<CategorySummary>, AppError> {
-    ensure_template_exists(db, template_id).await?;
+    let template = load_template(db, template_id).await?;
     let items = TemplateCategories::find()
         .filter(template_categories::Column::TemplateId.eq(template_id))
         .order_by_desc(template_categories::Column::IsActive)
@@ -43,12 +44,6 @@ pub async fn list_categories(
         .all(db)
         .await
         .map_err(|err| AppError::Internal(err.into()))?;
-
-    let template = CertificateTemplates::find_by_id(template_id)
-        .one(db)
-        .await
-        .map_err(|err| AppError::Internal(err.into()))?
-        .ok_or_else(|| AppError::NotFound("template not found".to_owned()))?;
 
     Ok(items
         .into_iter()
@@ -94,16 +89,10 @@ pub async fn create_category(
     template_id: Uuid,
     input: UpsertCategoryInput,
 ) -> Result<CategorySummary, AppError> {
-    ensure_template_exists(db, template_id).await?;
+    let template = load_template(db, template_id).await?;
     let name = normalize_name(&input.name)?;
     let slug = ensure_unique_slug(db, template_id, &slugify(&name), None).await?;
     let now = Utc::now();
-
-    let template = CertificateTemplates::find_by_id(template_id)
-        .one(db)
-        .await
-        .map_err(|err| AppError::Internal(err.into()))?
-        .ok_or_else(|| AppError::NotFound("template not found".to_owned()))?;
 
     let model = template_categories::ActiveModel {
         id: Set(Uuid::new_v4()),
@@ -135,11 +124,7 @@ pub async fn update_category(
         .map_err(|err| AppError::Internal(err.into()))?
         .ok_or_else(|| AppError::NotFound("category not found".to_owned()))?;
 
-    let template = CertificateTemplates::find_by_id(template_id)
-        .one(db)
-        .await
-        .map_err(|err| AppError::Internal(err.into()))?
-        .ok_or_else(|| AppError::NotFound("template not found".to_owned()))?;
+    let template = load_template(db, template_id).await?;
 
     let name = normalize_name(&input.name)?;
     let slug = ensure_unique_slug(db, template_id, &slugify(&name), Some(id)).await?;
@@ -176,20 +161,15 @@ pub async fn delete_category(
     Ok(())
 }
 
-async fn ensure_template_exists(
+async fn load_template(
     db: &DatabaseConnection,
     template_id: Uuid,
-) -> Result<(), AppError> {
-    let exists = CertificateTemplates::find_by_id(template_id)
+) -> Result<certificate_templates::Model, AppError> {
+    CertificateTemplates::find_by_id(template_id)
         .one(db)
         .await
         .map_err(|err| AppError::Internal(err.into()))?
-        .is_some();
-    if !exists {
-        return Err(AppError::NotFound("template not found".to_owned()));
-    }
-
-    Ok(())
+        .ok_or_else(|| AppError::NotFound("template not found".to_owned()))
 }
 
 async fn ensure_unique_slug(

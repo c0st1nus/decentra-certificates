@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowRight,
   Check,
   LoaderCircle,
   PencilLine,
@@ -16,7 +15,10 @@ import { useRouter } from "next/navigation";
 import { use, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { AdminPageHeader } from "@/components/admin-page-header";
+import { AdminPanel } from "@/components/admin-panel";
 import { TemplateAssetPreview } from "@/components/template-asset-preview";
+import { TemplateStatLinkCard } from "@/components/template-stat-link-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   type TemplateDetail,
@@ -158,9 +160,9 @@ export default function TemplateDetailPage({ params }: Props) {
 
   if (!template) {
     return (
-      <section className="rounded-2xl border border-white/10 bg-panel/90 p-5 text-sm text-white/70 backdrop-blur-xl">
+      <AdminPanel as="section" className="text-sm text-white/70">
         Template not found.
-      </section>
+      </AdminPanel>
     );
   }
 
@@ -168,68 +170,36 @@ export default function TemplateDetailPage({ params }: Props) {
 
   return (
     <section className="space-y-6">
-      <div className="max-w-3xl space-y-4">
-        <h1 className="heading-hero text-gradient text-left">{t.name}</h1>
-        <p className="max-w-2xl text-sm leading-6 text-white/70 sm:text-base">
-          Manage template: source file, layout, categories, participants and certificate issuance.
-        </p>
-      </div>
+      <AdminPageHeader
+        description="Manage template: source file, layout, categories, participants and certificate issuance."
+        title={t.name}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Link
-          className="group flex flex-col gap-3 rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-primary/30 hover:bg-white/[0.04]"
+        <TemplateStatLinkCard
+          count={formatCompactNumber(t.participant_count)}
           href={`/admin/templates/${id}/participants`}
-        >
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/10">
-              <Users className="size-4 text-primary" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
-                Participants
-              </p>
-              <p className="text-sm font-medium text-white/85">Manage roster</p>
-            </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-2xl font-black text-white">
-              {formatCompactNumber(t.participant_count)}
-            </span>
-            <ArrowRight className="size-5 text-primary/85 transition group-hover:translate-x-0.5" />
-          </div>
-        </Link>
+          icon={Users}
+          label="Participants"
+          subtitle="Manage roster"
+        />
 
-        <Link
-          className="group flex flex-col gap-3 rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-primary/30 hover:bg-white/[0.04]"
+        <TemplateStatLinkCard
+          count={formatCompactNumber(t.category_count)}
           href={`/admin/templates/${id}/categories`}
-        >
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/10">
-              <Tags className="size-4 text-primary" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
-                Categories
-              </p>
-              <p className="text-sm font-medium text-white/85">Template categories</p>
-            </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-2xl font-black text-white">
-              {formatCompactNumber(t.category_count)}
-            </span>
-            <ArrowRight className="size-5 text-primary/85 transition group-hover:translate-x-0.5" />
-          </div>
-        </Link>
+          icon={Tags}
+          label="Categories"
+          subtitle="Template categories"
+        />
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+      <AdminPanel>
         <div className="grid gap-4">
           <label className="block text-sm font-medium text-white/80" htmlFor="template-name">
             Template name
             <input
               id="template-name"
-              className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40"
+              className="admin-input mt-2"
               value={name}
               onChange={(event) => setName(event.target.value)}
             />
@@ -239,7 +209,7 @@ export default function TemplateDetailPage({ params }: Props) {
             Replace source file
             <input
               id="template-file"
-              className="mt-2 block w-full rounded-2xl border border-dashed border-white/15 bg-black/20 px-4 py-4 text-sm text-white/75 file:mr-4 file:rounded-full file:border-0 file:bg-primary/15 file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:tracking-[0.18em] file:text-primary hover:file:bg-primary/20"
+              className="admin-file-input mt-2 block rounded-2xl border border-dashed border-white/15 bg-black/20 px-4 py-4"
               accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
               type="file"
               onChange={(event) => setFile(event.target.files?.[0] ?? null)}
@@ -315,27 +285,23 @@ export default function TemplateDetailPage({ params }: Props) {
             </button>
           </div>
         </div>
-      </div>
+      </AdminPanel>
 
       <div className="space-y-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
-          Source preview
-        </p>
+        <p className="admin-eyebrow">Source preview</p>
         <TemplateAssetPreview sourceKind={t.source_kind} templateId={t.id} templateName={t.name} />
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/65">
+        <span className="admin-muted-pill">
           <Users className="size-3 text-primary/70" />
           {formatCompactNumber(t.participant_count)} participants
         </span>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/65">
+        <span className="admin-muted-pill">
           <Tags className="size-3 text-primary/70" />
           {t.category_count} categories
         </span>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/65">
-          {t.source_kind.toUpperCase()}
-        </span>
+        <span className="admin-muted-pill">{t.source_kind.toUpperCase()}</span>
         <span
           className={cn(
             "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs",

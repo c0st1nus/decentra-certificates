@@ -163,18 +163,7 @@ pub async fn requeue_issue(state: &AppState, issue_id: Uuid) -> Result<(), AppEr
         .map_err(|err| AppError::Internal(err.into()))?
         .ok_or_else(|| AppError::NotFound("template not found".to_owned()))?;
 
-    let now = Utc::now();
-    let mut active: certificate_issues::ActiveModel = issue.into();
-    active.status = Set("queued".to_owned());
-    active.attempts = Set(0);
-    active.error_message = Set(None);
-    active.queued_at = Set(Some(now));
-    active.processing_at = Set(None);
-    active.completed_at = Set(None);
-    active.failed_at = Set(None);
-    active.template_updated_at = Set(Some(template.updated_at));
-    active.updated_at = Set(now);
-    let issue = active
+    let issue = reset_to_queued(issue, Some(template.updated_at))
         .update(&state.db)
         .await
         .map_err(|err| AppError::Internal(err.into()))?;
@@ -220,18 +209,10 @@ pub async fn requeue_failed_for_template(
             _ => continue,
         };
 
-        let now = Utc::now();
-        let mut active: certificate_issues::ActiveModel = issue.into();
-        active.status = Set("queued".to_owned());
-        active.attempts = Set(0);
-        active.error_message = Set(None);
-        active.queued_at = Set(Some(now));
-        active.processing_at = Set(None);
-        active.completed_at = Set(None);
-        active.failed_at = Set(None);
-        active.template_updated_at = Set(Some(template.updated_at));
-        active.updated_at = Set(now);
-        let issue = match active.update(&state.db).await {
+        let issue = match reset_to_queued(issue, Some(template.updated_at))
+            .update(&state.db)
+            .await
+        {
             Ok(i) => i,
             Err(err) => {
                 tracing::warn!(error = %err, "failed to reset failed issue status");
@@ -279,17 +260,8 @@ pub async fn invalidate_completed_issues_for_template(
             );
         }
 
-        let now = Utc::now();
         let issue_id = issue.id;
-        let mut active: certificate_issues::ActiveModel = issue.into();
-        active.status = Set("queued".to_owned());
-        active.attempts = Set(0);
-        active.error_message = Set(None);
-        active.queued_at = Set(Some(now));
-        active.processing_at = Set(None);
-        active.completed_at = Set(None);
-        active.failed_at = Set(None);
-        active.updated_at = Set(now);
+        let active = reset_to_queued(issue, None);
 
         if let Err(err) = active.update(&state.db).await {
             tracing::warn!(
@@ -303,6 +275,26 @@ pub async fn invalidate_completed_issues_for_template(
     }
 
     Ok(invalidated)
+}
+
+fn reset_to_queued(
+    issue: certificate_issues::Model,
+    template_updated_at: Option<chrono::DateTime<Utc>>,
+) -> certificate_issues::ActiveModel {
+    let now = Utc::now();
+    let mut active: certificate_issues::ActiveModel = issue.into();
+    active.status = Set("queued".to_owned());
+    active.attempts = Set(0);
+    active.error_message = Set(None);
+    active.queued_at = Set(Some(now));
+    active.processing_at = Set(None);
+    active.completed_at = Set(None);
+    active.failed_at = Set(None);
+    active.updated_at = Set(now);
+    if let Some(template_updated_at) = template_updated_at {
+        active.template_updated_at = Set(Some(template_updated_at));
+    }
+    active
 }
 
 pub async fn get_generation_progress(

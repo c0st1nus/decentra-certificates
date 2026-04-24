@@ -38,7 +38,7 @@ export default function TemplateLayoutPage({ params }: Props) {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#0a0a12]">
+      <div className="flex h-screen w-screen items-center justify-center bg-canvas">
         <LoaderCircle className="size-8 animate-spin text-primary" />
       </div>
     );
@@ -46,7 +46,7 @@ export default function TemplateLayoutPage({ params }: Props) {
 
   if (!template) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#0a0a12] text-sm text-white/70">
+      <div className="flex h-screen w-screen items-center justify-center bg-canvas text-sm text-white/70">
         Template not found.
       </div>
     );

@@ -15,6 +15,7 @@ import type { FormEvent, MutableRefObject, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { AdminPanel } from "@/components/admin-panel";
 import { CertificateDownloadButton } from "@/components/certificate-download-button";
 import { TelegramSubscriptionModal } from "@/components/telegram-subscription-modal";
 import {
@@ -42,7 +43,11 @@ type SuccessPayload = {
 type RequestState =
   | { kind: "idle" }
   | { kind: "checking" }
-  | { kind: "select"; certificates: AvailableCertificate[]; fullName: string | null }
+  | {
+      kind: "select";
+      certificates: AvailableCertificate[];
+      fullName: string | null;
+    }
   | { kind: "requesting"; certificate: AvailableCertificate }
   | {
       kind: "waiting";
@@ -161,7 +166,11 @@ export function EmailRequestForm() {
         return;
       }
 
-      setState({ kind: "select", certificates: data.certificates, fullName: data.full_name });
+      setState({
+        kind: "select",
+        certificates: data.certificates,
+        fullName: data.full_name,
+      });
     } catch {
       setState({
         kind: "error",
@@ -322,12 +331,10 @@ export function EmailRequestForm() {
   const isLoading = isChecking || isRequesting || isWaiting;
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+    <AdminPanel as="section">
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
-            Public issuance
-          </p>
+          <p className="admin-eyebrow">Public issuance</p>
           <h2 className="mt-3 text-2xl font-black text-white">Claim certificate</h2>
         </div>
         <ShieldCheck className="size-5 shrink-0 text-primary/85" />
@@ -354,7 +361,7 @@ export function EmailRequestForm() {
             aria-busy={isLoading}
             autoComplete="email"
             className={cn(
-              "w-full rounded-2xl border border-white/10 bg-black/35 py-3.5 pl-11 pr-4 text-base text-white outline-none transition-colors focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40",
+              "admin-input admin-input-icon transition-colors",
               isLoading && "cursor-not-allowed opacity-80",
             )}
             disabled={isLoading}
@@ -366,7 +373,7 @@ export function EmailRequestForm() {
           />
         </div>
 
-        <button className="btn-hero glow-primary w-full rounded-2xl bg-white/[0.05]" type="submit">
+        <button className="btn-hero glow-primary w-full rounded-2xl bg-white/5" type="submit">
           {isChecking ? (
             <>
               <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" />
@@ -385,15 +392,15 @@ export function EmailRequestForm() {
         aria-live="polite"
         className={cn(
           "mt-5 rounded-2xl border p-4",
-          state.kind === "idle" && "border-white/10 bg-white/[0.03] text-white/70",
-          state.kind === "checking" && "border-primary/25 bg-primary/[0.08] text-white/80",
+          state.kind === "idle" && "border-white/10 bg-white/3 text-white/70",
+          state.kind === "checking" && "border-primary/25 bg-primary/8 text-white/80",
           state.kind === "select" && "border-primary/30 bg-primary/10 text-white",
           (state.kind === "requesting" || state.kind === "waiting") &&
-            "border-primary/25 bg-primary/[0.08] text-white/80",
+            "border-primary/25 bg-primary/8 text-white/80",
           state.kind === "success" && "border-primary/30 bg-primary/10 text-white",
           state.kind === "issuance_disabled" &&
             "border-amber-500/25 bg-amber-500/10 text-amber-100",
-          state.kind === "not_found" && "border-white/10 bg-white/[0.03] text-white/75",
+          state.kind === "not_found" && "border-white/10 bg-white/3 text-white/75",
           state.kind === "not_subscribed" && "border-red-500/25 bg-red-500/10 text-red-100",
           (state.kind === "rate_limited" || state.kind === "error") &&
             "border-red-500/25 bg-red-500/10 text-red-100",
@@ -431,7 +438,7 @@ export function EmailRequestForm() {
           <StatusNotice
             action={
               <button
-                className="btn-hero mt-4 w-full rounded-2xl border border-white/10 bg-white/[0.04]"
+                className="btn-hero mt-4 w-full rounded-2xl border border-white/10 bg-white/4"
                 type="button"
                 onClick={retry}
               >
@@ -449,7 +456,7 @@ export function EmailRequestForm() {
           <StatusNotice
             action={
               <button
-                className="btn-hero mt-4 w-full rounded-2xl border border-white/10 bg-white/[0.04]"
+                className="btn-hero mt-4 w-full rounded-2xl border border-white/10 bg-white/4"
                 type="button"
                 onClick={() => setShowSubscriptionModal(true)}
               >
@@ -467,7 +474,7 @@ export function EmailRequestForm() {
           <StatusNotice
             action={
               <button
-                className="btn-hero mt-4 w-full rounded-2xl border border-white/10 bg-white/[0.04]"
+                className="btn-hero mt-4 w-full rounded-2xl border border-white/10 bg-white/4"
                 type="button"
                 onClick={retry}
               >
@@ -485,7 +492,7 @@ export function EmailRequestForm() {
           <StatusNotice
             action={
               <button
-                className="btn-hero mt-4 w-full rounded-2xl border border-white/10 bg-white/[0.04]"
+                className="btn-hero mt-4 w-full rounded-2xl border border-white/10 bg-white/4"
                 type="button"
                 onClick={retry}
               >
@@ -505,7 +512,7 @@ export function EmailRequestForm() {
         onClose={() => setShowSubscriptionModal(false)}
         onVerified={(auth) => void retryAfterVerification(auth)}
       />
-    </section>
+    </AdminPanel>
   );
 }
 
@@ -553,7 +560,7 @@ function CertificateSelector({
                     )}
                   </div>
 
-                  <span className="inline-flex min-h-10 items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-[11px] text-white/70">
+                  <span className="inline-flex min-h-10 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-white/70">
                     <span className={cn("size-2 rounded-full", statusMeta.dotClassName)} />
                     {statusMeta.label}
                   </span>
@@ -605,9 +612,9 @@ function StatusLoading() {
         </p>
       </div>
       <div className="space-y-2">
-        <div className="h-3 w-3/4 animate-pulse rounded-full bg-white/[0.08] motion-reduce:animate-none" />
-        <div className="h-3 w-2/3 animate-pulse rounded-full bg-white/[0.08] motion-reduce:animate-none" />
-        <div className="h-3 w-1/2 animate-pulse rounded-full bg-white/[0.08] motion-reduce:animate-none" />
+        <div className="h-3 w-3/4 animate-pulse rounded-full bg-white/8 motion-reduce:animate-none" />
+        <div className="h-3 w-2/3 animate-pulse rounded-full bg-white/8 motion-reduce:animate-none" />
+        <div className="h-3 w-1/2 animate-pulse rounded-full bg-white/8 motion-reduce:animate-none" />
       </div>
     </div>
   );
@@ -630,7 +637,11 @@ function StatusRequesting({ templateName }: { templateName: string }) {
   );
 }
 
-function StatusWaiting({ state }: { state: Extract<RequestState, { kind: "waiting" }> }) {
+function StatusWaiting({
+  state,
+}: {
+  state: Extract<RequestState, { kind: "waiting" }>;
+}) {
   const isConnecting = state.phase === "connecting";
   const isProcessing = state.phase === "processing";
   const stepClassName = isProcessing ? "bg-primary text-black" : "bg-white/[0.06] text-white/70";
@@ -672,8 +683,8 @@ function StatusWaiting({ state }: { state: Extract<RequestState, { kind: "waitin
         </div>
         <div className="mt-3 grid gap-2">
           <div className={cn("h-2 rounded-full", stepClassName)} />
-          <div className="h-2 w-4/5 rounded-full bg-white/[0.08]" />
-          <div className="h-2 w-3/5 rounded-full bg-white/[0.08]" />
+          <div className="h-2 w-4/5 rounded-full bg-white/8" />
+          <div className="h-2 w-3/5 rounded-full bg-white/8" />
         </div>
       </div>
     </div>
@@ -712,14 +723,14 @@ function StatusSuccess({ data }: { data: SuccessPayload }) {
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <CertificateDownloadButton
-          className="btn-hero glow-primary rounded-2xl bg-white/[0.06]"
+          className="btn-hero glow-primary rounded-2xl bg-white/6"
           href={downloadHref}
         >
           <Download aria-hidden="true" className="size-4" />
           Download PDF
         </CertificateDownloadButton>
         <a
-          className="btn-hero rounded-2xl border border-white/10 bg-white/[0.04]"
+          className="btn-hero rounded-2xl border border-white/10 bg-white/4"
           href={verificationHref}
         >
           <BadgeCheck aria-hidden="true" className="size-4" />
@@ -764,7 +775,7 @@ function ProgressStep({ active, title }: { active: boolean; title: string }) {
         "rounded-2xl border px-3 py-3 text-sm transition-colors",
         active
           ? "border-primary/35 bg-primary/12 text-white"
-          : "border-white/10 bg-white/[0.03] text-white/55",
+          : "border-white/10 bg-white/3 text-white/55",
       )}
     >
       <p className="font-medium">{title}</p>

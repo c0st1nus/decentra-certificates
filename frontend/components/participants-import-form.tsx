@@ -5,6 +5,9 @@ import type { FormEvent } from "react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { AdminPanel } from "@/components/admin-panel";
+import { FileInputField } from "@/components/file-input-field";
+import { InfoTile } from "@/components/info-tile";
 import { type ImportResponse, importParticipants } from "@/lib/admin-api";
 
 type ParticipantsImportFormProps = {
@@ -58,12 +61,10 @@ export function ParticipantsImportForm({
   }
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+    <AdminPanel as="section">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
-            Participants
-          </p>
+          <p className="admin-eyebrow">Participants</p>
           <h2 className="mt-3 text-2xl font-black text-white">Import CSV/XLSX</h2>
           <p className="mt-2 max-w-sm text-sm leading-6 text-white/65">
             {templateName
@@ -75,20 +76,14 @@ export function ParticipantsImportForm({
       </div>
 
       <form className="mt-6 space-y-4" onSubmit={(event) => void handleSubmit(event)}>
-        <label className="block text-sm font-medium text-white/80" htmlFor="participants-file">
-          CSV or XLSX file
-          <div className="mt-2 flex items-center gap-3 rounded-2xl border border-dashed border-white/15 bg-black/20 px-4 py-4">
-            <Upload className="size-5 text-primary/80" />
-            <input
-              id="participants-file"
-              accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              className="block w-full text-sm text-white/75 file:mr-4 file:rounded-full file:border-0 file:bg-primary/15 file:px-4 file:py-2 file:text-xs file:font-semibold file:uppercase file:tracking-[0.18em] file:text-primary hover:file:bg-primary/20"
-              disabled={isLoading || !templateId}
-              type="file"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            />
-          </div>
-        </label>
+        <FileInputField
+          accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          disabled={isLoading || !templateId}
+          icon={<Upload aria-hidden="true" className="size-5 text-primary/80" />}
+          id="participants-file"
+          label="CSV or XLSX file"
+          onFileChange={setFile}
+        />
 
         <button
           className="btn-hero glow-primary w-full rounded-2xl bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-50"
@@ -110,10 +105,26 @@ export function ParticipantsImportForm({
       </form>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-4">
-        <SummaryTile label="Rows" value={result ? String(result.total_rows) : "0"} />
-        <SummaryTile label="Inserted" value={result ? String(result.inserted) : "0"} />
-        <SummaryTile label="Updated" value={result ? String(result.updated) : "0"} />
-        <SummaryTile label="Skipped" value={result ? String(result.skipped) : "0"} />
+        <InfoTile
+          label="Rows"
+          value={result ? String(result.total_rows) : "0"}
+          valueClassName="text-lg font-black text-white"
+        />
+        <InfoTile
+          label="Inserted"
+          value={result ? String(result.inserted) : "0"}
+          valueClassName="text-lg font-black text-white"
+        />
+        <InfoTile
+          label="Updated"
+          value={result ? String(result.updated) : "0"}
+          valueClassName="text-lg font-black text-white"
+        />
+        <InfoTile
+          label="Skipped"
+          value={result ? String(result.skipped) : "0"}
+          valueClassName="text-lg font-black text-white"
+        />
       </div>
 
       {result?.errors.length ? (
@@ -141,15 +152,6 @@ export function ParticipantsImportForm({
           </table>
         </div>
       ) : null}
-    </section>
-  );
-}
-
-function SummaryTile({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/50">{label}</p>
-      <p className="mt-2 text-lg font-black text-white">{value}</p>
-    </div>
+    </AdminPanel>
   );
 }

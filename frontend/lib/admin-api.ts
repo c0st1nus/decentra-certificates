@@ -166,6 +166,14 @@ export interface ImportResponse {
 const ACCESS_TOKEN_KEY = "decentra_admin_access_token";
 const REFRESH_TOKEN_KEY = "decentra_admin_refresh_token";
 const EXPIRES_AT_KEY = "decentra_admin_expires_at";
+const PROFILE_KEY = `${ACCESS_TOKEN_KEY}:profile`;
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+type CategoryPayload = {
+  name: string;
+  description?: string | null;
+  is_active: boolean;
+};
 
 export function getStoredSession(): StoredSession | null {
   if (typeof window === "undefined") {
@@ -207,7 +215,7 @@ export function setAdminSession(
   window.localStorage.setItem(EXPIRES_AT_KEY, String(expiresAt));
 
   if (profile) {
-    window.localStorage.setItem(`${ACCESS_TOKEN_KEY}:profile`, JSON.stringify(profile));
+    window.localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
   }
 
   window.dispatchEvent(new Event("auth:storage:change"));
@@ -218,7 +226,7 @@ export function getStoredAdminProfile(): AdminProfile | null {
     return null;
   }
 
-  const raw = window.localStorage.getItem(`${ACCESS_TOKEN_KEY}:profile`);
+  const raw = window.localStorage.getItem(PROFILE_KEY);
   if (!raw) {
     return null;
   }
@@ -238,15 +246,13 @@ export function clearAdminSession() {
   window.localStorage.removeItem(ACCESS_TOKEN_KEY);
   window.localStorage.removeItem(REFRESH_TOKEN_KEY);
   window.localStorage.removeItem(EXPIRES_AT_KEY);
-  window.localStorage.removeItem(`${ACCESS_TOKEN_KEY}:profile`);
+  window.localStorage.removeItem(PROFILE_KEY);
 }
 
 export async function adminLogin(login: string, password: string) {
   const response = await fetch(buildApiUrl("/api/v1/admin/auth/login"), {
     body: JSON.stringify({ login, password }),
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: JSON_HEADERS,
     method: "POST",
   });
   const data = await parseJson<AdminSession>(response);
@@ -264,9 +270,7 @@ export async function adminLogout() {
     "/api/v1/admin/logout",
     {
       body: JSON.stringify({ refresh_token: session.refresh_token }),
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: JSON_HEADERS,
       method: "POST",
     },
     false,
@@ -291,41 +295,18 @@ export async function fetchAllCategories() {
   return adminRequestJson<CategorySummary[]>("/api/v1/admin/categories");
 }
 
-export async function createTemplateCategory(
-  templateId: string,
-  payload: {
-    name: string;
-    description?: string | null;
-    is_active: boolean;
-  },
-) {
-  return adminRequestJson<CategorySummary>(`/api/v1/admin/templates/${templateId}/categories`, {
-    body: JSON.stringify(payload),
-    headers: {
-      "Content-Type": "application/json",
-    },
-    method: "POST",
-  });
+export async function createTemplateCategory(templateId: string, payload: CategoryPayload) {
+  return postJson<CategorySummary>(`/api/v1/admin/templates/${templateId}/categories`, payload);
 }
 
 export async function updateTemplateCategory(
   templateId: string,
   categoryId: string,
-  payload: {
-    name: string;
-    description?: string | null;
-    is_active: boolean;
-  },
+  payload: CategoryPayload,
 ) {
-  return adminRequestJson<CategorySummary>(
+  return patchJson<CategorySummary>(
     `/api/v1/admin/templates/${templateId}/categories/${categoryId}`,
-    {
-      body: JSON.stringify(payload),
-      headers: {
-        "Content-Type": "application/json",
-      },
-      method: "PATCH",
-    },
+    payload,
   );
 }
 
@@ -379,13 +360,7 @@ export async function deleteTemplate(id: string) {
 }
 
 export async function saveTemplateLayout(id: string, layout: TemplateLayoutData) {
-  return adminRequestJson<TemplateLayoutData>(`/api/v1/admin/templates/${id}/layout`, {
-    body: JSON.stringify(layout),
-    headers: {
-      "Content-Type": "application/json",
-    },
-    method: "PUT",
-  });
+  return putJson<TemplateLayoutData>(`/api/v1/admin/templates/${id}/layout`, layout);
 }
 
 export async function previewTemplate(
@@ -393,16 +368,13 @@ export async function previewTemplate(
   previewName: string,
   layout?: TemplateLayoutData,
 ) {
-  return adminRequest(`/api/v1/admin/templates/${id}/preview`, {
-    body: JSON.stringify({
+  return adminRequest(
+    `/api/v1/admin/templates/${id}/preview`,
+    jsonInit("POST", {
       preview_name: previewName,
       layout,
     }),
-    headers: {
-      "Content-Type": "application/json",
-    },
-    method: "POST",
-  });
+  );
 }
 
 export async function saveTemplateSnapshot(
@@ -410,15 +382,9 @@ export async function saveTemplateSnapshot(
   previewName: string,
   layout?: TemplateLayoutData,
 ) {
-  return adminRequestJson<{ preview_path: string }>(`/api/v1/admin/templates/${id}/snapshot`, {
-    body: JSON.stringify({
-      preview_name: previewName,
-      layout,
-    }),
-    headers: {
-      "Content-Type": "application/json",
-    },
-    method: "POST",
+  return postJson<{ preview_path: string }>(`/api/v1/admin/templates/${id}/snapshot`, {
+    preview_name: previewName,
+    layout,
   });
 }
 
@@ -533,9 +499,7 @@ async function adminRequest(path: string, init: RequestInit = {}, retry = true):
 async function refreshAdminSession(refreshToken: string): Promise<AdminRefreshResponse | null> {
   const response = await fetch(buildApiUrl("/api/v1/admin/auth/refresh"), {
     body: JSON.stringify({ refresh_token: refreshToken }),
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: JSON_HEADERS,
     method: "POST",
   });
 
@@ -546,6 +510,26 @@ async function refreshAdminSession(refreshToken: string): Promise<AdminRefreshRe
 
   setAdminSession(data);
   return data;
+}
+
+function postJson<T>(path: string, payload: unknown) {
+  return adminRequestJson<T>(path, jsonInit("POST", payload));
+}
+
+function patchJson<T>(path: string, payload: unknown) {
+  return adminRequestJson<T>(path, jsonInit("PATCH", payload));
+}
+
+function putJson<T>(path: string, payload: unknown) {
+  return adminRequestJson<T>(path, jsonInit("PUT", payload));
+}
+
+function jsonInit(method: string, payload: unknown): RequestInit {
+  return {
+    body: JSON.stringify(payload),
+    headers: JSON_HEADERS,
+    method,
+  };
 }
 
 async function parseJson<T>(response: Response): Promise<T | null> {

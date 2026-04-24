@@ -6,6 +6,7 @@ import type { FormEvent } from "react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { AdminPanel } from "@/components/admin-panel";
 import { adminLogin, setAdminSession } from "@/lib/admin-api";
 import { cn } from "@/lib/utils";
 
@@ -49,15 +50,13 @@ export function AdminLoginForm() {
   }
 
   return (
-    <section className="w-full max-w-md rounded-2xl border border-white/10 bg-panel/90 p-5 backdrop-blur-xl sm:p-6">
+    <AdminPanel as="section" className="w-full max-w-md">
       <div className="flex items-center gap-3">
         <div className="flex size-10 items-center justify-center rounded-2xl border border-primary/30 bg-primary/10">
           <ShieldCheck className="size-5 text-primary" />
         </div>
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-primary">
-            Admin login
-          </p>
+          <p className="admin-eyebrow">Admin login</p>
           <h1 className="mt-2 text-2xl font-black text-white">Sign in</h1>
         </div>
       </div>
@@ -77,7 +76,7 @@ export function AdminLoginForm() {
             id="login"
             autoComplete="username"
             className={cn(
-              "w-full rounded-2xl border border-white/10 bg-black/35 py-3.5 pl-11 pr-4 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40",
+              "admin-input admin-input-icon",
               isLoading && "cursor-not-allowed opacity-80",
             )}
             disabled={isLoading}
@@ -96,7 +95,7 @@ export function AdminLoginForm() {
             id="password"
             autoComplete="current-password"
             className={cn(
-              "w-full rounded-2xl border border-white/10 bg-black/35 py-3.5 pl-11 pr-4 text-base text-white outline-none transition focus:border-primary/60 focus:bg-black/50 focus-visible:ring-2 focus-visible:ring-primary/40",
+              "admin-input admin-input-icon",
               isLoading && "cursor-not-allowed opacity-80",
             )}
             disabled={isLoading}
@@ -121,6 +120,6 @@ export function AdminLoginForm() {
           )}
         </button>
       </form>
-    </section>
+    </AdminPanel>
   );
 }

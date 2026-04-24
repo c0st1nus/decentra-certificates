@@ -11,7 +11,7 @@ use sea_orm::{
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::error::AppError;
+use crate::{error::AppError, services::normalization::normalize_email};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ParticipantSummary {
@@ -416,10 +416,6 @@ fn parse_row_from_cells(
 
 fn cell_to_string(cell: &Data) -> String {
     cell.to_string().trim().to_owned()
-}
-
-fn normalize_email(email: &str) -> String {
-    email.trim().to_lowercase()
 }
 
 fn to_summary(

@@ -15,7 +15,9 @@ use ulid::Ulid;
 
 use crate::{
     error::AppError,
-    services::{certificate_jobs, scene_renderer, settings, templates},
+    services::{
+        certificate_jobs, normalization::normalize_email, scene_renderer, settings, templates, urls,
+    },
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -138,13 +140,10 @@ pub async fn issue_certificate(
         message: job.message,
         job_id: job.job_id.clone(),
         certificate_id: job.certificate_id,
-        events_url: format!("/api/v1/public/certificates/jobs/{}/events", job.job_id),
-        verification_url: job.verification_url.unwrap_or_else(|| {
-            format!(
-                "/api/v1/public/certificates/verify/{}",
-                issue.verification_code
-            )
-        }),
+        events_url: urls::certificate_job_events_url(&job.job_id),
+        verification_url: job
+            .verification_url
+            .unwrap_or_else(|| urls::certificate_verification_url(&issue.verification_code)),
         full_name: participant.full_name,
         template_name: template.name,
     }))
@@ -227,10 +226,10 @@ pub async fn check_available_certificates(
             certificate_id: issue.map(|i| i.certificate_id.clone()),
             download_url: issue.and_then(|i| {
                 (delivery_status == "ready")
-                    .then(|| format!("/api/v1/public/certificates/{}/download", i.certificate_id))
+                    .then(|| urls::certificate_download_url(&i.certificate_id))
             }),
             verification_url: issue
-                .map(|i| format!("/api/v1/public/certificates/verify/{}", i.verification_code)),
+                .map(|i| urls::certificate_verification_url(&i.verification_code)),
         });
     }
 
@@ -253,8 +252,8 @@ fn build_public_response(
         message: "Сертификат готов",
         certificate_id: certificate_id.clone(),
         verification_code: verification_code.clone(),
-        download_url: format!("/api/v1/public/certificates/{certificate_id}/download"),
-        verification_url: format!("/api/v1/public/certificates/verify/{verification_code}"),
+        download_url: urls::certificate_download_url(&certificate_id),
+        verification_url: urls::certificate_verification_url(&verification_code),
         full_name: participant.full_name,
         template_name: template.name,
     }
@@ -633,10 +632,6 @@ fn build_pdf(
     );
 
     Ok(pdf)
-}
-
-fn normalize_email(email: &str) -> String {
-    email.trim().to_lowercase()
 }
 
 fn format_number(value: f32) -> String {
