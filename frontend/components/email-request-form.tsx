@@ -17,6 +17,7 @@ import { toast } from "sonner";
 
 import { AdminPanel } from "@/components/admin-panel";
 import { CertificateDownloadButton } from "@/components/certificate-download-button";
+import { useTelegram } from "@/components/telegram-provider";
 import { TelegramSubscriptionModal } from "@/components/telegram-subscription-modal";
 import {
   type AvailableCertificate,
@@ -70,6 +71,7 @@ const initialMessage =
   "Enter the email used during registration. We will show all available certificates and immediately start the one you need.";
 
 export function EmailRequestForm() {
+  const { initData, isTma } = useTelegram();
   const [email, setEmail] = useState("");
   const [state, setState] = useState<RequestState>({ kind: "idle" });
   const [telegramAuth, setTelegramAuth] = useState<TelegramAuthPayload | undefined>(undefined);
@@ -86,11 +88,27 @@ export function EmailRequestForm() {
   }, []);
 
   function handleNotSubscribed() {
-    setShowSubscriptionModal(true);
     setState({
       kind: "not_subscribed",
       message: "You must subscribe to our Telegram channel to claim certificates.",
     });
+    window.setTimeout(() => setShowSubscriptionModal(true), 0);
+  }
+
+  function getActiveTelegramAuth(auth?: TelegramAuthPayload) {
+    if (auth) {
+      return auth;
+    }
+
+    if (telegramAuth) {
+      return telegramAuth;
+    }
+
+    if (isTma && initData) {
+      return { auth_type: "init_data", value: initData } satisfies TelegramAuthPayload;
+    }
+
+    return undefined;
   }
 
   async function retryAfterVerification(auth: TelegramAuthPayload) {
@@ -113,7 +131,7 @@ export function EmailRequestForm() {
   }
 
   async function checkEmail(auth?: TelegramAuthPayload) {
-    const activeTelegramAuth = auth ?? telegramAuth;
+    const activeTelegramAuth = getActiveTelegramAuth(auth);
 
     const normalizedEmail = email.trim();
     if (!normalizedEmail) {
@@ -190,7 +208,7 @@ export function EmailRequestForm() {
       const { data, response } = await requestCertificate(
         email.trim(),
         certificate.template_id,
-        auth ?? telegramAuth,
+        getActiveTelegramAuth(auth),
       );
 
       if (response.ok && isSuccessResponse(data)) {
@@ -269,7 +287,14 @@ export function EmailRequestForm() {
 
       if (parsed.status === "completed" && parsed.download_url && parsed.verification_url) {
         closeStream(streamRef);
-        setState({ kind: "success", payload: normalizeCompletedJob(parsed) });
+        setState({
+          kind: "success",
+          payload: normalizeCompletedJob({
+            ...parsed,
+            download_url: parsed.download_url,
+            verification_url: parsed.verification_url,
+          }),
+        });
         return;
       }
 
@@ -852,17 +877,17 @@ function normalizeSuccess(data: CertificateRequestSuccess): SuccessPayload {
   };
 }
 
-function normalizeCompletedJob(data: CertificateJobStatus): SuccessPayload {
+function normalizeCompletedJob(
+  data: CertificateJobStatus & { download_url: string; verification_url: string },
+): SuccessPayload {
   return {
     certificateId: data.certificate_id,
-    downloadUrl: data.download_url ?? `/api/v1/public/certificates/${data.certificate_id}/download`,
+    downloadUrl: data.download_url,
     fullName: data.full_name,
     message: data.message,
     templateName: data.template_name,
     verificationCode: data.verification_code,
-    verificationUrl:
-      data.verification_url ??
-      `/api/v1/public/certificates/verify/${data.verification_code ?? data.certificate_id}`,
+    verificationUrl: data.verification_url,
   };
 }
 

@@ -111,5 +111,9 @@ export function useTelegram() {
 }
 
 function isRealTelegramLaunch(webApp: TelegramWebApp) {
-  return webApp.initData.trim().length > 0 && webApp.platform !== "unknown";
+  return (
+    webApp.initData.trim().length > 0 &&
+    webApp.platform !== "unknown" &&
+    typeof webApp.initDataUnsafe?.user?.id === "number"
+  );
 }
