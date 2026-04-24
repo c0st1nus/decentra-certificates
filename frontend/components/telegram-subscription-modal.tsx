@@ -8,6 +8,8 @@ import { useTelegramLogin } from "@/hooks/use-telegram-login";
 import { type TelegramAuthPayload, getTelegramSettings, verifySubscription } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+type SubscriptionStatus = "idle" | "checking" | "subscribed" | "not_subscribed" | "error";
+
 interface TelegramSubscriptionModalProps {
   open: boolean;
   onClose: () => void;
@@ -24,24 +26,37 @@ export function TelegramSubscriptionModal({
     null,
   );
   const [isSettingsLoading, setIsSettingsLoading] = useState(false);
-  const [status, setStatus] = useState<"idle" | "checking" | "subscribed" | "not_subscribed">(
-    "idle",
-  );
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [status, setStatus] = useState<SubscriptionStatus>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
 
     setStatus("idle");
+    setSettings(null);
+    setErrorMessage(null);
+    setSettingsError(null);
     setIsSettingsLoading(true);
 
     getTelegramSettings()
-      .then(({ data }) => {
-        if (cancelled || !data) {
+      .then(({ data, response }) => {
+        if (cancelled) {
           return;
         }
 
+        if (!response.ok || !data) {
+          throw new Error("Telegram settings are temporarily unavailable.");
+        }
+
         setSettings({ channelUrl: data.channel_url, clientId: data.client_id });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSettingsError("Telegram login settings are temporarily unavailable.");
+          setSettings(null);
+        }
       })
       .finally(() => {
         if (!cancelled) {
@@ -56,13 +71,36 @@ export function TelegramSubscriptionModal({
 
   const handleVerify = useCallback(
     async (auth: TelegramAuthPayload) => {
+      if (!auth.value.trim()) {
+        setStatus("error");
+        setErrorMessage(
+          "Telegram did not provide authentication data. Open this page from the bot button or log in with Telegram in your browser.",
+        );
+        return;
+      }
+
       setStatus("checking");
-      const { data } = await verifySubscription(auth);
-      if (data?.subscribed) {
-        setStatus("subscribed");
-        onVerified(auth);
-      } else {
-        setStatus("not_subscribed");
+      setErrorMessage(null);
+
+      try {
+        const { data, response } = await verifySubscription(auth);
+        if (!response.ok || !data) {
+          throw new Error(getVerificationErrorMessage(data));
+        }
+
+        if ("subscribed" in data && data.subscribed) {
+          setStatus("subscribed");
+          onVerified(auth);
+        } else {
+          setStatus("not_subscribed");
+        }
+      } catch (error) {
+        setStatus("error");
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "Unable to verify Telegram subscription. Please try again.",
+        );
       }
     },
     [onVerified],
@@ -71,7 +109,7 @@ export function TelegramSubscriptionModal({
   // Auto-verify in TMA on open
   useEffect(() => {
     if (open && isTma && initData && status === "idle") {
-      handleVerify({ auth_type: "init_data", value: initData });
+      void handleVerify({ auth_type: "init_data", value: initData });
     }
   }, [open, isTma, initData, status, handleVerify]);
 
@@ -103,6 +141,7 @@ export function TelegramSubscriptionModal({
         {isTma ? (
           <TmaFlow
             channelUrl={channelUrl}
+            errorMessage={errorMessage}
             handleVerify={handleVerify}
             openChannel={openChannel}
             status={status}
@@ -111,6 +150,7 @@ export function TelegramSubscriptionModal({
           <BrowserFlow
             channelUrl={channelUrl}
             clientId={isSettingsLoading ? undefined : (settings?.clientId ?? null)}
+            errorMessage={errorMessage ?? settingsError}
             handleVerify={handleVerify}
             isSettingsLoading={isSettingsLoading}
             status={status}
@@ -123,15 +163,19 @@ export function TelegramSubscriptionModal({
 
 function TmaFlow({
   channelUrl,
+  errorMessage,
   handleVerify,
   openChannel,
   status,
 }: {
   channelUrl: string;
-  handleVerify: (auth: TelegramAuthPayload) => void;
+  errorMessage: string | null;
+  handleVerify: (auth: TelegramAuthPayload) => Promise<void>;
   openChannel: (url: string) => void;
-  status: string;
+  status: SubscriptionStatus;
 }) {
+  const isChecking = status === "checking";
+
   return (
     <div className="space-y-4">
       {status === "subscribed" ? (
@@ -143,6 +187,7 @@ function TmaFlow({
         <>
           <button
             className="btn-hero w-full rounded-2xl border border-primary/25 bg-primary/10 text-primary"
+            disabled={isChecking}
             type="button"
             onClick={() => openChannel(channelUrl)}
           >
@@ -157,21 +202,26 @@ function TmaFlow({
             </div>
           )}
 
-          {status === "not_subscribed" && (
+          {(status === "not_subscribed" || status === "error") && (
             <div className="space-y-3">
               <div className="flex items-start gap-2 rounded-2xl border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
                 <AlertCircle className="mt-0.5 size-4 shrink-0" />
-                <span>Subscription not found. Please join the channel and try again.</span>
+                <span>
+                  {status === "not_subscribed"
+                    ? "Subscription not found. Please join the channel and try again."
+                    : (errorMessage ?? "Unable to verify Telegram subscription. Please try again.")}
+                </span>
               </div>
               <button
                 className="btn-hero w-full rounded-2xl border border-white/10 bg-white/[0.04]"
+                disabled={isChecking}
                 type="button"
-                onClick={() =>
-                  handleVerify({
+                onClick={() => {
+                  void handleVerify({
                     auth_type: "init_data",
                     value: window.Telegram?.WebApp?.initData ?? "",
-                  })
-                }
+                  });
+                }}
               >
                 <CheckCircle2 className="size-4" />I have subscribed — check again
               </button>
@@ -186,15 +236,17 @@ function TmaFlow({
 function BrowserFlow({
   channelUrl,
   clientId,
+  errorMessage,
   handleVerify,
   isSettingsLoading,
   status,
 }: {
   channelUrl: string;
   clientId: string | null | undefined;
-  handleVerify: (auth: TelegramAuthPayload) => void;
+  errorMessage: string | null;
+  handleVerify: (auth: TelegramAuthPayload) => Promise<void>;
   isSettingsLoading: boolean;
-  status: string;
+  status: SubscriptionStatus;
 }) {
   const [sdkState, setSdkState] = useState<"loading" | "ready" | "timeout">("loading");
   const { ready, login } = useTelegramLogin(clientId, {
@@ -237,7 +289,7 @@ function BrowserFlow({
     return (
       <div className="flex items-start gap-2 rounded-2xl border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
         <AlertCircle className="mt-0.5 size-4 shrink-0" />
-        <span>Configuration error: Telegram login is not set up.</span>
+        <span>{errorMessage ?? "Configuration error: Telegram login is not set up."}</span>
       </div>
     );
   }
@@ -265,6 +317,13 @@ function BrowserFlow({
             <MessageCircle className="size-4" />
             Log in with Telegram
           </button>
+
+          {sdkState === "loading" && !ready && (
+            <div className="flex items-center gap-2 text-sm text-white/60">
+              <LoaderCircle className="size-4 motion-safe:animate-spin" />
+              Preparing Telegram login...
+            </div>
+          )}
 
           {sdkState === "timeout" && (
             <div className="flex items-start gap-2 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
@@ -305,8 +364,31 @@ function BrowserFlow({
               </a>
             </div>
           )}
+
+          {status === "error" && (
+            <div className="flex items-start gap-2 rounded-2xl border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
+              <AlertCircle className="mt-0.5 size-4 shrink-0" />
+              <span>
+                {errorMessage ?? "Unable to verify Telegram subscription. Please try again."}
+              </span>
+            </div>
+          )}
         </>
       )}
     </div>
   );
+}
+
+function getVerificationErrorMessage(data: unknown) {
+  if (
+    data &&
+    typeof data === "object" &&
+    "message" in data &&
+    typeof data.message === "string" &&
+    data.message.trim().length > 0
+  ) {
+    return data.message;
+  }
+
+  return "Unable to verify Telegram subscription. Please try again.";
 }

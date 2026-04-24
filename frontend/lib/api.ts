@@ -113,6 +113,11 @@ export interface TelegramSettingsResponse {
   client_id: string | null;
 }
 
+export interface TelegramSubscriptionResponse {
+  subscribed: boolean;
+  user_id: number | null;
+}
+
 export async function getTelegramSettings() {
   const response = await fetch(buildApiUrl("/api/v1/public/telegram/settings"));
   const data = await parseJson<TelegramSettingsResponse>(response);
@@ -125,7 +130,7 @@ export async function verifySubscription(telegramAuth: TelegramAuthPayload) {
     headers: { "Content-Type": "application/json" },
     method: "POST",
   });
-  const data = await parseJson<{ subscribed: boolean; user_id: number | null }>(response);
+  const data = await parseJson<TelegramSubscriptionResponse | ApiErrorBody>(response);
   return { data, response };
 }
 

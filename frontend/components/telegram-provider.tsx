@@ -53,7 +53,7 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const webApp = window.Telegram?.WebApp;
-    if (webApp) {
+    if (webApp && isRealTelegramLaunch(webApp)) {
       setIsTma(true);
       setInitData(webApp.initData);
       if (webApp.initDataUnsafe.user) {
@@ -80,7 +80,13 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const openChannel = useCallback((url: string) => {
-    window.Telegram?.WebApp?.openTelegramLink(url);
+    const webApp = window.Telegram?.WebApp;
+    if (webApp && isRealTelegramLaunch(webApp)) {
+      webApp.openTelegramLink(url);
+      return;
+    }
+
+    window.open(url, "_blank", "noopener,noreferrer");
   }, []);
 
   const openLink = useCallback((url: string) => {
@@ -102,4 +108,8 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
 
 export function useTelegram() {
   return useContext(TelegramContext);
+}
+
+function isRealTelegramLaunch(webApp: TelegramWebApp) {
+  return webApp.initData.trim().length > 0 && webApp.platform !== "unknown";
 }

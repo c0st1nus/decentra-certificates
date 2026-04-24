@@ -97,12 +97,18 @@ export function EmailRequestForm() {
       setPendingCertificate(undefined);
       await handleRequestCertificate(pendingCertificate, auth);
     } else {
-      await submitAgain();
+      await submitAgain(auth);
     }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    await checkEmail();
+  }
+
+  async function checkEmail(auth?: TelegramAuthPayload) {
+    const activeTelegramAuth = auth ?? telegramAuth;
 
     const normalizedEmail = email.trim();
     if (!normalizedEmail) {
@@ -114,7 +120,7 @@ export function EmailRequestForm() {
     setState({ kind: "checking" });
 
     try {
-      const { data, response } = await checkCertificates(normalizedEmail, telegramAuth);
+      const { data, response } = await checkCertificates(normalizedEmail, activeTelegramAuth);
 
       if (!response.ok || !data) {
         if (response.status === 403) {
@@ -299,14 +305,15 @@ export function EmailRequestForm() {
     void submitAgain();
   }
 
-  async function submitAgain() {
+  async function submitAgain(auth?: TelegramAuthPayload) {
     const form = document.getElementById("certificate-request-form");
     if (form instanceof HTMLFormElement) {
       if (!form.reportValidity()) {
         return;
       }
-      form.requestSubmit();
     }
+
+    await checkEmail(auth);
   }
 
   const isChecking = state.kind === "checking";
@@ -444,10 +451,10 @@ export function EmailRequestForm() {
               <button
                 className="btn-hero mt-4 w-full rounded-2xl border border-white/10 bg-white/[0.04]"
                 type="button"
-                onClick={retry}
+                onClick={() => setShowSubscriptionModal(true)}
               >
-                <RefreshCw aria-hidden="true" className="size-4" />
-                Retry request
+                <ShieldCheck aria-hidden="true" className="size-4" />
+                Verify Telegram subscription
               </button>
             }
             icon={<AlertTriangle aria-hidden="true" className="size-5 text-red-200" />}
