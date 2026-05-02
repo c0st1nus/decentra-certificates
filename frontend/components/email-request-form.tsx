@@ -68,7 +68,7 @@ type RequestState =
   | { kind: "error"; message: string };
 
 const initialMessage =
-  "Enter the email used during registration. We will show all available certificates and immediately start the one you need.";
+  "Введите email, который использовали при регистрации. Мы покажем доступные сертификаты и запустим генерацию, если PDF ещё не готов.";
 
 export function EmailRequestForm() {
   const { initData, isTma } = useTelegram();
@@ -90,7 +90,7 @@ export function EmailRequestForm() {
   function handleNotSubscribed() {
     setState({
       kind: "not_subscribed",
-      message: "You must subscribe to our Telegram channel to claim certificates.",
+      message: "Чтобы получить сертификат, нужно быть подписанным на наш Telegram-канал.",
     });
     window.setTimeout(() => setShowSubscriptionModal(true), 0);
   }
@@ -114,7 +114,7 @@ export function EmailRequestForm() {
   async function retryAfterVerification(auth: TelegramAuthPayload) {
     setTelegramAuth(auth);
     setShowSubscriptionModal(false);
-    toast.success("Telegram channel subscription confirmed");
+    toast.success("Подписка на Telegram-канал подтверждена");
 
     if (pendingCertificate) {
       setPendingCertificate(undefined);
@@ -135,7 +135,7 @@ export function EmailRequestForm() {
 
     const normalizedEmail = email.trim();
     if (!normalizedEmail) {
-      setState({ kind: "error", message: "Enter your email to continue." });
+      setState({ kind: "error", message: "Введите email, чтобы продолжить." });
       return;
     }
 
@@ -155,7 +155,7 @@ export function EmailRequestForm() {
           }
           setState({
             kind: "issuance_disabled",
-            message: "Certificate issuance is not open yet.",
+            message: "Выдача сертификатов пока не открыта.",
           });
           return;
         }
@@ -163,7 +163,7 @@ export function EmailRequestForm() {
         if (response.status === 429) {
           setState({
             kind: "rate_limited",
-            message: "Too many requests. Please wait a moment and try again.",
+            message: "Слишком много запросов. Подождите немного и попробуйте снова.",
           });
           return;
         }
@@ -171,7 +171,7 @@ export function EmailRequestForm() {
         const message =
           data && "message" in data && typeof data.message === "string"
             ? data.message
-            : "Something went wrong. Please try again later.";
+            : "Что-то пошло не так. Попробуйте ещё раз позже.";
         setState({ kind: "error", message });
         return;
       }
@@ -179,7 +179,7 @@ export function EmailRequestForm() {
       if (data.certificates.length === 0) {
         setState({
           kind: "not_found",
-          message: "This email was not found in the participant database.",
+          message: "Этот email не найден в базе участников.",
         });
         return;
       }
@@ -192,7 +192,7 @@ export function EmailRequestForm() {
     } catch {
       setState({
         kind: "error",
-        message: "Unable to reach the server. Check your connection and try again.",
+        message: "Не удалось связаться с сервером. Проверьте подключение и попробуйте снова.",
       });
     }
   }
@@ -324,7 +324,7 @@ export function EmailRequestForm() {
       setState({
         kind: "error",
         message:
-          "Lost connection to the generation queue. Repeat the request and we will bump your certificate again.",
+          "Соединение с очередью генерации потеряно. Повторите запрос, и мы снова поднимем сертификат в очереди.",
       });
     });
   }
@@ -359,8 +359,8 @@ export function EmailRequestForm() {
     <AdminPanel as="section">
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
-          <p className="admin-eyebrow">Public issuance</p>
-          <h2 className="mt-3 text-2xl font-black text-white">Claim certificate</h2>
+          <p className="admin-eyebrow">Выдача сертификата</p>
+          <h2 className="mt-3 text-2xl font-black text-white">Найти сертификат</h2>
         </div>
         <ShieldCheck className="size-5 shrink-0 text-primary/85" />
       </div>
@@ -373,7 +373,7 @@ export function EmailRequestForm() {
         }}
       >
         <label className="block text-sm font-medium text-white/80" htmlFor="email">
-          Certificate email
+          Email участника
         </label>
 
         <div className="relative">
@@ -402,11 +402,11 @@ export function EmailRequestForm() {
           {isChecking ? (
             <>
               <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" />
-              Checking email
+              Проверяем email
             </>
           ) : (
             <>
-              <span>Find certificates</span>
+              <span>Найти сертификаты</span>
               <ArrowRight aria-hidden="true" className="size-4" />
             </>
           )}
@@ -455,7 +455,7 @@ export function EmailRequestForm() {
           <StatusNotice
             icon={<ShieldCheck aria-hidden="true" className="size-5 text-amber-300" />}
             message={state.message}
-            title="Issuance disabled"
+            title="Выдача закрыта"
           />
         )}
 
@@ -468,12 +468,12 @@ export function EmailRequestForm() {
                 onClick={retry}
               >
                 <RefreshCw aria-hidden="true" className="size-4" />
-                Try again
+                Попробовать снова
               </button>
             }
             icon={<AlertTriangle aria-hidden="true" className="size-5 text-white/90" />}
             message={state.message}
-            title="Email not found"
+            title="Email не найден"
           />
         )}
 
@@ -486,12 +486,12 @@ export function EmailRequestForm() {
                 onClick={() => setShowSubscriptionModal(true)}
               >
                 <ShieldCheck aria-hidden="true" className="size-4" />
-                Verify Telegram subscription
+                Проверить подписку Telegram
               </button>
             }
             icon={<AlertTriangle aria-hidden="true" className="size-5 text-red-200" />}
             message={state.message}
-            title="Subscription required"
+            title="Нужна подписка"
           />
         )}
 
@@ -504,12 +504,12 @@ export function EmailRequestForm() {
                 onClick={retry}
               >
                 <RefreshCw aria-hidden="true" className="size-4" />
-                Retry request
+                Повторить запрос
               </button>
             }
             icon={<AlertTriangle aria-hidden="true" className="size-5 text-red-200" />}
             message={state.message}
-            title="Too many requests"
+            title="Слишком много запросов"
           />
         )}
 
@@ -522,12 +522,12 @@ export function EmailRequestForm() {
                 onClick={retry}
               >
                 <RefreshCw aria-hidden="true" className="size-4" />
-                Retry request
+                Повторить запрос
               </button>
             }
             icon={<AlertTriangle aria-hidden="true" className="size-5 text-red-200" />}
             message={state.message}
-            title="Request error"
+            title="Ошибка запроса"
           />
         )}
       </div>
@@ -556,14 +556,14 @@ function CertificateSelector({
         <BadgeCheck aria-hidden="true" className="mt-0.5 size-5 text-primary" />
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
-            Found
+            Найдено
           </p>
           <p className="mt-2 text-base font-semibold text-white">
-            {fullName ? `Certificates for ${fullName}` : "Available certificates"}
+            {fullName ? `Сертификаты для ${fullName}` : "Доступные сертификаты"}
           </p>
           <p className="mt-1 text-sm leading-6 text-white/70">
-            Ready certificates can be downloaded immediately. If the PDF is not built yet, we will
-            bump it to the priority queue.
+            Готовые сертификаты можно скачать сразу. Если PDF ещё не создан, мы поставим его в
+            приоритетную очередь.
           </p>
         </div>
       </div>
@@ -581,7 +581,7 @@ function CertificateSelector({
                   <div className="space-y-1">
                     <h3 className="text-base font-bold text-white">{certificate.template_name}</h3>
                     {certificate.category && (
-                      <p className="text-xs text-white/50">Category: {certificate.category}</p>
+                      <p className="text-xs text-white/50">Категория: {certificate.category}</p>
                     )}
                   </div>
 
@@ -597,7 +597,7 @@ function CertificateSelector({
                     href={buildApiUrl(certificate.download_url)}
                   >
                     <Download aria-hidden="true" className="size-3.5" />
-                    Download PDF
+                    Скачать PDF
                   </CertificateDownloadButton>
                 ) : (
                   <button
@@ -621,7 +621,7 @@ function CertificateSelector({
 function StatusIdle({ message }: { message: string }) {
   return (
     <div className="space-y-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/50">Status</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/50">Статус</p>
       <p className="max-w-md text-sm leading-6 text-white/75">{message}</p>
     </div>
   );
@@ -633,7 +633,7 @@ function StatusLoading() {
       <div className="flex items-center gap-2 text-primary">
         <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" />
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
-          Checking participant
+          Проверяем участника
         </p>
       </div>
       <div className="space-y-2">
@@ -651,12 +651,12 @@ function StatusRequesting({ templateName }: { templateName: string }) {
       <div className="flex items-center gap-2 text-primary">
         <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" />
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
-          Starting queue
+          Запускаем очередь
         </p>
       </div>
       <p className="text-sm text-white/70">
-        Reserving certificate for template &quot;{templateName}&quot; and bumping the job to the
-        priority queue.
+        Резервируем сертификат для шаблона &quot;{templateName}&quot; и поднимаем задачу в
+        приоритетную очередь.
       </p>
     </div>
   );
@@ -677,33 +677,31 @@ function StatusWaiting({
         <Sparkles aria-hidden="true" className="mt-0.5 size-5 text-primary" />
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
-            Queue live
+            Очередь активна
           </p>
           <p className="mt-2 text-base font-semibold text-white">
-            Generating certificate for {state.fullName}
+            Генерируем сертификат для {state.fullName}
           </p>
           <p className="mt-2 text-sm leading-6 text-white/70">{state.message}</p>
         </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <ProgressStep active title="Request accepted" />
-        <ProgressStep active={!isConnecting} title="Queue connected" />
-        <ProgressStep active={isProcessing} title="PDF rendering" />
+        <ProgressStep active title="Запрос принят" />
+        <ProgressStep active={!isConnecting} title="Очередь подключена" />
+        <ProgressStep active={isProcessing} title="PDF генерируется" />
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2">
-        <MetaPill label="Certificate ID" value={state.certificateId} mono />
-        <MetaPill label="Template" value={state.templateName} />
+        <MetaPill label="ID сертификата" value={state.certificateId} mono />
+        <MetaPill label="Шаблон" value={state.templateName} />
       </div>
 
       <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
         <div className="flex items-center gap-2 text-primary">
           <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" />
           <p className="text-sm font-medium text-white">
-            {isProcessing
-              ? "Building PNG and PDF on the server"
-              : "Waiting for the next free worker"}
+            {isProcessing ? "Собираем PNG и PDF на сервере" : "Ждём свободный обработчик"}
           </p>
         </div>
         <div className="mt-3 grid gap-2">
@@ -726,22 +724,22 @@ function StatusSuccess({ data }: { data: SuccessPayload }) {
         <BadgeCheck aria-hidden="true" className="mt-0.5 size-5 text-primary" />
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
-            Success
+            Готово
           </p>
           <p className="mt-2 text-base font-semibold text-white">
-            Certificate ready for {data.fullName}
+            Сертификат готов для {data.fullName}
           </p>
           <p className="mt-2 text-sm leading-6 text-white/70">
-            {data.message} Template: {data.templateName}.
+            {data.message} Шаблон: {data.templateName}.
           </p>
         </div>
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2">
-        <MetaPill label="Certificate ID" value={data.certificateId} mono />
+        <MetaPill label="ID сертификата" value={data.certificateId} mono />
         <MetaPill
-          label="Verification code"
-          value={data.verificationCode ?? "Open verification link"}
+          label="Код проверки"
+          value={data.verificationCode ?? "Откройте ссылку проверки"}
           mono={Boolean(data.verificationCode)}
         />
       </div>
@@ -752,14 +750,14 @@ function StatusSuccess({ data }: { data: SuccessPayload }) {
           href={downloadHref}
         >
           <Download aria-hidden="true" className="size-4" />
-          Download PDF
+          Скачать PDF
         </CertificateDownloadButton>
         <a
           className="btn-hero rounded-2xl border border-white/10 bg-white/4"
           href={verificationHref}
         >
           <BadgeCheck aria-hidden="true" className="size-4" />
-          Verify certificate
+          Проверить сертификат
         </a>
       </div>
     </div>
@@ -829,38 +827,38 @@ function getCertificateActionMeta(certificate: AvailableCertificate) {
   switch (certificate.generation_status) {
     case "ready":
       return {
-        action: "Download PDF",
+        action: "Скачать PDF",
         dotClassName: "bg-primary",
         icon: <Download aria-hidden="true" className="size-3.5" />,
-        label: "Ready to download",
+        label: "Готов к скачиванию",
       };
     case "queued":
       return {
-        action: "Bump queue",
+        action: "Поднять в очереди",
         dotClassName: "bg-amber-300",
         icon: <Sparkles aria-hidden="true" className="size-3.5" />,
-        label: "Already queued",
+        label: "Уже в очереди",
       };
     case "processing":
       return {
-        action: "Watch generation",
+        action: "Смотреть генерацию",
         dotClassName: "bg-primary",
         icon: <LoaderCircle aria-hidden="true" className="size-3.5 motion-safe:animate-spin" />,
-        label: "Building right now",
+        label: "Генерируется сейчас",
       };
     case "failed":
       return {
-        action: "Restart build",
+        action: "Запустить заново",
         dotClassName: "bg-red-300",
         icon: <RefreshCw aria-hidden="true" className="size-3.5" />,
-        label: "Previous build failed",
+        label: "Прошлая генерация упала",
       };
     default:
       return {
-        action: "Generate",
+        action: "Сгенерировать",
         dotClassName: "bg-white/60",
         icon: <ArrowRight aria-hidden="true" className="size-3.5" />,
-        label: "Not built yet",
+        label: "Ещё не создан",
       };
   }
 }

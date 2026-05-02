@@ -20,7 +20,7 @@ export function AdminLoginForm() {
     event.preventDefault();
     const normalizedLogin = login.trim();
     if (!normalizedLogin || !password) {
-      toast.error("Please fill in both login and password.");
+      toast.error("Введите логин и пароль.");
       return;
     }
 
@@ -31,19 +31,19 @@ export function AdminLoginForm() {
       if (!response.ok || !data) {
         const fallback =
           response.status === 403
-            ? "Admin access is disabled."
-            : "Login failed. Check your credentials and try again.";
+            ? "Доступ в админку временно отключён."
+            : "Не удалось войти. Проверьте логин и пароль.";
         toast.error(fallback);
         setIsLoading(false);
         return;
       }
 
       setAdminSession(data, data.admin);
-      toast.success("Signed in successfully.");
+      toast.success("Вход выполнен.");
       router.replace("/admin");
       router.refresh();
     } catch {
-      toast.error("Server unreachable. Please try again later.");
+      toast.error("Сервер недоступен. Попробуйте ещё раз позже.");
     } finally {
       setIsLoading(false);
     }
@@ -56,8 +56,8 @@ export function AdminLoginForm() {
           <ShieldCheck className="size-5 text-primary" />
         </div>
         <div>
-          <p className="admin-eyebrow">Admin login</p>
-          <h1 className="mt-2 text-2xl font-black text-white">Sign in</h1>
+          <p className="admin-eyebrow">Админка</p>
+          <h1 className="mt-2 text-2xl font-black text-white">Вход в систему</h1>
         </div>
       </div>
 
@@ -68,7 +68,7 @@ export function AdminLoginForm() {
         }}
       >
         <label className="block text-sm font-medium text-white/80" htmlFor="login">
-          Login
+          Логин
         </label>
         <div className="relative">
           <User className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-primary/65" />
@@ -87,7 +87,7 @@ export function AdminLoginForm() {
         </div>
 
         <label className="block text-sm font-medium text-white/80" htmlFor="password">
-          Password
+          Пароль
         </label>
         <div className="relative">
           <LockKeyhole className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-primary/65" />
@@ -110,11 +110,11 @@ export function AdminLoginForm() {
           {isLoading ? (
             <>
               <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
-              Signing in
+              Входим
             </>
           ) : (
             <>
-              <span>Sign in</span>
+              <span>Войти</span>
               <ArrowRight aria-hidden="true" className="size-4" />
             </>
           )}

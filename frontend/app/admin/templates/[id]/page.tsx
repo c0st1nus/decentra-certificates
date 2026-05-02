@@ -2,6 +2,8 @@
 
 import {
   Check,
+  CheckCircle2,
+  Circle,
   LoaderCircle,
   PencilLine,
   Power,
@@ -71,7 +73,7 @@ export default function TemplateDetailPage({ params }: Props) {
 
   async function handleSave() {
     if (!name.trim()) {
-      toast.error("Template name is required.");
+      toast.error("Введите название шаблона.");
       return;
     }
 
@@ -86,7 +88,7 @@ export default function TemplateDetailPage({ params }: Props) {
     try {
       const { response, data } = await updateTemplate(id, form);
       if (!response.ok || !data) {
-        toast.error("Failed to save template.");
+        toast.error("Не удалось сохранить шаблон. Проверьте данные и попробуйте ещё раз.");
         setIsSaving(false);
         return;
       }
@@ -94,9 +96,9 @@ export default function TemplateDetailPage({ params }: Props) {
       setTemplate(data);
       setName(data.template.name);
       setFile(null);
-      toast.success("Template updated.");
+      toast.success("Шаблон сохранён.");
     } catch {
-      toast.error("Failed to save template.");
+      toast.error("Не удалось сохранить шаблон.");
     } finally {
       setIsSaving(false);
     }
@@ -104,44 +106,59 @@ export default function TemplateDetailPage({ params }: Props) {
 
   async function handleToggleActive() {
     if (!template) return;
+
+    const activationBlocker = getActivationBlocker(template, name);
+    if (!template.template.is_active && activationBlocker) {
+      toast.error(`Активация невозможна: ${activationBlocker}.`);
+      return;
+    }
+
     setIsTogglingActive(true);
 
     try {
       if (template.template.is_active) {
-        const { data } = await deactivateTemplate(id);
-        if (data) {
+        const { response, data } = await deactivateTemplate(id);
+        if (response.ok && data) {
           setTemplate(data);
-          toast.success("Template deactivated.");
+          toast.success("Шаблон деактивирован.");
+        } else {
+          toast.error("Не удалось деактивировать шаблон.");
         }
       } else {
-        const { data } = await activateTemplate(id);
-        if (data) {
+        const { response, data } = await activateTemplate(id);
+        if (response.ok && data) {
           setTemplate(data);
-          toast.success("Template activated.");
+          toast.success("Шаблон активирован.");
+        } else {
+          toast.error("Активация невозможна: проверьте макет, категории и участников.");
         }
       }
     } catch {
-      toast.error("Failed to update template status.");
+      toast.error("Не удалось изменить статус шаблона.");
     } finally {
       setIsTogglingActive(false);
     }
   }
 
   async function handleDelete() {
-    if (!window.confirm("Delete this template?")) {
+    if (
+      !window.confirm(
+        "Удалить этот шаблон? Настройки макета, категории и связанные данные этого шаблона будут удалены.",
+      )
+    ) {
       return;
     }
 
     try {
       const { response } = await deleteTemplate(id);
       if (response.ok) {
-        toast.success("Template deleted.");
+        toast.success("Шаблон удалён.");
         router.replace("/admin/templates");
       } else {
-        toast.error("Failed to delete template.");
+        toast.error("Не удалось удалить шаблон.");
       }
     } catch {
-      toast.error("Failed to delete template.");
+      toast.error("Не удалось удалить шаблон.");
     }
   }
 
@@ -161,7 +178,7 @@ export default function TemplateDetailPage({ params }: Props) {
   if (!template) {
     return (
       <AdminPanel as="section" className="text-sm text-white/70">
-        Template not found.
+        Шаблон не найден.
       </AdminPanel>
     );
   }
@@ -171,32 +188,76 @@ export default function TemplateDetailPage({ params }: Props) {
   return (
     <section className="space-y-6">
       <AdminPageHeader
-        description="Manage template: source file, layout, categories, participants and certificate issuance."
+        description="Проверьте готовность шаблона, настройте макет, категории и список участников."
         title={t.name}
       />
+
+      <AdminPanel>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="admin-eyebrow">Готовность</p>
+            <h2 className="mt-3 text-2xl font-black text-white">Что нужно для запуска</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/65">
+              Сначала настройте макет, затем проверьте категории и участников. Активируйте шаблон,
+              когда всё готово.
+            </p>
+          </div>
+          <span
+            className={cn(
+              "rounded-full border px-3 py-1.5 text-xs font-semibold",
+              t.has_layout && t.category_count > 0 && t.participant_count > 0 && t.is_active
+                ? "border-primary/25 bg-primary/10 text-primary"
+                : "border-amber-500/20 bg-amber-500/10 text-amber-200",
+            )}
+          >
+            {t.has_layout && t.category_count > 0 && t.participant_count > 0 && t.is_active
+              ? "Готов к работе"
+              : "Нужна настройка"}
+          </span>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-4">
+          <ReadinessItem done label="Файл шаблона загружен" />
+          <ReadinessItem
+            done={t.has_layout}
+            href={`/admin/templates/${id}/layout`}
+            label="Макет настроен"
+          />
+          <ReadinessItem
+            done={t.category_count > 0}
+            href={`/admin/templates/${id}/categories`}
+            label="Категории добавлены"
+          />
+          <ReadinessItem
+            done={t.participant_count > 0}
+            href={`/admin/templates/${id}/participants`}
+            label="Участники загружены"
+          />
+        </div>
+      </AdminPanel>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <TemplateStatLinkCard
           count={formatCompactNumber(t.participant_count)}
           href={`/admin/templates/${id}/participants`}
           icon={Users}
-          label="Participants"
-          subtitle="Manage roster"
+          label="Участники"
+          subtitle="Загрузка и правка списка"
         />
 
         <TemplateStatLinkCard
           count={formatCompactNumber(t.category_count)}
           href={`/admin/templates/${id}/categories`}
           icon={Tags}
-          label="Categories"
-          subtitle="Template categories"
+          label="Категории"
+          subtitle="Треки и типы сертификатов"
         />
       </div>
 
       <AdminPanel>
         <div className="grid gap-4">
           <label className="block text-sm font-medium text-white/80" htmlFor="template-name">
-            Template name
+            Название шаблона
             <input
               id="template-name"
               className="admin-input mt-2"
@@ -206,7 +267,7 @@ export default function TemplateDetailPage({ params }: Props) {
           </label>
 
           <label className="block text-sm font-medium text-white/80" htmlFor="template-file">
-            Replace source file
+            Заменить файл сертификата
             <input
               id="template-file"
               className="admin-file-input mt-2 block rounded-2xl border border-dashed border-white/15 bg-black/20 px-4 py-4"
@@ -218,8 +279,8 @@ export default function TemplateDetailPage({ params }: Props) {
 
           <div className="rounded-2xl border border-white/10 bg-black/25 p-4 text-sm leading-6 text-white/65">
             {file
-              ? `Selected file: ${file.name}. Save changes to persist it and refresh the source preview below.`
-              : "If you change the source file, save it here first. The preview below always shows the already saved asset, not a local draft."}
+              ? `Выбран файл: ${file.name}. Сохраните изменения, чтобы обновить превью ниже.`
+              : "Если заменить файл, сначала сохраните изменения. Превью ниже показывает уже сохранённый файл, а не локальный черновик."}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -232,12 +293,12 @@ export default function TemplateDetailPage({ params }: Props) {
               {isSaving ? (
                 <>
                   <LoaderCircle className="size-4 animate-spin" />
-                  Saving
+                  Сохраняем
                 </>
               ) : (
                 <>
                   <PencilLine className="size-4" />
-                  Save
+                  Сохранить
                 </>
               )}
             </button>
@@ -247,7 +308,7 @@ export default function TemplateDetailPage({ params }: Props) {
               href={`/admin/templates/${t.id}/layout`}
             >
               <ScanLine className="size-4" />
-              Editor
+              Редактор макета
             </Link>
 
             <button
@@ -266,12 +327,12 @@ export default function TemplateDetailPage({ params }: Props) {
               ) : t.is_active ? (
                 <>
                   <Check className="size-4" />
-                  Active
+                  Активен
                 </>
               ) : (
                 <>
                   <Power className="size-4" />
-                  Activate
+                  Активировать
                 </>
               )}
             </button>
@@ -288,18 +349,18 @@ export default function TemplateDetailPage({ params }: Props) {
       </AdminPanel>
 
       <div className="space-y-3">
-        <p className="admin-eyebrow">Source preview</p>
+        <p className="admin-eyebrow">Превью файла</p>
         <TemplateAssetPreview sourceKind={t.source_kind} templateId={t.id} templateName={t.name} />
       </div>
 
       <div className="flex flex-wrap gap-2">
         <span className="admin-muted-pill">
           <Users className="size-3 text-primary/70" />
-          {formatCompactNumber(t.participant_count)} participants
+          {formatCompactNumber(t.participant_count)} участников
         </span>
         <span className="admin-muted-pill">
           <Tags className="size-3 text-primary/70" />
-          {t.category_count} categories
+          {t.category_count} категорий
         </span>
         <span className="admin-muted-pill">{t.source_kind.toUpperCase()}</span>
         <span
@@ -310,9 +371,56 @@ export default function TemplateDetailPage({ params }: Props) {
               : "border-amber-500/20 bg-amber-500/5 text-amber-400/80",
           )}
         >
-          {t.has_layout ? "Layout ready" : "Layout missing"}
+          {t.has_layout ? "Макет настроен" : "Макет не настроен"}
         </span>
       </div>
     </section>
+  );
+}
+
+function getActivationBlocker(template: TemplateDetail, draftName: string) {
+  const t = template.template;
+  if (!draftName.trim()) {
+    return "укажите название шаблона и сохраните изменения";
+  }
+  if (!t.has_layout) {
+    return "сначала настройте макет шаблона";
+  }
+  if (t.category_count === 0) {
+    return "сначала добавьте хотя бы одну категорию";
+  }
+  if (t.participant_count === 0) {
+    return "сначала загрузите участников";
+  }
+
+  return null;
+}
+
+function ReadinessItem({ done, href, label }: { done: boolean; href?: string; label: string }) {
+  const Icon = done ? CheckCircle2 : Circle;
+  const content = (
+    <div
+      className={cn(
+        "flex min-h-16 items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition",
+        done
+          ? "border-primary/20 bg-primary/10 text-primary"
+          : "border-white/10 bg-white/[0.03] text-white/70",
+        href && "hover:border-primary/30 hover:bg-white/[0.05]",
+      )}
+    >
+      <Icon className="size-4 shrink-0" />
+      <span className="font-medium">{label}</span>
+    </div>
+  );
+
+  return href ? (
+    <Link
+      className="block rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      href={href}
+    >
+      {content}
+    </Link>
+  ) : (
+    content
   );
 }

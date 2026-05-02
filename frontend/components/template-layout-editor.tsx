@@ -55,13 +55,13 @@ function buildPreviewBindingValues(
   previewName: string,
   template: TemplateDetail,
 ): Record<string, string> {
-  const name = previewName.trim() || "Preview Participant";
+  const name = previewName.trim() || "Тестовый Участник";
   return {
     "participant.full_name": name,
     full_name: name,
     name,
-    "participant.category": "Preview track",
-    track_name: "Preview track",
+    "participant.category": "Тестовый трек",
+    track_name: "Тестовый трек",
     "template.name": template.template.name,
     certificate_type: template.template.name,
     "issue.certificate_id": "cert-preview-0001",
@@ -116,25 +116,25 @@ const SAFE_FONT_OPTIONS = [
 ];
 
 const BINDING_OPTIONS = [
-  { label: "Free text", value: "", sample: "Preview participant" },
+  { label: "Свободный текст", value: "", sample: "Тестовый участник" },
   {
-    label: "Participant full name",
+    label: "ФИО участника",
     value: "participant.full_name",
-    sample: "Preview participant",
+    sample: "Тестовый участник",
   },
   {
-    label: "Track / category",
+    label: "Трек / категория",
     value: "participant.category",
-    sample: "Main track",
+    sample: "Основной трек",
   },
   {
-    label: "Certificate type",
+    label: "Тип сертификата",
     value: "template.name",
-    sample: "Hackathon Certificate",
+    sample: "Сертификат хакатона",
   },
-  { label: "Issue date", value: "issue.issue_date", sample: "2026-04-20" },
+  { label: "Дата выдачи", value: "issue.issue_date", sample: "2026-04-20" },
   {
-    label: "Certificate ID",
+    label: "ID сертификата",
     value: "issue.certificate_id",
     sample: "cert-preview-0001",
   },
@@ -151,12 +151,12 @@ export function TemplateLayoutEditor({
   const [layout, setLayout] = useState<TemplateLayoutData>(initialLayout);
   const [canvas, setCanvas] = useState<TemplateCanvasData>(initialCanvas);
   const [selectedLayerId, setSelectedLayerId] = useState<string>(initialCanvas.layers[0]?.id ?? "");
-  const [previewName, setPreviewName] = useState("Preview Participant");
+  const [previewName, setPreviewName] = useState("Тестовый Участник");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null);
   const [previewState, setPreviewState] = useState<PreviewState>("idle");
   const [previewMessage, setPreviewMessage] = useState(
-    "Layers render instantly. Generate preview when you want to check the server output.",
+    "Слои обновляются сразу. Сгенерируйте превью, чтобы проверить серверный результат.",
   );
   const [isSaving, setIsSaving] = useState(false);
   const [isImagePickerOpen, setIsImagePickerOpen] = useState(false);
@@ -212,7 +212,7 @@ export function TemplateLayoutEditor({
       return null;
     });
     setPreviewState("idle");
-    setPreviewMessage('Layers render instantly. Click "Preview" to generate PNG.');
+    setPreviewMessage('Слои обновляются сразу. Нажмите "Превью", чтобы создать PNG.');
 
     // Load source image immediately
     void loadSourceImage();
@@ -797,7 +797,7 @@ export function TemplateLayoutEditor({
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSaving(true);
-    setPreviewMessage("Saving layout...");
+    setPreviewMessage("Сохраняем макет...");
 
     try {
       const payload = sanitizeTemplateLayout({
@@ -807,7 +807,7 @@ export function TemplateLayoutEditor({
       const { response, data } = await saveTemplateLayout(template.template.id, payload);
       if (!response.ok || !data) {
         setPreviewState("error");
-        toast.error("Layout save failed.");
+        toast.error("Не удалось сохранить макет.");
         return;
       }
 
@@ -819,11 +819,13 @@ export function TemplateLayoutEditor({
       canvasRef.current = nextCanvas;
       onSaved?.(nextLayout);
       setPreviewState((current) => (current === "error" ? "idle" : current));
-      setPreviewMessage("Layout saved. Generate preview when you want to check the server render.");
-      toast.success("Layout saved.");
+      setPreviewMessage(
+        "Макет сохранён. Сгенерируйте превью, чтобы проверить серверный результат.",
+      );
+      toast.success("Макет сохранён.");
     } catch {
       setPreviewState("error");
-      toast.error("Layout save failed.");
+      toast.error("Не удалось сохранить макет.");
     } finally {
       setIsSaving(false);
     }
@@ -836,7 +838,7 @@ export function TemplateLayoutEditor({
 
     setPreviewState("loading");
     if (shouldShowStatus) {
-      setPreviewMessage("Rendering the backend proof...");
+      setPreviewMessage("Генерируем серверное превью...");
     }
 
     try {
@@ -851,10 +853,10 @@ export function TemplateLayoutEditor({
 
       if (!response.ok) {
         if (shouldShowStatus) {
-          setPreviewMessage("Preview render failed.");
+          setPreviewMessage("Не удалось сгенерировать превью.");
         }
         setPreviewState("error");
-        toast.error("Preview render failed.");
+        toast.error("Не удалось сгенерировать превью.");
         return;
       }
 
@@ -872,15 +874,15 @@ export function TemplateLayoutEditor({
       });
       setPreviewState("ready");
       if (shouldShowStatus) {
-        setPreviewMessage("Backend proof updated.");
+        setPreviewMessage("Серверное превью обновлено.");
       }
     } catch {
       if (requestId === previewRequestRef.current) {
         setPreviewState("error");
         if (shouldShowStatus) {
-          setPreviewMessage("Could not render the backend proof.");
+          setPreviewMessage("Не удалось создать серверное превью.");
         }
-        toast.error("Could not render the backend proof.");
+        toast.error("Не удалось создать серверное превью.");
       }
     }
   }
@@ -918,7 +920,7 @@ export function TemplateLayoutEditor({
                 href={`/admin/templates/${template.template.id}`}
               >
                 <ArrowLeft className="size-4" />
-                Back to template
+                Назад к шаблону
               </Link>
               <h2 className="mt-3 text-2xl font-black text-white">{template.template.name}</h2>
             </div>
@@ -936,7 +938,7 @@ export function TemplateLayoutEditor({
             href={`/admin/templates/${template.template.id}`}
           >
             <ArrowLeft className="size-3.5" />
-            Back
+            Назад
           </Link>
           <span className="min-w-0 truncate text-base font-semibold text-white">
             {template.template.name}
@@ -957,7 +959,7 @@ export function TemplateLayoutEditor({
             <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 mb-3">
               <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-white/55">
                 <Sparkles className="size-4 text-primary" />
-                Live canvas
+                Живой холст
               </div>
             </div>
 
@@ -1053,8 +1055,8 @@ export function TemplateLayoutEditor({
                               </span>
                             </span>
                           ) : isText ? (
-                            <span className="pointer-events-none absolute left-3 bottom-3 max-w-[calc(100%-24px)] rounded-full border border-white/10 bg-black/45 px-2 py-1 text-[11px] text-white/60">
-                              Text layer
+                            <span className="pointer-events-none absolute bottom-3 left-3 max-w-[calc(100%-24px)] rounded-full border border-white/10 bg-black/45 px-2 py-1 text-[11px] text-white/60">
+                              Текстовый слой
                             </span>
                           ) : layer.kind === "image" && layer.image?.src ? (
                             <span
@@ -1080,7 +1082,7 @@ export function TemplateLayoutEditor({
                             </span>
                           ) : (
                             <span className="pointer-events-none absolute left-3 bottom-3 rounded-full border border-white/10 bg-black/45 px-2 py-1 text-[11px] text-white/60">
-                              {layer.kind === "image" ? "Image layer" : "Layer"}
+                              {layer.kind === "image" ? "Слой изображения" : "Слой"}
                             </span>
                           )}
                         </button>
@@ -1163,7 +1165,7 @@ export function TemplateLayoutEditor({
                     <div className="pointer-events-none absolute right-4 top-4 z-20">
                       <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/75 px-4 py-2 text-xs text-white/75 shadow-lg backdrop-blur-xl">
                         <LoaderCircle className="size-4 animate-spin" />
-                        Rendering preview
+                        Генерируем превью
                       </div>
                     </div>
                   ) : null}
@@ -1179,7 +1181,7 @@ export function TemplateLayoutEditor({
               onClick={() => addTextLayer()}
             >
               <Type className="size-4" />
-              Add text block
+              Добавить текст
             </button>
             <button
               className="btn-hero inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm text-white/80 transition hover:border-primary/30 hover:text-white"
@@ -1187,7 +1189,7 @@ export function TemplateLayoutEditor({
               onClick={() => addImageLayer()}
             >
               <ImagePlus className="size-4" />
-              Add image asset
+              Добавить изображение
             </button>
           </div>
         </div>
@@ -1197,10 +1199,10 @@ export function TemplateLayoutEditor({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
-                  Server preview
+                  Серверное превью
                 </p>
                 <p className="mt-2 text-sm leading-6 text-white/65">
-                  Generate the exported PNG from the backend renderer.
+                  Проверьте, как сертификат будет выглядеть после генерации на сервере.
                 </p>
               </div>
               <button
@@ -1213,16 +1215,16 @@ export function TemplateLayoutEditor({
                 ) : (
                   <Sparkles className="size-4 text-primary" />
                 )}
-                {previewState === "loading" ? "Rendering..." : hasProof ? "Regenerate" : "Generate"}
+                {previewState === "loading" ? "Генерируем..." : hasProof ? "Обновить" : "Превью"}
               </button>
             </div>
 
             <div className="mt-4 space-y-3">
               <label className="block text-sm font-medium text-white/72">
-                Preview name
+                Тестовое ФИО
                 <input
                   className="admin-input mt-2 placeholder:text-white/30"
-                  placeholder="Preview Participant"
+                  placeholder="Тестовый Участник"
                   value={previewName}
                   onChange={(event) => setPreviewName(event.target.value)}
                 />
@@ -1234,10 +1236,10 @@ export function TemplateLayoutEditor({
 
               <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/25">
                 {hasProof && previewUrl ? (
-                  <img alt="Server proof preview" className="h-auto w-full" src={previewUrl} />
+                  <img alt="Серверное превью" className="h-auto w-full" src={previewUrl} />
                 ) : (
                   <div className="flex min-h-72 items-center justify-center px-6 py-10 text-center text-sm leading-6 text-white/52">
-                    Generate preview to compare the live editor with the backend output.
+                    Сгенерируйте превью, чтобы сравнить редактор с серверным результатом.
                   </div>
                 )}
               </div>
@@ -1246,12 +1248,12 @@ export function TemplateLayoutEditor({
 
           <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
-              Layers
+              Слои
             </p>
             <div className="mt-3 space-y-2">
               {canvas.layers.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-4 text-sm text-white/50">
-                  No layers yet.
+                  Слоёв пока нет.
                 </div>
               ) : (
                 canvas.layers.map((layer, index) => (
@@ -1275,7 +1277,7 @@ export function TemplateLayoutEditor({
                           <p className="truncate text-sm font-medium text-white">{layer.name}</p>
                           {layer.role === "legacy_name" ? (
                             <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-primary">
-                              Name
+                              ФИО
                             </span>
                           ) : null}
                         </div>
@@ -1288,7 +1290,7 @@ export function TemplateLayoutEditor({
                     </button>
                     <div className="flex items-center gap-1">
                       <IconButton
-                        label="Duplicate layer"
+                        label="Дублировать слой"
                         onClick={(e: React.MouseEvent) => {
                           e.stopPropagation();
                           duplicateLayer(layer.id);
@@ -1297,7 +1299,7 @@ export function TemplateLayoutEditor({
                         <Copy className="size-3.5" />
                       </IconButton>
                       <IconButton
-                        label="Move layer up"
+                        label="Поднять слой"
                         onClick={(e: React.MouseEvent) => {
                           e.stopPropagation();
                           moveLayer(layer.id, "up");
@@ -1306,7 +1308,7 @@ export function TemplateLayoutEditor({
                         <ArrowUp className="size-3.5" />
                       </IconButton>
                       <IconButton
-                        label="Move layer down"
+                        label="Опустить слой"
                         onClick={(e: React.MouseEvent) => {
                           e.stopPropagation();
                           moveLayer(layer.id, "down");
@@ -1315,7 +1317,7 @@ export function TemplateLayoutEditor({
                         <ArrowDown className="size-3.5" />
                       </IconButton>
                       <IconButton
-                        label="Delete layer"
+                        label="Удалить слой"
                         onClick={(e: React.MouseEvent) => {
                           e.stopPropagation();
                           removeLayer(layer.id);
@@ -1332,17 +1334,17 @@ export function TemplateLayoutEditor({
 
           <section className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
-              Properties
+              Свойства
             </p>
 
             {!selectedLayer ? (
               <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-black/20 p-4 text-sm text-white/50">
-                Select a layer to edit it.
+                Выберите слой на холсте, чтобы редактировать его свойства.
               </div>
             ) : (
               <div className="mt-4 space-y-4">
                 <TextField
-                  label="Layer name"
+                  label="Название слоя"
                   value={selectedLayer.name}
                   onChange={(value) =>
                     updateSelectedLayer((layer) => ({
@@ -1364,7 +1366,7 @@ export function TemplateLayoutEditor({
                     onChange={(value) => updateSelectedLayer((layer) => ({ ...layer, y: value }))}
                   />
                   <NumberField
-                    label="Width"
+                    label="Ширина"
                     value={selectedLayer.width}
                     onChange={(value) =>
                       updateSelectedLayer((layer) => ({
@@ -1374,7 +1376,7 @@ export function TemplateLayoutEditor({
                     }
                   />
                   <NumberField
-                    label="Height"
+                    label="Высота"
                     value={selectedLayer.height}
                     onChange={(value) =>
                       updateSelectedLayer((layer) => ({
@@ -1392,9 +1394,9 @@ export function TemplateLayoutEditor({
                     onClick={() => setIsTextSettingsOpen(true)}
                   >
                     <span>
-                      <span className="block text-sm font-medium text-white">Text settings</span>
+                      <span className="block text-sm font-medium text-white">Настройки текста</span>
                       <span className="mt-1 block text-xs text-white/50">
-                        Font, color, alignment, placeholders and shrink behavior.
+                        Шрифт, цвет, выравнивание, плейсхолдеры и автосжатие.
                       </span>
                     </span>
                     <span className="inline-flex size-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70">
@@ -1430,12 +1432,12 @@ export function TemplateLayoutEditor({
               {isSaving ? (
                 <>
                   <LoaderCircle className="size-4 animate-spin" />
-                  Saving
+                  Сохраняем
                 </>
               ) : (
                 <>
                   <Save className="size-4" />
-                  Save layout
+                  Сохранить макет
                 </>
               )}
             </button>
@@ -1459,15 +1461,15 @@ export function TemplateLayoutEditor({
             <div className="mb-5 flex items-start justify-between gap-4 border-b border-white/10 pb-4">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
-                  Text settings
+                  Настройки текста
                 </p>
                 <h3 className="mt-3 text-xl font-black text-white">{selectedLayer.name}</h3>
                 <p className="mt-2 text-sm leading-6 text-white/65">
-                  Control typography, alignment and placeholders without crowding the main sidebar.
+                  Настройте типографику, выравнивание и плейсхолдеры выбранного текстового слоя.
                 </p>
               </div>
               <button
-                aria-label="Close text settings"
+                aria-label="Закрыть настройки текста"
                 className="inline-flex size-11 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                 type="button"
                 onClick={() => setIsTextSettingsOpen(false)}
@@ -1497,14 +1499,14 @@ function TextLayerEditor({
         <div className="space-y-4 rounded-3xl border border-white/10 bg-black/20 p-4">
           <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-white/55">
             <Type className="size-4 text-primary" />
-            Content
+            Содержимое
           </div>
 
           <label className="block text-sm font-medium text-white/72">
-            Content
+            Текст
             <textarea
               className="admin-input mt-2 min-h-32 text-sm placeholder:text-white/30"
-              placeholder="Awarded to {{participant.full_name}}"
+              placeholder="Награждается {{participant.full_name}}"
               value={text.content}
               onChange={(event) =>
                 onChange((current) => ({
@@ -1521,7 +1523,7 @@ function TextLayerEditor({
           </label>
 
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-xs leading-6 text-white/55">
-            Use placeholders directly in the text, for example{" "}
+            Используйте плейсхолдеры прямо в тексте, например{" "}
             <code>{"{{participant.full_name}}"}</code>, <code>{"{{participant.category}}"}</code>,{" "}
             <code>{"{{template.name}}"}</code>, <code>{"{{issue.issue_date}}"}</code>, and{" "}
             <code>{"{{issue.certificate_id}}"}</code>.
@@ -1548,7 +1550,7 @@ function TextLayerEditor({
                   }))
                 }
               >
-                Insert {option.label.toLowerCase()}
+                Вставить: {option.label.toLowerCase()}
               </button>
             ))}
           </div>
@@ -1557,11 +1559,11 @@ function TextLayerEditor({
         <div className="space-y-4 rounded-3xl border border-white/10 bg-black/20 p-4">
           <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-white/55">
             <SlidersHorizontal className="size-4 text-primary" />
-            Style
+            Стиль
           </div>
 
           <SelectField
-            label="Font family"
+            label="Шрифт"
             value={text.font_family}
             options={SAFE_FONT_OPTIONS}
             onChange={(value) =>
@@ -1579,7 +1581,7 @@ function TextLayerEditor({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <NumberField
-              label="Font size"
+              label="Размер"
               value={text.font_size}
               onChange={(value) =>
                 onChange((current) => ({
@@ -1594,7 +1596,7 @@ function TextLayerEditor({
               }
             />
             <NumberField
-              label="Font weight"
+              label="Толщина"
               value={text.font_weight}
               onChange={(value) =>
                 onChange((current) => ({
@@ -1612,7 +1614,7 @@ function TextLayerEditor({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <ColorField
-              label="Font color"
+              label="Цвет текста"
               value={text.font_color_hex}
               onChange={(value) =>
                 onChange((current) => ({
@@ -1627,7 +1629,7 @@ function TextLayerEditor({
               }
             />
             <NumberField
-              label="Line height"
+              label="Высота строки"
               value={text.line_height}
               onChange={(value) =>
                 onChange((current) => ({
@@ -1645,7 +1647,7 @@ function TextLayerEditor({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <NumberField
-              label="Letter spacing"
+              label="Межбуквенный интервал"
               value={text.letter_spacing}
               onChange={(value) =>
                 onChange((current) => ({
@@ -1661,7 +1663,7 @@ function TextLayerEditor({
             />
             <ToggleRow
               checked={text.auto_shrink}
-              label="Auto shrink"
+              label="Автосжатие"
               onChange={(value) =>
                 onChange((current) => ({
                   ...current,
@@ -1678,21 +1680,21 @@ function TextLayerEditor({
 
           <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
             <AlignmentToggleGroup
-              label="Horizontal align"
+              label="Горизонтальное выравнивание"
               value={text.text_align}
               options={[
                 {
-                  label: "Left",
+                  label: "Слева",
                   value: "left",
                   icon: <AlignLeft className="size-4" />,
                 },
                 {
-                  label: "Center",
+                  label: "По центру",
                   value: "center",
                   icon: <AlignCenter className="size-4" />,
                 },
                 {
-                  label: "Right",
+                  label: "Справа",
                   value: "right",
                   icon: <AlignRight className="size-4" />,
                 },
@@ -1711,21 +1713,21 @@ function TextLayerEditor({
             />
 
             <AlignmentToggleGroup
-              label="Vertical align"
+              label="Вертикальное выравнивание"
               value={text.vertical_align}
               options={[
                 {
-                  label: "Top",
+                  label: "Сверху",
                   value: "top",
                   icon: <ArrowUp className="size-4" />,
                 },
                 {
-                  label: "Center",
+                  label: "По центру",
                   value: "center",
                   icon: <AlignCenter className="size-4" />,
                 },
                 {
-                  label: "Bottom",
+                  label: "Снизу",
                   value: "bottom",
                   icon: <ArrowDown className="size-4" />,
                 },
@@ -1764,7 +1766,7 @@ function ImageLayerEditor({
     <div className="space-y-4 rounded-3xl border border-white/10 bg-black/20 p-4">
       <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-white/55">
         <Upload className="size-4 text-primary" />
-        Image settings
+        Настройки изображения
       </div>
 
       <button
@@ -1773,17 +1775,17 @@ function ImageLayerEditor({
         onClick={onReplace}
       >
         <Upload className="size-4" />
-        Replace image
+        Заменить изображение
       </button>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <SelectField
-          label="Fit"
+          label="Заполнение"
           value={image.fit}
           options={[
-            { label: "Fill", value: "fill" },
-            { label: "Contain", value: "contain" },
-            { label: "Cover", value: "cover" },
+            { label: "Растянуть", value: "fill" },
+            { label: "Вписать", value: "contain" },
+            { label: "Обрезать", value: "cover" },
           ]}
           onChange={(value) =>
             onChange((current) => ({
@@ -1798,7 +1800,7 @@ function ImageLayerEditor({
           }
         />
         <NumberField
-          label="Border radius"
+          label="Скругление"
           value={image.border_radius}
           onChange={(value) =>
             onChange((current) => ({
@@ -1815,7 +1817,7 @@ function ImageLayerEditor({
       </div>
 
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/55">
-        Source: {layer.name}
+        Источник: {layer.name}
       </div>
     </div>
   );

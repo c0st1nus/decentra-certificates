@@ -277,6 +277,39 @@ pub async fn invalidate_completed_issues_for_template(
     Ok(invalidated)
 }
 
+pub async fn invalidate_completed_issue_for_participant(
+    state: &AppState,
+    participant_id: Uuid,
+    template_id: Uuid,
+) -> Result<bool, AppError> {
+    let Some(issue) = CertificateIssues::find()
+        .filter(certificate_issues::Column::ParticipantId.eq(participant_id))
+        .filter(certificate_issues::Column::TemplateId.eq(template_id))
+        .filter(certificate_issues::Column::Status.eq("completed"))
+        .one(&state.db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?
+    else {
+        return Ok(false);
+    };
+
+    if let Err(err) = state.storage.delete_object(&issue.generated_pdf_path).await {
+        tracing::warn!(
+            issue_id = %issue.id,
+            path = %issue.generated_pdf_path,
+            error = %err,
+            "failed to delete stale certificate pdf after participant update"
+        );
+    }
+
+    reset_to_queued(issue, None)
+        .update(&state.db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?;
+
+    Ok(true)
+}
+
 fn reset_to_queued(
     issue: certificate_issues::Model,
     template_updated_at: Option<chrono::DateTime<Utc>>,

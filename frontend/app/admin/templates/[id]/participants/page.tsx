@@ -5,9 +5,12 @@ import {
   Clock,
   Filter,
   Loader2,
+  PencilLine,
   RotateCcw,
+  Save,
   Search,
   Trash2,
+  X,
   XCircle,
 } from "lucide-react";
 import { use, useEffect, useMemo, useState } from "react";
@@ -18,6 +21,7 @@ import { AdminPanel } from "@/components/admin-panel";
 import { ParticipantsImportForm } from "@/components/participants-import-form";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  type CategorySummary,
   type CertificateStatus,
   type GenerationProgress,
   type ParticipantListResponse,
@@ -27,8 +31,10 @@ import {
   fetchGenerationProgress,
   fetchParticipants,
   fetchTemplate,
+  fetchTemplateCategories,
   requeueCertificateIssue,
   requeueFailedForTemplate,
+  updateParticipant,
 } from "@/lib/admin-api";
 import { cn } from "@/lib/utils";
 
@@ -44,11 +50,11 @@ const STATUS_META: Record<
   CertificateStatus,
   { label: string; icon: typeof CheckCircle2; tone: string }
 > = {
-  not_created: { label: "Not created", icon: Clock, tone: "white" },
-  queued: { label: "Queued", icon: Clock, tone: "amber" },
-  processing: { label: "Processing", icon: Loader2, tone: "blue" },
-  completed: { label: "Ready", icon: CheckCircle2, tone: "green" },
-  failed: { label: "Failed", icon: XCircle, tone: "red" },
+  not_created: { label: "Не создан", icon: Clock, tone: "white" },
+  queued: { label: "В очереди", icon: Clock, tone: "amber" },
+  processing: { label: "Генерируется", icon: Loader2, tone: "blue" },
+  completed: { label: "Готов", icon: CheckCircle2, tone: "green" },
+  failed: { label: "Ошибка", icon: XCircle, tone: "red" },
 };
 
 function statusBadgeClasses(tone: string) {
@@ -85,6 +91,7 @@ type Props = {
 export default function TemplateParticipantsPage({ params }: Props) {
   const { id } = use(params);
   const [template, setTemplate] = useState<TemplateDetail | null>(null);
+  const [categories, setCategories] = useState<CategorySummary[]>([]);
   const [email, setEmail] = useState("");
   const [category, setCategory] = useState("");
   const [certStatus, setCertStatus] = useState<CertificateStatus | "">("");
@@ -109,6 +116,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
         const [{ data: tpl }, prg] = await Promise.all([fetchTemplate(id), loadProgress(id)]);
         if (!isMounted) return;
         setTemplate(tpl ?? null);
+        setCategories(tpl?.categories ?? []);
         setProgress(prg);
       } catch {
         if (!isMounted) return;
@@ -143,11 +151,16 @@ export default function TemplateParticipantsPage({ params }: Props) {
     setProgress(prg);
   }
 
+  async function refreshCategories() {
+    const { data } = await fetchTemplateCategories(id);
+    setCategories(data ?? []);
+  }
+
   async function handleDeleteRoster() {
     if (!id) return;
     if (
       !window.confirm(
-        `Delete all participants linked to ${template?.template.name ?? "this template"}?`,
+        `Удалить всех участников шаблона "${template?.template.name ?? "текущий шаблон"}"? Это очистит список участников для этого шаблона.`,
       )
     ) {
       return;
@@ -162,9 +175,9 @@ export default function TemplateParticipantsPage({ params }: Props) {
         setPage(1);
       }
       await refreshProgress();
-      toast.success("Roster cleared.");
+      toast.success("Список участников очищен.");
     } else {
-      toast.error("Failed to delete roster.");
+      toast.error("Не удалось удалить список участников.");
     }
   }
 
@@ -176,9 +189,9 @@ export default function TemplateParticipantsPage({ params }: Props) {
       const refreshed = await loadParticipants(id, { category, email, certStatus: "" }, page);
       setParticipants(refreshed);
       await refreshProgress();
-      toast.success("Certificate requeued.");
+      toast.success("Сертификат поставлен в очередь повторно.");
     } catch {
-      toast.error("Failed to requeue certificate.");
+      toast.error("Не удалось повторно поставить сертификат в очередь.");
     } finally {
       setRequeueingId(null);
     }
@@ -186,16 +199,18 @@ export default function TemplateParticipantsPage({ params }: Props) {
 
   async function handleRequeueAllFailed() {
     if (!id) return;
-    if (!window.confirm("Requeue all failed certificates for this template?")) return;
+    if (!window.confirm("Повторить генерацию всех сертификатов с ошибкой для этого шаблона?")) {
+      return;
+    }
     setBulkRequeueing(true);
     try {
       await requeueFailedForTemplate(id);
       const refreshed = await loadParticipants(id, { category, email, certStatus: "" }, page);
       setParticipants(refreshed);
       await refreshProgress();
-      toast.success("All failed certificates requeued.");
+      toast.success("Все ошибочные сертификаты поставлены в очередь.");
     } catch {
-      toast.error("Failed to requeue certificates.");
+      toast.error("Не удалось повторно поставить сертификаты в очередь.");
     } finally {
       setBulkRequeueing(false);
     }
@@ -225,8 +240,8 @@ export default function TemplateParticipantsPage({ params }: Props) {
     <section className="space-y-6">
       <AdminPageHeader
         backHref={`/admin/templates/${id}`}
-        backLabel="Back to template"
-        description="Import, filter, and track certificate generation status for every participant."
+        backLabel="Назад к шаблону"
+        description="Загрузите участников, проверьте ФИО и категории, затем следите за статусом генерации сертификатов."
         title={template.template.name}
       />
 
@@ -234,11 +249,11 @@ export default function TemplateParticipantsPage({ params }: Props) {
         <AdminPanel>
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="admin-eyebrow">Generation progress</p>
+              <p className="admin-eyebrow">Генерация</p>
               <p className="mt-1 text-sm text-white/70">
-                {progress.completed} of {progress.total} certificates ready
+                Готово {progress.completed} из {progress.total} сертификатов
                 {progress.failed > 0 && (
-                  <span className="ml-2 text-red-300">({progress.failed} failed)</span>
+                  <span className="ml-2 text-red-300">({progress.failed} с ошибкой)</span>
                 )}
               </p>
             </div>
@@ -280,7 +295,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
                   }}
                   type="button"
                 >
-                  <span className="font-medium capitalize">{key.replace("_", " ")}</span>
+                  <span className="font-medium">{STATUS_META[key].label}</span>
                   <span className="opacity-70">{count}</span>
                 </button>
               ) : null,
@@ -299,7 +314,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
               ) : (
                 <RotateCcw className="size-3.5" />
               )}
-              Requeue all failed
+              Повторить все ошибки
             </button>
           )}
         </AdminPanel>
@@ -312,6 +327,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
           onImported={async () => {
             const refreshed = await loadParticipants(id, { category, email, certStatus: "" }, page);
             setParticipants(refreshed);
+            await refreshCategories();
             await refreshProgress();
           }}
         />
@@ -320,12 +336,12 @@ export default function TemplateParticipantsPage({ params }: Props) {
           <AdminPanel>
             <div className="grid gap-3 sm:grid-cols-3">
               <label className="block text-sm font-medium text-white/80">
-                Email filter
+                Поиск по email
                 <div className="relative mt-2">
                   <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-primary/65" />
                   <input
                     className="admin-input admin-input-icon"
-                    placeholder="Search by email..."
+                    placeholder="Введите email..."
                     value={email}
                     onChange={(event) => {
                       setPage(1);
@@ -335,19 +351,25 @@ export default function TemplateParticipantsPage({ params }: Props) {
                 </div>
               </label>
               <label className="block text-sm font-medium text-white/80">
-                Category
-                <input
-                  className="admin-input mt-2"
-                  placeholder="Filter category..."
+                Категория
+                <select
+                  className="admin-input mt-2 appearance-none"
                   value={category}
                   onChange={(event) => {
                     setPage(1);
                     setCategory(event.target.value);
                   }}
-                />
+                >
+                  <option value="">Все категории</option>
+                  {categories.map((item) => (
+                    <option key={item.id} value={item.name}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="block text-sm font-medium text-white/80">
-                Certificate status
+                Статус сертификата
                 <div className="relative mt-2">
                   <Filter className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-primary/65" />
                   <select
@@ -358,12 +380,12 @@ export default function TemplateParticipantsPage({ params }: Props) {
                       setCertStatus(event.target.value as CertificateStatus | "");
                     }}
                   >
-                    <option value="">All statuses</option>
-                    <option value="not_created">Not created</option>
-                    <option value="queued">Queued</option>
-                    <option value="processing">Processing</option>
-                    <option value="completed">Ready</option>
-                    <option value="failed">Failed</option>
+                    <option value="">Все статусы</option>
+                    <option value="not_created">Не создан</option>
+                    <option value="queued">В очереди</option>
+                    <option value="processing">Генерируется</option>
+                    <option value="completed">Готов</option>
+                    <option value="failed">Ошибка</option>
                   </select>
                 </div>
               </label>
@@ -376,7 +398,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
                 onClick={() => void handleDeleteRoster()}
               >
                 <Trash2 className="size-4" />
-                Delete roster
+                Удалить всех участников
               </button>
             </div>
           </AdminPanel>
@@ -384,11 +406,11 @@ export default function TemplateParticipantsPage({ params }: Props) {
           <AdminPanel>
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="admin-eyebrow">Current list</p>
-                <h2 className="mt-3 text-2xl font-black text-white">Imported rows</h2>
+                <p className="admin-eyebrow">Загруженные записи</p>
+                <h2 className="mt-3 text-2xl font-black text-white">Участники шаблона</h2>
               </div>
               <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/70">
-                {filteredParticipants?.total ?? 0} rows
+                {filteredParticipants?.total ?? 0} записей
               </div>
             </div>
 
@@ -398,10 +420,10 @@ export default function TemplateParticipantsPage({ params }: Props) {
                   <thead className="bg-black/30 text-white/60">
                     <tr>
                       <th className="px-4 py-3 font-medium">Email</th>
-                      <th className="px-4 py-3 font-medium">Name</th>
-                      <th className="px-4 py-3 font-medium">Category</th>
-                      <th className="px-4 py-3 font-medium">Certificate</th>
-                      <th className="px-4 py-3 font-medium text-right">Actions</th>
+                      <th className="px-4 py-3 font-medium">ФИО</th>
+                      <th className="px-4 py-3 font-medium">Категория</th>
+                      <th className="px-4 py-3 font-medium">Сертификат</th>
+                      <th className="px-4 py-3 font-medium text-right">Действия</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -410,16 +432,30 @@ export default function TemplateParticipantsPage({ params }: Props) {
                         <ParticipantRow
                           key={participant.id}
                           participant={participant}
+                          categories={categories}
                           requeueingId={requeueingId}
                           onRequeue={handleRequeueIssue}
+                          onSaved={(updated) => {
+                            setParticipants((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    items: current.items.map((item) =>
+                                      item.id === updated.id ? updated : item,
+                                    ),
+                                  }
+                                : current,
+                            );
+                            void refreshProgress();
+                          }}
                         />
                       ))
                     ) : (
                       <tr>
                         <td className="px-4 py-8 text-center text-white/55" colSpan={5}>
                           {certStatus
-                            ? `No participants with status "${certStatus.replace("_", " ")}".`
-                            : "No rows loaded yet."}
+                            ? `Нет участников со статусом "${STATUS_META[certStatus].label}".`
+                            : "Участники ещё не загружены. Выберите CSV/XLSX файл слева."}
                         </td>
                       </tr>
                     )}
@@ -431,8 +467,8 @@ export default function TemplateParticipantsPage({ params }: Props) {
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/60">
               <span>
                 {filteredParticipants
-                  ? `${formatParticipantRange(filteredParticipants)} of ${filteredParticipants.total} rows`
-                  : "No rows loaded yet."}
+                  ? `${formatParticipantRange(filteredParticipants)} из ${filteredParticipants.total} записей`
+                  : "Участники ещё не загружены."}
               </span>
               <div className="flex items-center gap-2">
                 <button
@@ -441,7 +477,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
                   type="button"
                   onClick={() => setPage((current) => Math.max(1, current - 1))}
                 >
-                  Previous
+                  Назад
                 </button>
                 <button
                   className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/70 transition disabled:cursor-not-allowed disabled:opacity-40"
@@ -453,7 +489,7 @@ export default function TemplateParticipantsPage({ params }: Props) {
                   type="button"
                   onClick={() => setPage((current) => current + 1)}
                 >
-                  Next
+                  Вперёд
                 </button>
               </div>
             </div>
@@ -466,22 +502,98 @@ export default function TemplateParticipantsPage({ params }: Props) {
 
 function ParticipantRow({
   participant,
+  categories,
   requeueingId,
   onRequeue,
+  onSaved,
 }: {
   participant: ParticipantSummary;
+  categories: CategorySummary[];
   requeueingId: string | null;
   onRequeue: (id: string | null) => void;
+  onSaved: (updated: ParticipantSummary) => void;
 }) {
   const meta = STATUS_META[participant.certificate_status];
   const Icon = meta.icon;
   const isRequeueing = requeueingId === participant.certificate_id;
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftName, setDraftName] = useState(participant.full_name);
+  const [draftCategory, setDraftCategory] = useState(participant.category ?? "");
+  const [isSaving, setIsSaving] = useState(false);
+  const currentCategoryName = participant.category ?? "";
+  const currentCategoryIsMissing =
+    currentCategoryName !== "" &&
+    !categories.some((category) => category.name === currentCategoryName);
+
+  function resetDraft() {
+    setDraftName(participant.full_name);
+    setDraftCategory(participant.category ?? "");
+  }
+
+  async function handleSave() {
+    if (!draftName.trim()) {
+      toast.error("Введите ФИО участника.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const { response, data } = await updateParticipant(participant.id, {
+        full_name: draftName.trim(),
+        category: draftCategory || null,
+      });
+      if (!response.ok || !data) {
+        toast.error("Не удалось сохранить участника. Проверьте ФИО и категорию.");
+        return;
+      }
+
+      onSaved(data);
+      setIsEditing(false);
+      toast.success("Участник сохранён.");
+    } catch {
+      toast.error("Не удалось сохранить участника.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   return (
     <tr className="border-t border-white/10 transition hover:bg-white/[0.02]">
       <td className="px-4 py-3 text-white/75">{participant.email}</td>
-      <td className="px-4 py-3 text-white/75">{participant.full_name}</td>
-      <td className="px-4 py-3 text-white/75">{participant.category ?? "—"}</td>
+      <td className="px-4 py-3 text-white/75">
+        {isEditing ? (
+          <input
+            className="admin-input min-w-48"
+            disabled={isSaving}
+            value={draftName}
+            onChange={(event) => setDraftName(event.target.value)}
+          />
+        ) : (
+          participant.full_name
+        )}
+      </td>
+      <td className="px-4 py-3 text-white/75">
+        {isEditing ? (
+          <select
+            className="admin-input min-w-44 appearance-none"
+            disabled={isSaving}
+            value={draftCategory}
+            onChange={(event) => setDraftCategory(event.target.value)}
+          >
+            <option value="">Без категории</option>
+            {currentCategoryIsMissing ? (
+              <option value={currentCategoryName}>{currentCategoryName} (текущая)</option>
+            ) : null}
+            {categories.map((category) => (
+              <option key={category.id} value={category.name}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          (participant.category ?? "—")
+        )}
+      </td>
       <td className="px-4 py-3">
         <span
           className={cn(
@@ -503,22 +615,66 @@ function ParticipantRow({
         </span>
       </td>
       <td className="px-4 py-3 text-right">
-        {participant.certificate_status === "failed" && (
-          <button
-            className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-xs text-red-100 transition hover:border-red-400/40 hover:bg-red-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50"
-            disabled={isRequeueing}
-            onClick={() => onRequeue(participant.certificate_id)}
-            title={participant.last_error ?? "Retry generation"}
-            type="button"
-          >
-            {isRequeueing ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : (
-              <RotateCcw className="size-3" />
-            )}
-            Retry
-          </button>
-        )}
+        <div className="flex justify-end gap-2">
+          {isEditing ? (
+            <>
+              <button
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs text-primary transition hover:border-primary/40 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={isSaving}
+                onClick={() => void handleSave()}
+                type="button"
+              >
+                {isSaving ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <Save className="size-3" />
+                )}
+                Сохранить
+              </button>
+              <button
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-white/70 transition hover:border-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={isSaving}
+                onClick={() => {
+                  resetDraft();
+                  setIsEditing(false);
+                }}
+                type="button"
+              >
+                <X className="size-3" />
+                Отмена
+              </button>
+            </>
+          ) : (
+            <button
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-white/70 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              onClick={() => {
+                resetDraft();
+                setIsEditing(true);
+              }}
+              type="button"
+            >
+              <PencilLine className="size-3" />
+              Редактировать
+            </button>
+          )}
+
+          {!isEditing && participant.certificate_status === "failed" && (
+            <button
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-xs text-red-100 transition hover:border-red-400/40 hover:bg-red-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50"
+              disabled={isRequeueing}
+              onClick={() => onRequeue(participant.certificate_id)}
+              title={participant.last_error ?? "Повторить генерацию"}
+              type="button"
+            >
+              {isRequeueing ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <RotateCcw className="size-3" />
+              )}
+              Повторить
+            </button>
+          )}
+        </div>
       </td>
     </tr>
   );

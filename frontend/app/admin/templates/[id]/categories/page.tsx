@@ -67,7 +67,7 @@ export default function TemplateCategoriesPage({ params }: Props) {
   if (isLoading || !template) {
     return (
       <AdminPanel as="section" className="text-sm text-white/65">
-        Loading categories...
+        Загружаем категории...
       </AdminPanel>
     );
   }
@@ -76,8 +76,8 @@ export default function TemplateCategoriesPage({ params }: Props) {
     <section className="space-y-6">
       <AdminPageHeader
         backHref={`/admin/templates/${id}`}
-        backLabel="Back to template"
-        description="Categories for this template. Add, edit and delete as needed."
+        backLabel="Назад к шаблону"
+        description="Категории помогают разделять участников по трекам или типам сертификатов. Их можно добавить вручную или создать автоматически при импорте участников."
         title={template.template.name}
       />
 
@@ -93,9 +93,10 @@ export default function TemplateCategoriesPage({ params }: Props) {
           {categories.length === 0 ? (
             <AdminPanel className="p-8 text-center">
               <CheckCircle2 className="mx-auto size-10 text-primary/80" />
-              <h3 className="mt-4 text-lg font-black text-white">No categories yet</h3>
+              <h3 className="mt-4 text-lg font-black text-white">Категорий пока нет</h3>
               <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-white/60">
-                Add categories using the form on the left.
+                Добавьте категорию вручную или импортируйте участников с колонкой category: новые
+                значения появятся здесь автоматически.
               </p>
             </AdminPanel>
           ) : (
@@ -133,7 +134,7 @@ function CategoryForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim()) {
-      toast.error("Category name is required.");
+      toast.error("Введите название категории.");
       return;
     }
 
@@ -146,14 +147,14 @@ function CategoryForm({
       };
       const { response, data } = await createTemplateCategory(templateId, payload);
       if (!response.ok || !data) {
-        toast.error("Failed to create category.");
+        toast.error("Не удалось создать категорию.");
         return;
       }
       onCreated(data);
-      toast.success(`Category "${data.name}" added.`);
+      toast.success(`Категория "${data.name}" добавлена.`);
       setForm(INITIAL_FORM);
     } catch {
-      toast.error("Failed to create category.");
+      toast.error("Не удалось создать категорию.");
     } finally {
       setIsSaving(false);
     }
@@ -161,11 +162,15 @@ function CategoryForm({
 
   return (
     <AdminPanel>
-      <p className="admin-eyebrow">Add category</p>
+      <p className="admin-eyebrow">Новая категория</p>
+      <p className="mt-3 text-sm leading-6 text-white/65">
+        Используйте категории для треков, ролей или типов сертификатов. Участник может выбрать одну
+        из этих категорий при редактировании записи.
+      </p>
 
       <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
         <label className="block text-sm font-medium text-white/80" htmlFor="cat-name">
-          Name
+          Название
           <input
             id="cat-name"
             autoComplete="off"
@@ -179,12 +184,12 @@ function CategoryForm({
         </label>
 
         <label className="block text-sm font-medium text-white/80" htmlFor="cat-desc">
-          Description
+          Описание
           <textarea
             id="cat-desc"
             className="admin-input mt-2"
             disabled={isSaving}
-            placeholder="e.g. finalists track"
+            placeholder="например, Финалисты"
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
           />
@@ -192,9 +197,9 @@ function CategoryForm({
 
         <label className="flex min-h-12 items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/80">
           <span>
-            <span className="block font-medium text-white">Active</span>
+            <span className="block font-medium text-white">Активна</span>
             <span className="mt-1 block text-xs leading-5 text-white/50">
-              Inactive categories remain in history but disappear from the active set.
+              Неактивные категории остаются в истории, но не используются как основной список.
             </span>
           </span>
           <input
@@ -208,7 +213,7 @@ function CategoryForm({
 
         <button className="btn-hero glow-primary rounded-2xl bg-white/[0.05]" type="submit">
           <Plus className="size-4" />
-          Add category
+          Добавить категорию
         </button>
       </form>
     </AdminPanel>
@@ -246,14 +251,14 @@ function CategoryCard({
         payload,
       );
       if (!response.ok || !data) {
-        toast.error("Failed to save category.");
+        toast.error("Не удалось сохранить категорию.");
         return;
       }
       onUpdate(data);
       setEditing(false);
-      toast.success("Category updated.");
+      toast.success("Категория сохранена.");
     } catch {
-      toast.error("Failed to save category.");
+      toast.error("Не удалось сохранить категорию.");
     } finally {
       setIsSaving(false);
     }
@@ -267,9 +272,9 @@ function CategoryCard({
     const { response } = await deleteTemplateCategory(category.template_id, category.id);
     if (response.ok) {
       onDelete(category.id);
-      toast.success("Category deleted.");
+      toast.success("Категория удалена.");
     } else {
-      toast.error("Failed to delete category.");
+      toast.error("Не удалось удалить категорию.");
     }
   }
 
@@ -295,21 +300,32 @@ function CategoryCard({
                   : "border border-white/10 bg-white/[0.04] text-white/55",
               )}
             >
-              {category.is_active ? "Active" : "Archived"}
+              {category.is_active ? "Активна" : "Архив"}
             </span>
           </div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/40">
             slug: {category.slug}
           </p>
           {editing ? (
-            <textarea
-              className="mt-1 w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-sm text-white/80 outline-none focus:border-primary/60"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
+            <div className="mt-1 space-y-3">
+              <textarea
+                className="w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-sm text-white/80 outline-none focus:border-primary/60"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+              <label className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white/75">
+                <input
+                  checked={isActive}
+                  className="size-4 accent-primary"
+                  type="checkbox"
+                  onChange={(e) => setIsActive(e.target.checked)}
+                />
+                Категория активна
+              </label>
+            </div>
           ) : (
             <p className="text-sm leading-6 text-white/65">
-              {category.description ?? "No description added."}
+              {category.description ?? "Описание не добавлено."}
             </p>
           )}
         </div>
@@ -323,7 +339,7 @@ function CategoryCard({
                 type="button"
                 onClick={() => void handleSave()}
               >
-                Save
+                Сохранить
               </button>
               <button
                 className="btn-hero rounded-2xl border border-white/10 bg-white/[0.04] text-white/80"
@@ -335,7 +351,7 @@ function CategoryCard({
                   setIsActive(category.is_active);
                 }}
               >
-                Cancel
+                Отмена
               </button>
             </>
           ) : (
@@ -345,7 +361,7 @@ function CategoryCard({
               onClick={() => setEditing(true)}
             >
               <PencilLine className="size-4" />
-              Edit
+              Редактировать
             </button>
           )}
           <button
@@ -359,7 +375,7 @@ function CategoryCard({
             onClick={() => void handleDelete()}
           >
             <Trash2 className="size-4" />
-            {armedDelete ? "Confirm" : "Delete"}
+            {armedDelete ? "Подтвердить" : "Удалить"}
           </button>
         </div>
       </div>

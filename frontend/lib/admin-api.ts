@@ -160,6 +160,7 @@ export interface ImportResponse {
   inserted: number;
   updated: number;
   skipped: number;
+  created_categories: string[];
   errors: ImportError[];
 }
 
@@ -173,6 +174,11 @@ type CategoryPayload = {
   name: string;
   description?: string | null;
   is_active: boolean;
+};
+
+type ParticipantPayload = {
+  full_name: string;
+  category?: string | null;
 };
 
 export function getStoredSession(): StoredSession | null {
@@ -425,6 +431,10 @@ export async function deleteParticipants(eventCode: string) {
       method: "DELETE",
     },
   );
+}
+
+export async function updateParticipant(participantId: string, payload: ParticipantPayload) {
+  return patchJson<ParticipantSummary>(`/api/v1/admin/participants/${participantId}`, payload);
 }
 
 export async function fetchGenerationProgress(templateId: string) {

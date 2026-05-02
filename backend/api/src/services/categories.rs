@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chrono::Utc;
 use entity::{
     certificate_templates,
@@ -111,6 +113,78 @@ pub async fn create_category(
     Ok(to_summary(model, &template.name))
 }
 
+pub async fn ensure_categories_for_template(
+    db: &DatabaseConnection,
+    template_id: Uuid,
+    names: impl IntoIterator<Item = String>,
+) -> Result<Vec<CategorySummary>, AppError> {
+    let template = load_template(db, template_id).await?;
+    let existing = TemplateCategories::find()
+        .filter(template_categories::Column::TemplateId.eq(template_id))
+        .all(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?;
+
+    let mut known_names = existing
+        .iter()
+        .map(|category| normalize_name_key(&category.name))
+        .collect::<HashSet<_>>();
+    let mut pending_names = Vec::new();
+    let mut seen_pending = HashSet::new();
+
+    for name in names {
+        let name = normalize_name(&name)?;
+        let key = normalize_name_key(&name);
+        if known_names.contains(&key) || !seen_pending.insert(key.clone()) {
+            continue;
+        }
+        pending_names.push((name, key));
+    }
+
+    let now = Utc::now();
+    let mut created = Vec::with_capacity(pending_names.len());
+
+    for (name, key) in pending_names {
+        let slug = ensure_unique_slug(db, template_id, &slugify(&name), None).await?;
+        let model = template_categories::ActiveModel {
+            id: Set(Uuid::new_v4()),
+            template_id: Set(template_id),
+            name: Set(name),
+            slug: Set(slug),
+            description: Set(None),
+            is_active: Set(true),
+            created_at: Set(now),
+            updated_at: Set(now),
+        }
+        .insert(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?;
+
+        known_names.insert(key);
+        created.push(to_summary(model, &template.name));
+    }
+
+    Ok(created)
+}
+
+pub async fn category_exists_by_name(
+    db: &DatabaseConnection,
+    template_id: Uuid,
+    name: &str,
+) -> Result<bool, AppError> {
+    let name = normalize_name(name)?;
+    let key = normalize_name_key(&name);
+    let categories = TemplateCategories::find()
+        .filter(template_categories::Column::TemplateId.eq(template_id))
+        .all(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?;
+
+    Ok(categories
+        .iter()
+        .any(|category| normalize_name_key(&category.name) == key))
+}
+
 pub async fn update_category(
     db: &DatabaseConnection,
     template_id: Uuid,
@@ -219,6 +293,10 @@ fn normalize_name(value: &str) -> Result<String, AppError> {
     }
 
     Ok(trimmed.to_owned())
+}
+
+fn normalize_name_key(value: &str) -> String {
+    value.trim().to_lowercase()
 }
 
 fn normalize_optional_text(value: Option<String>) -> Option<String> {

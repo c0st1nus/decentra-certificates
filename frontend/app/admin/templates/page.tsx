@@ -35,33 +35,35 @@ export default function AdminTemplatesPage() {
   }, []);
 
   async function handleDelete(id: string) {
-    const confirmed = window.confirm("Delete this template?");
+    const confirmed = window.confirm(
+      "Удалить шаблон? Вместе с ним будут удалены настройки макета, категории и связанные данные этого шаблона.",
+    );
     if (!confirmed) return;
 
     try {
       const { response } = await deleteTemplate(id);
       if (!response.ok) {
-        toast.error("Failed to delete template.");
+        toast.error("Не удалось удалить шаблон.");
         return;
       }
       setTemplates((current) => current.filter((t) => t.template.id !== id));
-      toast.success("Template deleted.");
+      toast.success("Шаблон удалён.");
     } catch {
-      toast.error("Failed to delete template.");
+      toast.error("Не удалось удалить шаблон.");
     }
   }
 
   return (
     <section className="space-y-6">
       <AdminPageHeader
-        description="Upload template files, configure layout and manage variants."
-        title="Certificate templates"
+        description="Загрузите файл сертификата, настройте область ФИО, затем добавьте категории и участников."
+        title="Шаблоны сертификатов"
       />
 
       <TemplateUploadForm
         onSaved={(template) => {
           setTemplates((current) => [template, ...current]);
-          toast.success("Template uploaded.");
+          toast.success("Шаблон загружен. Теперь настройте макет сертификата.");
         }}
       />
 
@@ -83,7 +85,13 @@ export default function AdminTemplatesPage() {
             ))}
           </div>
         ) : (
-          <div className="admin-panel text-sm text-white/70">No templates uploaded yet.</div>
+          <div className="admin-panel p-8 text-center">
+            <h2 className="text-lg font-black text-white">Шаблонов пока нет</h2>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-white/65">
+              Загрузите первый файл сертификата выше. После этого можно будет настроить макет и
+              импортировать участников.
+            </p>
+          </div>
         )}
       </div>
     </section>

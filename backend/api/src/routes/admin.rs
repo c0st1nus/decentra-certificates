@@ -117,6 +117,14 @@ pub struct DeleteParticipantsQuery {
     pub event_code: String,
 }
 
+#[derive(Debug, Deserialize, Validate)]
+pub struct UpdateParticipantRequest {
+    #[validate(length(min = 1, max = 240))]
+    pub full_name: String,
+    #[validate(length(max = 120))]
+    pub category: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CertificateIssueListQuery {
     pub template_id: Option<Uuid>,
@@ -721,6 +729,66 @@ async fn delete_participants(
     })))
 }
 
+#[patch("/participants/{id}")]
+async fn update_participant(
+    state: web::Data<AppState>,
+    auth: AdminAuth,
+    path: web::Path<Uuid>,
+    payload: web::Json<UpdateParticipantRequest>,
+) -> Result<HttpResponse, AppError> {
+    payload
+        .validate()
+        .map_err(|err| AppError::BadRequest(err.to_string()))?;
+
+    let participant_id = path.into_inner();
+    let result = participant_service::update_participant(
+        &state.db,
+        participant_id,
+        participant_service::UpdateParticipantInput {
+            full_name: payload.full_name.clone(),
+            category: payload.category.clone(),
+        },
+    )
+    .await?;
+
+    if result.content_changed
+        && let Ok(template_id) = Uuid::parse_str(&result.event_code)
+    {
+        issue_service::invalidate_completed_issue_for_participant(
+            &state,
+            participant_id,
+            template_id,
+        )
+        .await?;
+        certificate_jobs::enqueue_imported_participants_if_needed(
+            &state,
+            &result.event_code,
+            &[participant_id],
+        )
+        .await
+        .map_err(AppError::Internal)?;
+    }
+
+    let participant = participant_service::get_participant(&state.db, participant_id).await?;
+
+    audit::log_admin_action(
+        &state.db,
+        auth.0.id,
+        "participant.update",
+        "participant",
+        Some(participant_id.to_string()),
+        serde_json::json!({
+            "event_code": &result.event_code,
+            "full_name": &participant.full_name,
+            "category": &participant.category,
+            "content_changed": result.content_changed,
+        }),
+    )
+    .await;
+
+    Ok(HttpResponse::Ok().json(participant))
+}
+
 #[get("/fonts")]
 async fn list_fonts() -> Result<HttpResponse, AppError> {
     Ok(HttpResponse::Ok().json(templates::available_font_families()))
@@ -926,6 +994,7 @@ pub fn configure_protected(cfg: &mut web::ServiceConfig) {
         .service(import_participants)
         .service(list_participants)
         .service(delete_participants)
+        .service(update_participant)
         .service(list_certificate_issues)
         .service(requeue_certificate_issue)
         .service(requeue_failed_for_template)

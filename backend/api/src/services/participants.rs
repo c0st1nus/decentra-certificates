@@ -11,7 +11,10 @@ use sea_orm::{
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::{error::AppError, services::normalization::normalize_email};
+use crate::{
+    error::AppError,
+    services::{categories as category_service, normalization::normalize_email},
+};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ParticipantSummary {
@@ -48,9 +51,22 @@ pub struct ImportResponse {
     pub inserted: u64,
     pub updated: u64,
     pub skipped: u64,
+    pub created_categories: Vec<String>,
     pub errors: Vec<ImportError>,
     #[serde(skip_serializing)]
     pub affected_participant_ids: Vec<Uuid>,
+}
+
+#[derive(Clone, Debug)]
+pub struct UpdateParticipantInput {
+    pub full_name: String,
+    pub category: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct UpdateParticipantResult {
+    pub content_changed: bool,
+    pub event_code: String,
 }
 
 #[derive(Clone, Debug)]
@@ -135,6 +151,66 @@ pub async fn delete_participants(
         .map_err(|err| AppError::Internal(err.into()))?;
 
     Ok(result.rows_affected)
+}
+
+pub async fn get_participant(
+    db: &DatabaseConnection,
+    id: Uuid,
+) -> Result<ParticipantSummary, AppError> {
+    let model = Participants::find_by_id(id)
+        .one(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?
+        .ok_or_else(|| AppError::NotFound("participant not found".to_owned()))?;
+    let issue = entity::certificate_issues::Entity::find()
+        .filter(entity::certificate_issues::Column::ParticipantId.eq(model.id))
+        .one(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?;
+
+    Ok(to_summary(&model, issue.as_ref()))
+}
+
+pub async fn update_participant(
+    db: &DatabaseConnection,
+    id: Uuid,
+    input: UpdateParticipantInput,
+) -> Result<UpdateParticipantResult, AppError> {
+    let model = Participants::find_by_id(id)
+        .one(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?
+        .ok_or_else(|| AppError::NotFound("participant not found".to_owned()))?;
+
+    let full_name = normalize_required_text(&input.full_name, "full_name")?;
+    let category = normalize_optional_text(input.category);
+
+    if let Some(category_name) = category.as_deref()
+        && model.category.as_deref() != Some(category_name)
+        && let Ok(template_id) = Uuid::parse_str(&model.event_code)
+        && !category_service::category_exists_by_name(db, template_id, category_name).await?
+    {
+        return Err(AppError::BadRequest(
+            "category does not exist for this template".to_owned(),
+        ));
+    }
+
+    let content_changed = model.full_name != full_name || model.category != category;
+    let event_code = model.event_code.clone();
+    let mut active_model: participants::ActiveModel = model.into();
+    active_model.full_name = Set(full_name);
+    active_model.category = Set(category);
+    active_model.updated_at = Set(Utc::now());
+
+    active_model
+        .update(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?;
+
+    Ok(UpdateParticipantResult {
+        content_changed,
+        event_code,
+    })
 }
 
 pub async fn import_csv(
@@ -272,6 +348,7 @@ async fn import_rows(
     let mut inserted = 0u64;
     let mut updated = 0u64;
     let mut affected_participant_ids = Vec::with_capacity(rows.len());
+    let created_categories = ensure_import_categories(db, &rows).await?;
 
     for (_, row) in rows {
         let existing = Participants::find()
@@ -324,9 +401,44 @@ async fn import_rows(
         inserted,
         updated,
         skipped,
+        created_categories,
         errors,
         affected_participant_ids,
     })
+}
+
+async fn ensure_import_categories(
+    db: &DatabaseConnection,
+    rows: &[(usize, ImportRow)],
+) -> Result<Vec<String>, AppError> {
+    let mut categories_by_template: HashMap<Uuid, Vec<String>> = HashMap::new();
+
+    for (_, row) in rows {
+        let Some(category) = row.category.as_ref() else {
+            continue;
+        };
+        let Ok(template_id) = Uuid::parse_str(&row.event_code) else {
+            continue;
+        };
+        categories_by_template
+            .entry(template_id)
+            .or_default()
+            .push(category.clone());
+    }
+
+    let mut created = Vec::new();
+    for (template_id, names) in categories_by_template {
+        created.extend(
+            category_service::ensure_categories_for_template(db, template_id, names)
+                .await?
+                .into_iter()
+                .map(|category| category.name),
+        );
+    }
+
+    created.sort();
+    created.dedup();
+    Ok(created)
 }
 
 fn parse_csv_row(
@@ -416,6 +528,26 @@ fn parse_row_from_cells(
 
 fn cell_to_string(cell: &Data) -> String {
     cell.to_string().trim().to_owned()
+}
+
+fn normalize_required_text(value: &str, field: &str) -> Result<String, AppError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::BadRequest(format!("{field} is required")));
+    }
+
+    Ok(trimmed.to_owned())
+}
+
+fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value.and_then(|text| {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_owned())
+        }
+    })
 }
 
 fn to_summary(

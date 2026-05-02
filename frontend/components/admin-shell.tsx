@@ -14,15 +14,15 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   {
     href: "/admin",
-    label: "Dashboard",
-    description: "System overview",
+    label: "Панель",
+    description: "Статус запуска",
     icon: LayoutDashboard,
     match: /^\/admin$/,
   },
   {
     href: "/admin/templates",
-    label: "Templates",
-    description: "Assets, layout, variants",
+    label: "Шаблоны",
+    description: "Макеты и участники",
     icon: Layers3,
     match: /^\/admin\/templates(\/.*)?$/,
   },
@@ -60,7 +60,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         <GridBackground />
         <div className="mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-4 py-10">
           <div className="admin-panel px-6 py-5 text-sm text-white/70">
-            Loading admin session...
+            Проверяем сессию администратора...
           </div>
         </div>
       </main>

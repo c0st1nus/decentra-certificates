@@ -81,7 +81,7 @@ function TemplateThumbnail({
     );
   }
 
-  return <img alt="Template preview" className="h-full w-full object-cover" src={url} />;
+  return <img alt="Превью шаблона" className="h-full w-full object-cover" src={url} />;
 }
 
 export function TemplateCard({ template, onDelete }: TemplateCardProps) {
@@ -104,7 +104,7 @@ export function TemplateCard({ template, onDelete }: TemplateCardProps) {
                 : "border border-white/10 bg-white/[0.04] text-white/50",
             )}
           >
-            {t.is_active ? "Active" : "Inactive"}
+            {t.is_active ? "Активен" : "Черновик"}
           </span>
         </div>
 
@@ -113,11 +113,11 @@ export function TemplateCard({ template, onDelete }: TemplateCardProps) {
         <p className="mt-2 flex items-center gap-3 text-xs text-white/65">
           <span className="inline-flex items-center gap-1">
             <Users className="size-3" />
-            {formatCompactNumber(t.participant_count)}
+            {formatCompactNumber(t.participant_count)} участников
           </span>
           <span className="inline-flex items-center gap-1">
             <Tags className="size-3" />
-            {t.category_count}
+            {t.category_count} категорий
           </span>
         </p>
       </Link>

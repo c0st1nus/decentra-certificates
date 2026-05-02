@@ -47,7 +47,7 @@ export default function TemplateLayoutPage({ params }: Props) {
   if (!template) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-canvas text-sm text-white/70">
-        Template not found.
+        Шаблон не найден.
       </div>
     );
   }

@@ -398,6 +398,8 @@ pub async fn activate_template(
         .map_err(|err| AppError::Internal(err.into()))?
         .ok_or_else(|| AppError::NotFound("template not found".to_owned()))?;
 
+    validate_activation_requirements(db, &template).await?;
+
     let templates = CertificateTemplates::find()
         .all(db)
         .await
@@ -414,6 +416,37 @@ pub async fn activate_template(
     }
 
     get_template(db, template.id).await
+}
+
+async fn validate_activation_requirements(
+    db: &DatabaseConnection,
+    template: &certificate_templates::Model,
+) -> Result<(), AppError> {
+    let has_layout = TemplateLayouts::find()
+        .filter(template_layouts::Column::TemplateId.eq(template.id))
+        .one(db)
+        .await
+        .map_err(|err| AppError::Internal(err.into()))?
+        .is_some();
+    if !has_layout {
+        return Err(AppError::BadRequest(
+            "activation is not possible: configure the template layout first".to_owned(),
+        ));
+    }
+
+    let stats = load_template_stats(db, template).await?;
+    if stats.category_count == 0 {
+        return Err(AppError::BadRequest(
+            "activation is not possible: add at least one category first".to_owned(),
+        ));
+    }
+    if stats.participant_count == 0 {
+        return Err(AppError::BadRequest(
+            "activation is not possible: upload participants first".to_owned(),
+        ));
+    }
+
+    Ok(())
 }
 
 pub async fn deactivate_template(

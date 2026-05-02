@@ -9,7 +9,7 @@ type AdminPageHeaderProps = {
 
 export function AdminPageHeader({
   backHref,
-  backLabel = "Back",
+  backLabel = "Назад",
   description,
   title,
 }: AdminPageHeaderProps) {

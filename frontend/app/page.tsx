@@ -16,7 +16,7 @@ export default function HomePage() {
             </div>
             <div className="min-w-0">
               <p className="admin-eyebrow truncate">Decentrathon</p>
-              <p className="truncate text-sm text-white/60">Certificate claim page</p>
+              <p className="truncate text-sm text-white/60">Получение сертификата</p>
             </div>
           </div>
         </header>
@@ -31,13 +31,12 @@ export default function HomePage() {
               </div>
 
               <h1 className="heading-hero text-gradient justify-center">
-                Get your Decentrathon 5.0 certificate
+                Получите сертификат Decentrathon 5.0
               </h1>
 
               <p className="mx-auto max-w-xl text-sm leading-6 text-white/70 sm:text-base">
-                Enter the email you used during registration. If it is in our database, we will
-                either serve a ready PDF or bump your certificate to the priority queue and show a
-                live build status.
+                Введите email, который использовали при регистрации. Если он есть в базе, мы сразу
+                покажем готовый PDF или поставим сертификат в приоритетную очередь генерации.
               </p>
             </div>
 
@@ -46,8 +45,7 @@ export default function HomePage() {
             </div>
 
             <p className="text-xs leading-5 text-white/50">
-              Certificates are issued only after server-side participant verification and
-              server-side PDF generation.
+              Сертификаты выдаются только после проверки участника на сервере и генерации PDF.
             </p>
           </div>
         </section>
