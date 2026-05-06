@@ -50,16 +50,59 @@
 
 ## Быстрый старт
 
-Нужно установить `Rust`, `bun`, `Docker` и `docker compose`.
+### Что нужно установить
 
-Создайте `.env` на основе `.env.example`, затем запустите:
+| Инструмент | Версия | Где взять |
+|---|---|---|
+| Rust | stable | https://rustup.rs |
+| bun | ≥ 1.x | https://bun.sh |
+| Docker + docker compose | последний | https://docs.docker.com/get-docker/ |
+
+### 1. Клонировать и настроить переменные окружения
 
 ```bash
-make setup
-make backend
-make seed-admin ARGS="--login admin --password 'strong-password-here' --role super_admin"
-make frontend
+git clone https://github.com/c0st1nus/decentra-certificates.git
+cd decentra-certificates
+cp .env.example .env
 ```
+
+Откройте `.env` и замените как минимум:
+
+```env
+# Сгенерируйте два разных случайных секрета:
+#   openssl rand -hex 32
+JWT_ACCESS_SECRET=<случайная_строка_64_символа>
+JWT_REFRESH_SECRET=<другая_случайная_строка_64_символа>
+```
+
+Остальные значения подходят для локальной разработки без изменений.
+
+### 2. Настроить frontend
+
+```bash
+echo "NEXT_PUBLIC_API_URL=http://localhost:8080" > frontend/.env.local
+```
+
+### 3. Запустить инфраструктуру, применить миграции, стартовать сервисы
+
+```bash
+make setup          # npm deps + PostgreSQL/Redis/MinIO + миграции
+make backend        # Rust API на :8080
+```
+
+В отдельном терминале:
+
+```bash
+make seed-admin ARGS="--login admin --password 'strong-password-here' --role super_admin"
+make frontend       # Next.js на :3000
+```
+
+### 4. Проверить
+
+- Frontend: http://localhost:3000
+- Admin-панель: http://localhost:3000/admin  (логин/пароль из шага выше)
+- API: http://localhost:8080/health
+- MinIO console: http://localhost:19001  (minioadmin / minioadmin)
 
 Backend по умолчанию стартует на `127.0.0.1:8080`. Frontend запускается отдельно из `frontend/`.
 
@@ -80,7 +123,79 @@ make fmt           # Rust + frontend formatting
 make test          # Rust tests
 ```
 
-## Структура
+## Основные сценарии использования
+
+### Создание первого администратора
+
+```bash
+make seed-admin ARGS="--login admin --password 'mypassword' --role super_admin"
+```
+
+### Работа с шаблонами (через admin-панель)
+
+1. Войдите в `/admin` с логином и паролем.
+2. Перейдите в **Templates → New template**.
+3. Загрузите фон сертификата (PNG/JPG/PDF).
+4. Настройте поля (имя участника, дата, etc.) через редактор layout.
+5. Сохраните и создайте **snapshot** (финальный вид).
+
+### Импорт участников
+
+1. Подготовьте CSV или XLSX файл со столбцами `email`, `full_name` (и опционально `category`).
+2. В admin-панели откройте **Participants → Import**.
+3. Загрузите файл — участники добавятся в базу.
+
+### Включение выдачи сертификатов
+
+```bash
+# Через API:
+curl -X PUT http://localhost:8080/api/admin/settings \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"issuance_enabled": true}'
+```
+
+Или через admin-панель: **Settings → Issuance → Enable**.
+
+### Получение сертификата участником
+
+Участник открывает публичную страницу, вводит email. Если найден в базе — получает ссылку на скачивание PDF.
+
+```bash
+curl -X POST http://localhost:8080/api/public/certificate \
+  -H "Content-Type: application/json" \
+  -d '{"email": "participant@example.com"}'
+```
+
+### Настройка S3 (AWS или MinIO)
+
+Для локальной разработки MinIO поднимается автоматически через `make up`. Для production замените в `.env`:
+
+```env
+STORAGE_DRIVER=s3
+STORAGE_S3_BUCKET=my-production-bucket
+STORAGE_S3_REGION=eu-central-1
+STORAGE_S3_PREFIX=certificates
+# STORAGE_S3_ENDPOINT_URL= (закомментируйте для AWS S3)
+STORAGE_S3_FORCE_PATH_STYLE=false
+AWS_ACCESS_KEY_ID=<ключ_из_IAM>
+AWS_SECRET_ACCESS_KEY=<секрет_из_IAM>
+```
+
+### Telegram-гейт (опционально)
+
+Для ограничения выдачи сертификатов только подписчикам канала:
+
+```env
+TELEGRAM_BOT_TOKEN=123456789:AAAA...
+TELEGRAM_CHANNEL_ID=-1001234567890
+TELEGRAM_CHANNEL_URL=https://t.me/your_channel
+TELEGRAM_SUBSCRIPTION_REQUIRED=true
+```
+
+Бот должен быть добавлен в канал с правами администратора.
+
+
 
 ```text
 backend/
