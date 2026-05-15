@@ -1,7 +1,8 @@
 "use client";
 
 import { ArrowDown, ArrowLeft, ArrowRight, Pause, Play, RotateCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { cn, formatCompactNumber } from "@/lib/utils";
 
@@ -27,6 +28,14 @@ interface GameState {
   level: number;
   status: GameStatus;
   clearingRows: number[];
+}
+
+interface GameUiState {
+  next: ActivePiece;
+  score: number;
+  lines: number;
+  level: number;
+  status: GameStatus;
 }
 
 type GameAction =
@@ -85,23 +94,136 @@ const CELL_CLASSES: Record<PieceKind, string> = {
   T: "border-fuchsia-300/80 bg-fuchsia-300 shadow-[0_0_14px_rgba(240,171,252,0.3)]",
   Z: "border-red-400/80 bg-red-400 shadow-[0_0_14px_rgba(248,113,113,0.3)]",
 };
-const BOARD_CELL_IDS = Array.from({ length: BOARD_HEIGHT }, (_, y) =>
-  Array.from({ length: BOARD_WIDTH }, (_, x) => `cell-${y}-${x}`),
-);
 const PREVIEW_CELL_IDS = Array.from({ length: 16 }, (_, index) => `preview-${index}`);
+const INITIAL_DROP_INTERVAL_MS = 620;
+const DROP_INTERVAL_LEVEL_STEP_MS = 55;
+const MIN_DROP_INTERVAL_MS = 75;
+const LINE_CLEAR_DELAY_MS = 220;
+const UI_SYNC_INTERVAL_MS = 120;
+const BOARD_RENDER_DPR_CAP = 1.5;
+const CELL_PALETTE: Record<PieceKind, { fill: string; stroke: string; shine: string }> = {
+  I: { fill: "#67e8f9", shine: "rgba(236,254,255,0.36)", stroke: "rgba(103,232,249,0.92)" },
+  J: { fill: "#60a5fa", shine: "rgba(219,234,254,0.32)", stroke: "rgba(96,165,250,0.92)" },
+  L: { fill: "#fdba74", shine: "rgba(255,237,213,0.34)", stroke: "rgba(253,186,116,0.92)" },
+  O: { fill: "#fde047", shine: "rgba(254,249,195,0.36)", stroke: "rgba(253,224,71,0.92)" },
+  S: { fill: "#8cd812", shine: "rgba(236,252,203,0.36)", stroke: "rgba(140,216,18,0.92)" },
+  T: { fill: "#f0abfc", shine: "rgba(250,232,255,0.34)", stroke: "rgba(240,171,252,0.92)" },
+  Z: { fill: "#f87171", shine: "rgba(254,226,226,0.34)", stroke: "rgba(248,113,113,0.92)" },
+};
 
 export function Tetris({ className, onGameOver, onStart }: TetrisProps) {
-  const [state, dispatch] = useReducer(gameReducer, undefined, createInitialState);
+  const gameRef = useRef<GameState | null>(null);
+  if (gameRef.current === null) {
+    gameRef.current = createInitialState();
+  }
+  const initialGameState = gameRef.current;
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const clearLineTimer = useRef<number | null>(null);
+  const lastUiSync = useRef(0);
+  const [uiState, setUiState] = useState<GameUiState>(() => createUiState(initialGameState));
   const [startError, setStartError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const handledGameOverScore = useRef<number | null>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
 
-  const visibleBoard = useMemo(
-    () => withActivePiece(state.board, state.active),
-    [state.board, state.active],
+  const previewCells = useMemo(() => renderPreviewCells(uiState.next), [uiState.next]);
+
+  const drawCurrentBoard = useCallback(() => {
+    if (!canvasRef.current || !gameRef.current) {
+      return;
+    }
+
+    drawBoardCanvas(canvasRef.current, gameRef.current);
+  }, []);
+
+  const syncUiState = useCallback((force = false) => {
+    if (!gameRef.current) {
+      return;
+    }
+
+    const now = performance.now();
+    if (!force && now - lastUiSync.current < UI_SYNC_INTERVAL_MS) {
+      return;
+    }
+
+    lastUiSync.current = now;
+    const nextUiState = createUiState(gameRef.current);
+    setUiState((current) => (areUiStatesEqual(current, nextUiState) ? current : nextUiState));
+  }, []);
+
+  const handleGameOverIfNeeded = useCallback(
+    (previous: GameState, next: GameState) => {
+      if (previous.status === "gameOver" || next.status !== "gameOver") {
+        return;
+      }
+
+      if (handledGameOverScore.current === next.score) {
+        return;
+      }
+
+      handledGameOverScore.current = next.score;
+      void onGameOver?.({ score: next.score, lines: next.lines });
+    },
+    [onGameOver],
   );
-  const dropInterval = useMemo(() => getDropInterval(state.level), [state.level]);
+
+  const commitClearingRows = useCallback(() => {
+    if (!gameRef.current) {
+      return;
+    }
+
+    clearLineTimer.current = null;
+    const previous = gameRef.current;
+    const next = gameReducer(previous, { type: "commitClear" });
+    gameRef.current = next;
+    drawCurrentBoard();
+    syncUiState(true);
+    handleGameOverIfNeeded(previous, next);
+  }, [drawCurrentBoard, handleGameOverIfNeeded, syncUiState]);
+
+  const scheduleLineClear = useCallback(() => {
+    if (clearLineTimer.current !== null) {
+      return;
+    }
+
+    clearLineTimer.current = window.setTimeout(commitClearingRows, LINE_CLEAR_DELAY_MS);
+  }, [commitClearingRows]);
+
+  const applyAction = useCallback(
+    (action: GameAction, forceUi = false) => {
+      if (!gameRef.current) {
+        return;
+      }
+
+      if (action.type === "start" && clearLineTimer.current !== null) {
+        window.clearTimeout(clearLineTimer.current);
+        clearLineTimer.current = null;
+      }
+
+      const previous = gameRef.current;
+      const next = gameReducer(previous, action);
+      if (next === previous) {
+        return;
+      }
+
+      gameRef.current = next;
+      drawCurrentBoard();
+
+      if (next.clearingRows.length > 0) {
+        scheduleLineClear();
+      }
+
+      const shouldForceUi =
+        forceUi ||
+        action.type !== "tick" ||
+        previous.status !== next.status ||
+        next.status === "gameOver";
+      syncUiState(shouldForceUi);
+      handleGameOverIfNeeded(previous, next);
+    },
+    [drawCurrentBoard, handleGameOverIfNeeded, scheduleLineClear, syncUiState],
+  );
 
   const startGame = useCallback(async () => {
     setStartError(null);
@@ -109,35 +231,81 @@ export function Tetris({ className, onGameOver, onStart }: TetrisProps) {
     try {
       await onStart?.();
       handledGameOverScore.current = null;
-      dispatch({ type: "start" });
+      applyAction({ type: "start" }, true);
     } catch {
       setStartError("Не удалось создать игровую сессию. Попробуйте ещё раз.");
     } finally {
       setIsStarting(false);
     }
-  }, [onStart]);
+  }, [applyAction, onStart]);
 
   useEffect(() => {
-    if (state.status !== "playing") {
+    drawCurrentBoard();
+  }, [drawCurrentBoard]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
       return;
     }
 
-    const timer = window.setInterval(() => {
-      dispatch({ type: "tick" });
-    }, dropInterval);
+    const observer = new ResizeObserver(drawCurrentBoard);
+    observer.observe(canvas);
+    window.addEventListener("resize", drawCurrentBoard);
+    drawCurrentBoard();
 
-    return () => window.clearInterval(timer);
-  }, [dropInterval, state.status]);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", drawCurrentBoard);
+    };
+  }, [drawCurrentBoard]);
+
+  useEffect(() => {
+    return () => {
+      if (clearLineTimer.current !== null) {
+        window.clearTimeout(clearLineTimer.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (uiState.status !== "playing") {
+      return;
+    }
+
+    let timer: number | null = null;
+    let cancelled = false;
+
+    function scheduleTick() {
+      const level = gameRef.current?.level ?? 1;
+      timer = window.setTimeout(() => {
+        applyAction({ type: "tick" });
+        if (!cancelled && gameRef.current?.status === "playing") {
+          scheduleTick();
+        }
+      }, getDropInterval(level));
+    }
+
+    scheduleTick();
+
+    return () => {
+      cancelled = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [applyAction, uiState.status]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Enter" && state.status !== "playing") {
+      const status = gameRef.current?.status ?? "idle";
+      if (event.key === "Enter" && status !== "playing") {
         event.preventDefault();
         void startGame();
         return;
       }
 
-      if (state.status !== "playing") {
+      if (status !== "playing") {
         return;
       }
 
@@ -145,66 +313,40 @@ export function Tetris({ className, onGameOver, onStart }: TetrisProps) {
         event.preventDefault();
       }
 
-      if (event.key === "ArrowLeft") dispatch({ type: "move", dx: -1 });
-      if (event.key === "ArrowRight") dispatch({ type: "move", dx: 1 });
-      if (event.key === "ArrowDown") dispatch({ type: "softDrop" });
-      if (event.key === "ArrowUp") dispatch({ type: "rotate" });
-      if (event.key === " ") dispatch({ type: "hardDrop" });
-      if (event.key.toLowerCase() === "p") dispatch({ type: "pause" });
+      if (event.key === "ArrowLeft") applyAction({ type: "move", dx: -1 });
+      if (event.key === "ArrowRight") applyAction({ type: "move", dx: 1 });
+      if (event.key === "ArrowDown") applyAction({ type: "softDrop" });
+      if (event.key === "ArrowUp") applyAction({ type: "rotate" });
+      if (event.key === " ") applyAction({ type: "hardDrop" });
+      if (event.key.toLowerCase() === "p") applyAction({ type: "pause" }, true);
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [startGame, state.status]);
+  }, [applyAction, startGame]);
 
-  useEffect(() => {
-    if (state.status !== "gameOver") {
-      return;
-    }
-
-    if (handledGameOverScore.current === state.score) {
-      return;
-    }
-
-    handledGameOverScore.current = state.score;
-    void onGameOver?.({ score: state.score, lines: state.lines });
-  }, [onGameOver, state.lines, state.score, state.status]);
-
-  useEffect(() => {
-    if (state.clearingRows.length === 0) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      dispatch({ type: "commitClear" });
-    }, 220);
-
-    return () => window.clearTimeout(timer);
-  }, [state.clearingRows]);
-
-  const isRunning = state.status === "playing";
+  const isRunning = uiState.status === "playing";
 
   return (
     <section className={cn("grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]", className)}>
       <div className="admin-panel overflow-hidden p-3 sm:p-4">
         <div
-          className="relative mx-auto grid max-w-[min(92vw,430px)] touch-none gap-1 rounded-2xl border border-primary/20 bg-black/50 p-2 shadow-[0_0_32px_rgba(140,216,18,0.1)]"
-          style={{ gridTemplateColumns: `repeat(${BOARD_WIDTH}, minmax(0, 1fr))` }}
+          className="relative mx-auto max-w-[min(92vw,430px)] touch-none rounded-2xl border border-primary/20 bg-black/50 p-2 shadow-[0_0_32px_rgba(140,216,18,0.1)]"
           onTouchEnd={(event) => {
             const start = touchStart.current;
             touchStart.current = null;
-            if (!start || state.status !== "playing") return;
+            if (!start || gameRef.current?.status !== "playing") return;
             const touch = event.changedTouches[0];
             const dx = touch.clientX - start.x;
             const dy = touch.clientY - start.y;
             if (Math.abs(dx) < 24 && Math.abs(dy) < 24) {
-              dispatch({ type: "rotate" });
+              applyAction({ type: "rotate" });
               return;
             }
             if (Math.abs(dx) > Math.abs(dy)) {
-              dispatch({ type: "move", dx: dx > 0 ? 1 : -1 });
+              applyAction({ type: "move", dx: dx > 0 ? 1 : -1 });
             } else if (dy > 0) {
-              dispatch({ type: dy > 70 ? "hardDrop" : "softDrop" });
+              applyAction({ type: dy > 70 ? "hardDrop" : "softDrop" });
             }
           }}
           onTouchStart={(event) => {
@@ -212,27 +354,17 @@ export function Tetris({ className, onGameOver, onStart }: TetrisProps) {
             touchStart.current = { x: touch.clientX, y: touch.clientY };
           }}
         >
-          {BOARD_CELL_IDS.flatMap((rowIds, y) =>
-            rowIds.map((cellId, x) => {
-              const cell = visibleBoard[y][x];
-              return (
-                <div
-                  className={cn(
-                    "aspect-square rounded-[0.28rem] border border-white/[0.035] bg-white/[0.035] transition-colors duration-150",
-                    cell && CELL_CLASSES[cell],
-                    state.clearingRows.includes(y) &&
-                      "animate-pulse border-white/80 bg-white shadow-[0_0_18px_rgba(255,255,255,0.55)]",
-                  )}
-                  key={cellId}
-                />
-              );
-            }),
-          )}
+          <canvas
+            aria-label="Tetris board"
+            className="block aspect-[10/20] w-full rounded-xl"
+            ref={canvasRef}
+            role="img"
+          />
 
-          {state.status !== "playing" ? (
+          {uiState.status !== "playing" ? (
             <div className="absolute inset-2 flex flex-col items-center justify-center rounded-xl bg-black/75 p-5 text-center backdrop-blur-sm">
               <p className="font-pixel text-xl leading-8 text-primary">
-                {state.status === "gameOver" ? "GAME OVER" : "TETRIS"}
+                {uiState.status === "gameOver" ? "GAME OVER" : "TETRIS"}
               </p>
               <p className="mt-3 max-w-xs text-sm leading-6 text-white/70">
                 Управляйте стрелками, вращайте вверх, сбрасывайте пробелом. На телефоне используйте
@@ -245,7 +377,7 @@ export function Tetris({ className, onGameOver, onStart }: TetrisProps) {
                 onClick={() => void startGame()}
               >
                 <Play className="size-4" />
-                {state.status === "gameOver" ? "Играть ещё" : "Старт"}
+                {uiState.status === "gameOver" ? "Играть ещё" : "Старт"}
               </button>
               {startError ? <p className="mt-3 text-sm text-red-200">{startError}</p> : null}
             </div>
@@ -255,15 +387,15 @@ export function Tetris({ className, onGameOver, onStart }: TetrisProps) {
 
       <aside className="space-y-4">
         <div className="admin-panel grid grid-cols-3 gap-3 text-center">
-          <Stat label="Счёт" value={formatCompactNumber(state.score)} />
-          <Stat label="Линии" value={String(state.lines)} />
-          <Stat label="Уровень" value={String(state.level)} />
+          <Stat label="Счёт" value={formatCompactNumber(uiState.score)} />
+          <Stat label="Линии" value={String(uiState.lines)} />
+          <Stat label="Уровень" value={String(uiState.level)} />
         </div>
 
         <div className="admin-panel">
           <p className="admin-eyebrow">Следующая фигура</p>
           <div className="mt-4 grid size-24 grid-cols-4 gap-1 rounded-2xl border border-white/10 bg-black/35 p-2">
-            {renderPreviewCells(state.next).map((cell, index) => (
+            {previewCells.map((cell, index) => (
               <div
                 className={cn(
                   "rounded-[0.22rem] border border-white/[0.035] bg-white/[0.025]",
@@ -281,28 +413,28 @@ export function Tetris({ className, onGameOver, onStart }: TetrisProps) {
             <ControlButton
               disabled={!isRunning}
               label="Влево"
-              onClick={() => dispatch({ type: "move", dx: -1 })}
+              onClick={() => applyAction({ type: "move", dx: -1 })}
             >
               <ArrowLeft className="size-5" />
             </ControlButton>
             <ControlButton
               disabled={!isRunning}
               label="Вращать"
-              onClick={() => dispatch({ type: "rotate" })}
+              onClick={() => applyAction({ type: "rotate" })}
             >
               <RotateCw className="size-5" />
             </ControlButton>
             <ControlButton
               disabled={!isRunning}
               label="Вправо"
-              onClick={() => dispatch({ type: "move", dx: 1 })}
+              onClick={() => applyAction({ type: "move", dx: 1 })}
             >
               <ArrowRight className="size-5" />
             </ControlButton>
             <ControlButton
               disabled={!isRunning}
               label="Вниз"
-              onClick={() => dispatch({ type: "softDrop" })}
+              onClick={() => applyAction({ type: "softDrop" })}
             >
               <ArrowDown className="size-5" />
             </ControlButton>
@@ -310,7 +442,7 @@ export function Tetris({ className, onGameOver, onStart }: TetrisProps) {
               className="col-span-2 min-h-12 rounded-2xl border border-primary/25 bg-primary/10 px-4 text-xs font-bold uppercase tracking-[0.14em] text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!isRunning}
               type="button"
-              onClick={() => dispatch({ type: "hardDrop" })}
+              onClick={() => applyAction({ type: "hardDrop" })}
             >
               Быстрый сброс
             </button>
@@ -318,9 +450,9 @@ export function Tetris({ className, onGameOver, onStart }: TetrisProps) {
 
           <button
             className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm font-semibold text-white/80 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={state.status === "idle" || state.status === "gameOver"}
+            disabled={uiState.status === "idle" || uiState.status === "gameOver"}
             type="button"
-            onClick={() => dispatch({ type: isRunning ? "pause" : "resume" })}
+            onClick={() => applyAction({ type: isRunning ? "pause" : "resume" }, true)}
           >
             {isRunning ? <Pause className="size-4" /> : <Play className="size-4" />}
             {isRunning ? "Пауза" : "Продолжить"}
@@ -346,7 +478,7 @@ function ControlButton({
   label,
   onClick,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   disabled?: boolean;
   label: string;
   onClick: () => void;
@@ -559,6 +691,126 @@ function withActivePiece(board: Board, piece: ActivePiece | null): Board {
   return mergePiece(board, piece);
 }
 
+function createUiState(state: GameState): GameUiState {
+  return {
+    level: state.level,
+    lines: state.lines,
+    next: state.next,
+    score: state.score,
+    status: state.status,
+  };
+}
+
+function areUiStatesEqual(current: GameUiState, next: GameUiState) {
+  return (
+    current.level === next.level &&
+    current.lines === next.lines &&
+    current.next === next.next &&
+    current.score === next.score &&
+    current.status === next.status
+  );
+}
+
+function drawBoardCanvas(canvas: HTMLCanvasElement, state: GameState) {
+  const rect = canvas.getBoundingClientRect();
+  const cssWidth = rect.width || canvas.clientWidth;
+  const cssHeight = rect.height || canvas.clientHeight || cssWidth * 2;
+  if (cssWidth <= 0 || cssHeight <= 0) {
+    return;
+  }
+
+  const dpr = Math.min(window.devicePixelRatio || 1, BOARD_RENDER_DPR_CAP);
+  const pixelWidth = Math.max(1, Math.floor(cssWidth * dpr));
+  const pixelHeight = Math.max(1, Math.floor(cssHeight * dpr));
+  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+  }
+
+  const context = canvas.getContext("2d", { alpha: true });
+  if (!context) {
+    return;
+  }
+
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  context.clearRect(0, 0, cssWidth, cssHeight);
+  context.fillStyle = "rgba(3, 7, 18, 0.84)";
+  context.fillRect(0, 0, cssWidth, cssHeight);
+
+  const visibleBoard = withActivePiece(state.board, state.active);
+  const clearingRows = new Set(state.clearingRows);
+  const cellSize = Math.min(cssWidth / BOARD_WIDTH, cssHeight / BOARD_HEIGHT);
+  const boardWidth = cellSize * BOARD_WIDTH;
+  const boardHeight = cellSize * BOARD_HEIGHT;
+  const offsetX = (cssWidth - boardWidth) / 2;
+  const offsetY = (cssHeight - boardHeight) / 2;
+  const gap = Math.max(1, cellSize * 0.08);
+  const radius = Math.max(3, cellSize * 0.16);
+
+  context.lineWidth = Math.max(1, Math.min(2, cellSize * 0.05));
+
+  for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+    for (let x = 0; x < BOARD_WIDTH; x += 1) {
+      const cell = visibleBoard[y][x];
+      const isClearing = clearingRows.has(y);
+      const cellX = offsetX + x * cellSize + gap / 2;
+      const cellY = offsetY + y * cellSize + gap / 2;
+      const drawSize = cellSize - gap;
+
+      roundedRectPath(context, cellX, cellY, drawSize, drawSize, radius);
+      if (isClearing) {
+        context.fillStyle = "rgba(255, 255, 255, 0.9)";
+        context.strokeStyle = "rgba(255, 255, 255, 0.96)";
+      } else if (cell) {
+        const palette = CELL_PALETTE[cell];
+        context.fillStyle = palette.fill;
+        context.strokeStyle = palette.stroke;
+      } else {
+        context.fillStyle = "rgba(255, 255, 255, 0.035)";
+        context.strokeStyle = "rgba(255, 255, 255, 0.055)";
+      }
+      context.fill();
+      context.stroke();
+
+      if (cell && !isClearing) {
+        const palette = CELL_PALETTE[cell];
+        roundedRectPath(
+          context,
+          cellX + drawSize * 0.18,
+          cellY + drawSize * 0.14,
+          drawSize * 0.64,
+          drawSize * 0.18,
+          radius * 0.5,
+        );
+        context.fillStyle = palette.shine;
+        context.fill();
+      }
+    }
+  }
+}
+
+function roundedRectPath(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+) {
+  const safeRadius = Math.min(radius, width / 2, height / 2);
+  context.beginPath();
+  context.moveTo(x + safeRadius, y);
+  context.lineTo(x + width - safeRadius, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+  context.lineTo(x + width, y + height - safeRadius);
+  context.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+  context.lineTo(x + safeRadius, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+  context.lineTo(x, y + safeRadius);
+  context.quadraticCurveTo(x, y, x + safeRadius, y);
+  context.closePath();
+}
+
 function clearCompletedLines(board: Board) {
   const remaining = board.filter((row) => row.some((cell) => cell === null));
   const lines = BOARD_HEIGHT - remaining.length;
@@ -582,7 +834,10 @@ function scoreForLines(lines: number, level: number) {
 }
 
 function getDropInterval(level: number) {
-  return Math.max(110, 820 - (level - 1) * 65);
+  return Math.max(
+    MIN_DROP_INTERVAL_MS,
+    INITIAL_DROP_INTERVAL_MS - (level - 1) * DROP_INTERVAL_LEVEL_STEP_MS,
+  );
 }
 
 function renderPreviewCells(piece: ActivePiece): Cell[] {

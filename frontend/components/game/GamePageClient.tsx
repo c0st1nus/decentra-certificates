@@ -2,7 +2,7 @@
 
 import { Trophy, UserRound } from "lucide-react";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { GameAuthGate } from "@/components/game/GameAuthGate";
@@ -15,7 +15,7 @@ export function GamePageClient() {
   const [lastScore, setLastScore] = useState<number | null>(null);
   const [finishState, setFinishState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
-  async function handleStart() {
+  const handleStart = useCallback(async () => {
     const { data, response } = await startGameSession();
     const sessionId = data?.session_id ?? data?.id;
     const nonce = data?.nonce;
@@ -25,9 +25,9 @@ export function GamePageClient() {
     sessionIdRef.current = String(sessionId);
     sessionNonceRef.current = nonce;
     setFinishState("idle");
-  }
+  }, []);
 
-  async function handleGameOver(result: { score: number; lines: number }) {
+  const handleGameOver = useCallback(async (result: { score: number; lines: number }) => {
     const sessionId = sessionIdRef.current;
     const nonce = sessionNonceRef.current;
     setLastScore(result.score);
@@ -57,7 +57,7 @@ export function GamePageClient() {
       sessionIdRef.current = null;
       sessionNonceRef.current = null;
     }
-  }
+  }, []);
 
   return (
     <GameAuthGate>
