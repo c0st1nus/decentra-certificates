@@ -17,3 +17,6 @@ pub mod svg_renderer;
 pub mod telegram;
 pub mod templates;
 pub mod urls;
+pub mod game_auth;
+pub mod game_leaderboard;
+pub mod game_telegram;

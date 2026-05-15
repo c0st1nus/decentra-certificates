@@ -1,4 +1,5 @@
 import { BadgeCheck } from "lucide-react";
+import Link from "next/link";
 
 import { EmailRequestForm } from "@/components/email-request-form";
 import { GridBackground } from "@/components/grid-background";
@@ -38,6 +39,15 @@ export default function HomePage() {
                 Введите email, который использовали при регистрации. Если он есть в базе, мы сразу
                 покажем готовый PDF или поставим сертификат в приоритетную очередь генерации.
               </p>
+
+              <div className="flex justify-center">
+                <Link
+                  className="btn-hero glow-primary rounded-2xl border border-primary/30 bg-primary/15 text-primary hover:bg-primary/20"
+                  href="/game"
+                >
+                  Играть
+                </Link>
+              </div>
             </div>
 
             <div className="text-left">

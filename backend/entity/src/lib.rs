@@ -8,3 +8,7 @@ pub mod prelude;
 pub mod refresh_sessions;
 pub mod template_categories;
 pub mod template_layouts;
+pub mod game_users;
+pub mod game_sessions;
+pub mod game_scores;
+pub mod leaderboard_settings;

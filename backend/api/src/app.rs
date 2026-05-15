@@ -3,7 +3,7 @@ use actix_governor::{Governor, GovernorConfigBuilder};
 use actix_web::{middleware::from_fn, web};
 
 use crate::middleware::auth::require_admin_auth;
-use crate::routes::{admin, public, system};
+use crate::routes::{admin, admin_game, game, public, system};
 
 pub fn build_app(cfg: &mut web::ServiceConfig, stress_test_mode: bool) {
     let public_governor = GovernorConfigBuilder::default()
@@ -23,9 +23,15 @@ pub fn build_app(cfg: &mut web::ServiceConfig, stress_test_mode: bool) {
             web::scope("/api/v1")
                 .service(web::scope("/system").configure(system::configure))
                 .service(web::scope("/public").configure(public::configure))
+                .service(web::scope("/game").configure(game::configure))
                 .service(
                     web::scope("/admin")
                         .service(web::scope("/auth").configure(admin::configure_public_auth))
+                        .service(
+                            web::scope("/game")
+                                .wrap(from_fn(require_admin_auth))
+                                .configure(admin_game::configure),
+                        )
                         .service(
                             web::scope("")
                                 .wrap(from_fn(require_admin_auth))
@@ -43,9 +49,19 @@ pub fn build_app(cfg: &mut web::ServiceConfig, stress_test_mode: bool) {
                         .configure(public::configure),
                 )
                 .service(
+                    web::scope("/game")
+                        .wrap(Governor::new(&public_governor))
+                        .configure(game::configure),
+                )
+                .service(
                     web::scope("/admin")
                         .wrap(Governor::new(&admin_governor))
                         .service(web::scope("/auth").configure(admin::configure_public_auth))
+                        .service(
+                            web::scope("/game")
+                                .wrap(from_fn(require_admin_auth))
+                                .configure(admin_game::configure),
+                        )
                         .service(
                             web::scope("")
                                 .wrap(from_fn(require_admin_auth))

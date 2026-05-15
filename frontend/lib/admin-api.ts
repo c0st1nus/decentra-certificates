@@ -164,6 +164,26 @@ export interface ImportResponse {
   errors: ImportError[];
 }
 
+export interface AdminGameLeaderboardEntry {
+  user_id?: string;
+  username: string;
+  avatar_url?: string | null;
+  score: number;
+  rank?: number;
+  games_played?: number;
+  last_played_at?: string | null;
+}
+
+export interface AdminGameLeaderboardResponse {
+  items?: AdminGameLeaderboardEntry[];
+  leaders?: AdminGameLeaderboardEntry[];
+  leaderboard?: AdminGameLeaderboardEntry[];
+}
+
+export interface ScheduleLeaderboardResetPayload {
+  reset_at?: string;
+}
+
 const ACCESS_TOKEN_KEY = "decentra_admin_access_token";
 const REFRESH_TOKEN_KEY = "decentra_admin_refresh_token";
 const EXPIRES_AT_KEY = "decentra_admin_expires_at";
@@ -440,6 +460,25 @@ export async function updateParticipant(participantId: string, payload: Particip
 export async function fetchGenerationProgress(templateId: string) {
   return adminRequestJson<GenerationProgress>(
     `/api/v1/admin/templates/${templateId}/generation-progress`,
+  );
+}
+
+export async function fetchAdminGameLeaderboard() {
+  return adminRequestJson<AdminGameLeaderboardResponse | AdminGameLeaderboardEntry[]>(
+    "/api/v1/admin/game/leaderboard",
+  );
+}
+
+export async function resetGameLeaderboard() {
+  return adminRequestJson<{ status: string }>("/api/v1/admin/game/leaderboard/reset", {
+    method: "POST",
+  });
+}
+
+export async function scheduleGameLeaderboardReset(payload: ScheduleLeaderboardResetPayload = {}) {
+  return adminRequestJson<{ status: string; reset_at?: string }>(
+    "/api/v1/admin/game/leaderboard/schedule-reset",
+    jsonInit("POST", payload),
   );
 }
 

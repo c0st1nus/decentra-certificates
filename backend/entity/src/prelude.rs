@@ -7,3 +7,7 @@ pub use crate::participants::Entity as Participants;
 pub use crate::refresh_sessions::Entity as RefreshSessions;
 pub use crate::template_categories::Entity as TemplateCategories;
 pub use crate::template_layouts::Entity as TemplateLayouts;
+pub use crate::game_users::Entity as GameUsers;
+pub use crate::game_sessions::Entity as GameSessions;
+pub use crate::game_scores::Entity as GameScores;
+pub use crate::leaderboard_settings::Entity as LeaderboardSettings;

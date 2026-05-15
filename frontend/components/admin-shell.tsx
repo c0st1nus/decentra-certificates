@@ -1,6 +1,6 @@
 "use client";
 
-import { Layers3, LayoutDashboard } from "lucide-react";
+import { Gamepad2, Layers3, LayoutDashboard } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
@@ -25,6 +25,13 @@ const NAV_ITEMS = [
     description: "Макеты и участники",
     icon: Layers3,
     match: /^\/admin\/templates(\/.*)?$/,
+  },
+  {
+    href: "/admin/game",
+    label: "Игра",
+    description: "Лидерборд",
+    icon: Gamepad2,
+    match: /^\/admin\/game(\/.*)?$/,
   },
 ] as const;
 
