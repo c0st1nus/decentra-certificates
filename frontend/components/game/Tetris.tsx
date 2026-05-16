@@ -326,66 +326,98 @@ export function Tetris({ className, onGameOver, onStart }: TetrisProps) {
   }, [applyAction, startGame]);
 
   const isRunning = uiState.status === "playing";
+  const pauseDisabled = uiState.status === "idle" || uiState.status === "gameOver";
 
   return (
     <section className={cn("grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]", className)}>
-      <div className="admin-panel overflow-hidden p-3 sm:p-4">
-        <div
-          className="relative mx-auto max-w-[min(92vw,430px)] touch-none rounded-2xl border border-primary/20 bg-black/50 p-2 shadow-[0_0_32px_rgba(140,216,18,0.1)]"
-          onTouchEnd={(event) => {
-            const start = touchStart.current;
-            touchStart.current = null;
-            if (!start || gameRef.current?.status !== "playing") return;
-            const touch = event.changedTouches[0];
-            const dx = touch.clientX - start.x;
-            const dy = touch.clientY - start.y;
-            if (Math.abs(dx) < 24 && Math.abs(dy) < 24) {
-              applyAction({ type: "rotate" });
-              return;
-            }
-            if (Math.abs(dx) > Math.abs(dy)) {
-              applyAction({ type: "move", dx: dx > 0 ? 1 : -1 });
-            } else if (dy > 0) {
-              applyAction({ type: dy > 70 ? "hardDrop" : "softDrop" });
-            }
-          }}
-          onTouchStart={(event) => {
-            const touch = event.changedTouches[0];
-            touchStart.current = { x: touch.clientX, y: touch.clientY };
-          }}
-        >
-          <canvas
-            aria-label="Tetris board"
-            className="block aspect-[10/20] w-full rounded-xl"
-            ref={canvasRef}
-            role="img"
-          />
+      <div className="flex min-w-0 flex-col gap-3 lg:contents">
+        {/* Mobile: compact stats above board */}
+        <div className="admin-panel grid grid-cols-3 gap-2 p-2.5 text-center sm:p-3 lg:hidden">
+          <Stat compact label="Счёт" value={formatCompactNumber(uiState.score)} />
+          <Stat compact label="Линии" value={String(uiState.lines)} />
+          <Stat compact label="Уровень" value={String(uiState.level)} />
+        </div>
 
-          {uiState.status !== "playing" ? (
-            <div className="absolute inset-2 flex flex-col items-center justify-center rounded-xl bg-black/75 p-5 text-center backdrop-blur-sm">
-              <p className="font-pixel text-xl leading-8 text-primary">
-                {uiState.status === "gameOver" ? "GAME OVER" : "TETRIS"}
-              </p>
-              <p className="mt-3 max-w-xs text-sm leading-6 text-white/70">
-                Управляйте стрелками, вращайте вверх, сбрасывайте пробелом. На телефоне используйте
-                свайпы или кнопки ниже.
-              </p>
-              <button
-                className="btn-hero glow-primary mt-5 rounded-2xl bg-primary/15 text-primary disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isStarting}
-                type="button"
-                onClick={() => void startGame()}
-              >
-                <Play className="size-4" />
-                {uiState.status === "gameOver" ? "Играть ещё" : "Старт"}
-              </button>
-              {startError ? <p className="mt-3 text-sm text-red-200">{startError}</p> : null}
-            </div>
-          ) : null}
+        <div className="admin-panel flex flex-col gap-3 overflow-hidden p-3 sm:p-4 lg:order-first lg:row-span-3">
+          <div className="lg:hidden">
+            <p className="admin-eyebrow">Следующая фигура</p>
+            <NextPiecePreview cells={previewCells} />
+          </div>
+
+          <div
+            className="relative mx-auto max-w-[min(92vw,430px)] touch-none rounded-2xl border border-primary/20 bg-black/50 p-2 shadow-[0_0_32px_rgba(140,216,18,0.1)]"
+            onTouchEnd={(event) => {
+              const start = touchStart.current;
+              touchStart.current = null;
+              if (!start || gameRef.current?.status !== "playing") return;
+              const touch = event.changedTouches[0];
+              const dx = touch.clientX - start.x;
+              const dy = touch.clientY - start.y;
+              if (Math.abs(dx) < 24 && Math.abs(dy) < 24) {
+                applyAction({ type: "rotate" });
+                return;
+              }
+              if (Math.abs(dx) > Math.abs(dy)) {
+                applyAction({ type: "move", dx: dx > 0 ? 1 : -1 });
+              } else if (dy > 0) {
+                applyAction({ type: dy > 70 ? "hardDrop" : "softDrop" });
+              }
+            }}
+            onTouchCancel={() => {
+              touchStart.current = null;
+            }}
+            onTouchStart={(event) => {
+              const touch = event.changedTouches[0];
+              touchStart.current = { x: touch.clientX, y: touch.clientY };
+            }}
+          >
+            <canvas
+              aria-label="Tetris board"
+              className="block aspect-[10/20] w-full rounded-xl"
+              ref={canvasRef}
+              role="img"
+            />
+
+            {uiState.status !== "playing" ? (
+              <div className="absolute inset-2 flex flex-col items-center justify-center rounded-xl bg-black/75 p-5 text-center backdrop-blur-sm">
+                <p className="font-pixel text-xl leading-8 text-primary">
+                  {uiState.status === "gameOver" ? "GAME OVER" : "TETRIS"}
+                </p>
+                <p className="mt-3 max-w-xs text-sm leading-6 text-white/70">
+                  Управляйте стрелками, вращайте вверх, сбрасывайте пробелом. На телефоне — кнопки
+                  «Управление» ниже поля (можно и свайпами по полю).
+                </p>
+                <button
+                  className="btn-hero glow-primary mt-5 rounded-2xl bg-primary/15 text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isStarting}
+                  type="button"
+                  onClick={() => void startGame()}
+                >
+                  <Play className="size-4" />
+                  {uiState.status === "gameOver" ? "Играть ещё" : "Старт"}
+                </button>
+                {startError ? <p className="mt-3 text-sm text-red-200">{startError}</p> : null}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="space-y-3 lg:hidden">
+            <p className="admin-eyebrow">Управление</p>
+            <MobileControls applyAction={applyAction} isRunning={isRunning} />
+            <button
+              className="flex min-h-14 w-full touch-manipulation items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm font-semibold text-white/80 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={pauseDisabled}
+              type="button"
+              onClick={() => applyAction({ type: isRunning ? "pause" : "resume" }, true)}
+            >
+              {isRunning ? <Pause className="size-4" /> : <Play className="size-4" />}
+              {isRunning ? "Пауза" : "Продолжить"}
+            </button>
+          </div>
         </div>
       </div>
 
-      <aside className="space-y-4">
+      <aside className="hidden space-y-4 lg:block">
         <div className="admin-panel grid grid-cols-3 gap-3 text-center">
           <Stat label="Счёт" value={formatCompactNumber(uiState.score)} />
           <Stat label="Линии" value={String(uiState.lines)} />
@@ -394,17 +426,7 @@ export function Tetris({ className, onGameOver, onStart }: TetrisProps) {
 
         <div className="admin-panel">
           <p className="admin-eyebrow">Следующая фигура</p>
-          <div className="mt-4 grid size-24 grid-cols-4 gap-1 rounded-2xl border border-white/10 bg-black/35 p-2">
-            {previewCells.map((cell, index) => (
-              <div
-                className={cn(
-                  "rounded-[0.22rem] border border-white/[0.035] bg-white/[0.025]",
-                  cell && CELL_CLASSES[cell],
-                )}
-                key={PREVIEW_CELL_IDS[index]}
-              />
-            ))}
-          </div>
+          <NextPiecePreview cells={previewCells} />
         </div>
 
         <div className="admin-panel space-y-3">
@@ -450,7 +472,7 @@ export function Tetris({ className, onGameOver, onStart }: TetrisProps) {
 
           <button
             className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm font-semibold text-white/80 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={uiState.status === "idle" || uiState.status === "gameOver"}
+            disabled={pauseDisabled}
             type="button"
             onClick={() => applyAction({ type: isRunning ? "pause" : "resume" }, true)}
           >
@@ -463,22 +485,107 @@ export function Tetris({ className, onGameOver, onStart }: TetrisProps) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ compact, label, value }: { compact?: boolean; label: string; value: string }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-[0.18em] text-white/45">{label}</p>
-      <p className="mt-1 font-pixel text-lg text-primary">{value}</p>
+      <p
+        className={cn(
+          "uppercase tracking-[0.18em] text-white/45",
+          compact ? "text-[9px]" : "text-[10px]",
+        )}
+      >
+        {label}
+      </p>
+      <p
+        className={cn("mt-1 font-pixel text-primary", compact ? "text-base leading-6" : "text-lg")}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function NextPiecePreview({ cells }: { cells: Cell[] }) {
+  return (
+    <div className="mx-auto grid w-max max-w-full grid-cols-4 gap-1 rounded-xl border border-white/10 bg-black/40 p-2">
+      {PREVIEW_CELL_IDS.map((id, index) => {
+        const cell = cells[index] ?? null;
+        return (
+          <div
+            key={id}
+            className={cn(
+              "aspect-square w-7 shrink-0 rounded-md border sm:w-8",
+              cell ? CELL_CLASSES[cell] : "border-white/10 bg-white/[0.04]",
+            )}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function MobileControls({
+  applyAction,
+  isRunning,
+}: {
+  applyAction: (action: GameAction, forceUi?: boolean) => void;
+  isRunning: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-3 gap-2 touch-manipulation">
+      <ControlButton
+        className="min-h-14 touch-manipulation"
+        disabled={!isRunning}
+        label="Влево"
+        onClick={() => applyAction({ type: "move", dx: -1 })}
+      >
+        <ArrowLeft className="size-5" />
+      </ControlButton>
+      <ControlButton
+        className="min-h-14 touch-manipulation"
+        disabled={!isRunning}
+        label="Вращать"
+        onClick={() => applyAction({ type: "rotate" })}
+      >
+        <RotateCw className="size-5" />
+      </ControlButton>
+      <ControlButton
+        className="min-h-14 touch-manipulation"
+        disabled={!isRunning}
+        label="Вправо"
+        onClick={() => applyAction({ type: "move", dx: 1 })}
+      >
+        <ArrowRight className="size-5" />
+      </ControlButton>
+      <ControlButton
+        className="min-h-14 touch-manipulation"
+        disabled={!isRunning}
+        label="Вниз"
+        onClick={() => applyAction({ type: "softDrop" })}
+      >
+        <ArrowDown className="size-5" />
+      </ControlButton>
+      <button
+        className="col-span-2 flex min-h-14 touch-manipulation items-center justify-center rounded-2xl border border-primary/25 bg-primary/10 px-4 text-xs font-bold uppercase tracking-[0.14em] text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
+        disabled={!isRunning}
+        type="button"
+        onClick={() => applyAction({ type: "hardDrop" })}
+      >
+        Быстрый сброс
+      </button>
     </div>
   );
 }
 
 function ControlButton({
   children,
+  className,
   disabled,
   label,
   onClick,
 }: {
   children: ReactNode;
+  className?: string;
   disabled?: boolean;
   label: string;
   onClick: () => void;
@@ -486,7 +593,10 @@ function ControlButton({
   return (
     <button
       aria-label={label}
-      className="flex min-h-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-white/80 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
+      className={cn(
+        "flex min-h-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-white/80 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50",
+        className,
+      )}
       disabled={disabled}
       type="button"
       onClick={onClick}
