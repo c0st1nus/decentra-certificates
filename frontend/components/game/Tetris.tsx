@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowDown, ArrowLeft, ArrowRight, Pause, Play, RotateCw } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ReactNode, TouchEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { cn, formatCompactNumber } from "@/lib/utils";
@@ -328,89 +328,106 @@ export function Tetris({ className, onGameOver, onStart }: TetrisProps) {
   const isRunning = uiState.status === "playing";
   const pauseDisabled = uiState.status === "idle" || uiState.status === "gameOver";
 
+  const handleTouchStart = useCallback((event: TouchEvent) => {
+    const touch = event.changedTouches[0];
+    touchStart.current = { x: touch.clientX, y: touch.clientY };
+  }, []);
+
+  const handleTouchEnd = useCallback(
+    (event: TouchEvent) => {
+      const start = touchStart.current;
+      touchStart.current = null;
+      if (!start || gameRef.current?.status !== "playing") return;
+      const touch = event.changedTouches[0];
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      if (Math.abs(dx) < 24 && Math.abs(dy) < 24) {
+        applyAction({ type: "rotate" });
+        return;
+      }
+      if (Math.abs(dx) > Math.abs(dy)) {
+        applyAction({ type: "move", dx: dx > 0 ? 1 : -1 });
+      } else if (dy > 0) {
+        applyAction({ type: dy > 70 ? "hardDrop" : "softDrop" });
+      }
+    },
+    [applyAction],
+  );
+
+  const handleTouchCancel = useCallback(() => {
+    touchStart.current = null;
+  }, []);
+
+  const idleOverlay =
+    uiState.status !== "playing" ? (
+      <div className="absolute inset-0 flex flex-col items-center justify-center rounded-xl bg-black/75 p-4 text-center backdrop-blur-sm sm:inset-1 sm:p-5">
+        <p className="font-pixel text-lg leading-7 text-primary sm:text-xl sm:leading-8">
+          {uiState.status === "gameOver" ? "GAME OVER" : "TETRIS"}
+        </p>
+        <p className="mt-2 max-w-xs text-xs leading-5 text-white/70 sm:mt-3 sm:text-sm sm:leading-6">
+          Управляйте стрелками, вращайте вверх, сбрасывайте пробелом. На телефоне — кнопки
+          «Управление» ниже поля (можно и свайпами по полю).
+        </p>
+        <button
+          className="btn-hero glow-primary mt-4 rounded-2xl bg-primary/15 text-primary disabled:cursor-not-allowed disabled:opacity-60 sm:mt-5"
+          disabled={isStarting}
+          type="button"
+          onClick={() => void startGame()}
+        >
+          <Play className="size-4" />
+          {uiState.status === "gameOver" ? "Играть ещё" : "Старт"}
+        </button>
+        {startError ? <p className="mt-2 text-sm text-red-200 sm:mt-3">{startError}</p> : null}
+      </div>
+    ) : null;
+
   return (
-    <section className={cn("grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]", className)}>
-      <div className="flex min-w-0 flex-col gap-3 lg:contents">
-        {/* Mobile: compact stats above board */}
-        <div className="admin-panel grid grid-cols-3 gap-2 p-2.5 text-center sm:p-3 lg:hidden">
-          <Stat compact label="Счёт" value={formatCompactNumber(uiState.score)} />
-          <Stat compact label="Линии" value={String(uiState.lines)} />
-          <Stat compact label="Уровень" value={String(uiState.level)} />
-        </div>
+    <section
+      className={cn(
+        "flex min-h-0 flex-1 flex-col gap-3 lg:grid lg:flex-none lg:gap-5 lg:grid-cols-[minmax(0,1fr)_320px]",
+        className,
+      )}
+    >
+      <div className="admin-panel grid shrink-0 grid-cols-3 gap-2 p-2.5 text-center sm:p-3 lg:hidden">
+        <Stat compact label="Счёт" value={formatCompactNumber(uiState.score)} />
+        <Stat compact label="Линии" value={String(uiState.lines)} />
+        <Stat compact label="Уровень" value={String(uiState.level)} />
+      </div>
 
-        <div className="admin-panel flex flex-col gap-3 overflow-hidden p-3 sm:p-4 lg:order-first lg:row-span-3">
-          <div className="lg:hidden">
-            <p className="admin-eyebrow">Следующая фигура</p>
-            <NextPiecePreview cells={previewCells} />
+      <div className="flex min-h-0 max-h-[min(72dvh,calc(100dvh-11rem))] flex-1 flex-col lg:max-h-none lg:row-span-3 lg:order-first lg:admin-panel lg:p-4">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-primary/20 bg-black/50 shadow-[0_0_32px_rgba(140,216,18,0.1)] lg:rounded-none lg:border-0 lg:bg-transparent lg:shadow-none">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 bg-black/60 px-2.5 py-2 lg:hidden">
+            <p className="admin-eyebrow mb-0 shrink-0">Следующая фигура</p>
+            <NextPiecePreview compact cells={previewCells} />
           </div>
 
-          <div
-            className="relative mx-auto max-w-[min(92vw,430px)] touch-none rounded-2xl border border-primary/20 bg-black/50 p-2 shadow-[0_0_32px_rgba(140,216,18,0.1)]"
-            onTouchEnd={(event) => {
-              const start = touchStart.current;
-              touchStart.current = null;
-              if (!start || gameRef.current?.status !== "playing") return;
-              const touch = event.changedTouches[0];
-              const dx = touch.clientX - start.x;
-              const dy = touch.clientY - start.y;
-              if (Math.abs(dx) < 24 && Math.abs(dy) < 24) {
-                applyAction({ type: "rotate" });
-                return;
-              }
-              if (Math.abs(dx) > Math.abs(dy)) {
-                applyAction({ type: "move", dx: dx > 0 ? 1 : -1 });
-              } else if (dy > 0) {
-                applyAction({ type: dy > 70 ? "hardDrop" : "softDrop" });
-              }
-            }}
-            onTouchCancel={() => {
-              touchStart.current = null;
-            }}
-            onTouchStart={(event) => {
-              const touch = event.changedTouches[0];
-              touchStart.current = { x: touch.clientX, y: touch.clientY };
-            }}
-          >
-            <canvas
-              aria-label="Tetris board"
-              className="block aspect-[10/20] w-full rounded-xl"
-              ref={canvasRef}
-              role="img"
-            />
-
-            {uiState.status !== "playing" ? (
-              <div className="absolute inset-2 flex flex-col items-center justify-center rounded-xl bg-black/75 p-5 text-center backdrop-blur-sm">
-                <p className="font-pixel text-xl leading-8 text-primary">
-                  {uiState.status === "gameOver" ? "GAME OVER" : "TETRIS"}
-                </p>
-                <p className="mt-3 max-w-xs text-sm leading-6 text-white/70">
-                  Управляйте стрелками, вращайте вверх, сбрасывайте пробелом. На телефоне — кнопки
-                  «Управление» ниже поля (можно и свайпами по полю).
-                </p>
-                <button
-                  className="btn-hero glow-primary mt-5 rounded-2xl bg-primary/15 text-primary disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={isStarting}
-                  type="button"
-                  onClick={() => void startGame()}
-                >
-                  <Play className="size-4" />
-                  {uiState.status === "gameOver" ? "Играть ещё" : "Старт"}
-                </button>
-                {startError ? <p className="mt-3 text-sm text-red-200">{startError}</p> : null}
-              </div>
-            ) : null}
+          <div className="relative min-h-0 flex-1 lg:flex-none">
+            <div
+              className="absolute inset-0 touch-none p-1.5 lg:relative lg:mx-auto lg:inset-auto lg:max-w-[min(92vw,430px)] lg:rounded-2xl lg:border lg:border-primary/20 lg:bg-black/50 lg:p-2 lg:shadow-[0_0_32px_rgba(140,216,18,0.1)]"
+              onTouchCancel={handleTouchCancel}
+              onTouchEnd={handleTouchEnd}
+              onTouchStart={handleTouchStart}
+            >
+              <canvas
+                aria-label="Tetris board"
+                className="absolute inset-0 h-full w-full rounded-lg lg:relative lg:block lg:aspect-[10/20] lg:h-auto lg:w-full lg:rounded-xl"
+                ref={canvasRef}
+                role="img"
+              />
+              {idleOverlay}
+            </div>
           </div>
 
-          <div className="space-y-3 lg:hidden">
+          <div className="shrink-0 space-y-1.5 border-t border-white/10 bg-black/70 px-2 py-2 lg:hidden">
             <p className="admin-eyebrow">Управление</p>
-            <MobileControls applyAction={applyAction} isRunning={isRunning} />
+            <MobileControls applyAction={applyAction} compact isRunning={isRunning} />
             <button
-              className="flex min-h-14 w-full touch-manipulation items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm font-semibold text-white/80 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex min-h-11 w-full touch-manipulation items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 text-xs font-semibold text-white/80 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={pauseDisabled}
               type="button"
               onClick={() => applyAction({ type: isRunning ? "pause" : "resume" }, true)}
             >
-              {isRunning ? <Pause className="size-4" /> : <Play className="size-4" />}
+              {isRunning ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
               {isRunning ? "Пауза" : "Продолжить"}
             </button>
           </div>
@@ -505,16 +522,22 @@ function Stat({ compact, label, value }: { compact?: boolean; label: string; val
   );
 }
 
-function NextPiecePreview({ cells }: { cells: Cell[] }) {
+function NextPiecePreview({ cells, compact }: { cells: Cell[]; compact?: boolean }) {
   return (
-    <div className="mx-auto grid w-max max-w-full grid-cols-4 gap-1 rounded-xl border border-white/10 bg-black/40 p-2">
+    <div
+      className={cn(
+        "mx-auto grid w-max max-w-full grid-cols-4 border border-white/10 bg-black/40",
+        compact ? "gap-0.5 rounded-lg p-1.5" : "gap-1 rounded-xl p-2",
+      )}
+    >
       {PREVIEW_CELL_IDS.map((id, index) => {
         const cell = cells[index] ?? null;
         return (
           <div
             key={id}
             className={cn(
-              "aspect-square w-7 shrink-0 rounded-md border sm:w-8",
+              "aspect-square shrink-0 rounded-md border",
+              compact ? "w-5" : "w-7 sm:w-8",
               cell ? CELL_CLASSES[cell] : "border-white/10 bg-white/[0.04]",
             )}
           />
@@ -526,15 +549,19 @@ function NextPiecePreview({ cells }: { cells: Cell[] }) {
 
 function MobileControls({
   applyAction,
+  compact,
   isRunning,
 }: {
   applyAction: (action: GameAction, forceUi?: boolean) => void;
+  compact?: boolean;
   isRunning: boolean;
 }) {
+  const buttonClass = compact ? "min-h-11 touch-manipulation" : "min-h-14 touch-manipulation";
+
   return (
-    <div className="grid grid-cols-3 gap-2 touch-manipulation">
+    <div className={cn("grid grid-cols-3 touch-manipulation", compact ? "gap-1.5" : "gap-2")}>
       <ControlButton
-        className="min-h-14 touch-manipulation"
+        className={buttonClass}
         disabled={!isRunning}
         label="Влево"
         onClick={() => applyAction({ type: "move", dx: -1 })}
@@ -542,7 +569,7 @@ function MobileControls({
         <ArrowLeft className="size-5" />
       </ControlButton>
       <ControlButton
-        className="min-h-14 touch-manipulation"
+        className={buttonClass}
         disabled={!isRunning}
         label="Вращать"
         onClick={() => applyAction({ type: "rotate" })}
@@ -550,7 +577,7 @@ function MobileControls({
         <RotateCw className="size-5" />
       </ControlButton>
       <ControlButton
-        className="min-h-14 touch-manipulation"
+        className={buttonClass}
         disabled={!isRunning}
         label="Вправо"
         onClick={() => applyAction({ type: "move", dx: 1 })}
@@ -558,7 +585,7 @@ function MobileControls({
         <ArrowRight className="size-5" />
       </ControlButton>
       <ControlButton
-        className="min-h-14 touch-manipulation"
+        className={buttonClass}
         disabled={!isRunning}
         label="Вниз"
         onClick={() => applyAction({ type: "softDrop" })}
@@ -566,7 +593,10 @@ function MobileControls({
         <ArrowDown className="size-5" />
       </ControlButton>
       <button
-        className="col-span-2 flex min-h-14 touch-manipulation items-center justify-center rounded-2xl border border-primary/25 bg-primary/10 px-4 text-xs font-bold uppercase tracking-[0.14em] text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
+        className={cn(
+          "col-span-2 flex touch-manipulation items-center justify-center rounded-2xl border border-primary/25 bg-primary/10 px-4 font-bold uppercase tracking-[0.14em] text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50",
+          compact ? "min-h-11 text-[10px]" : "min-h-14 text-xs",
+        )}
         disabled={!isRunning}
         type="button"
         onClick={() => applyAction({ type: "hardDrop" })}

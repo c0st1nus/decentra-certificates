@@ -61,37 +61,52 @@ export function GamePageClient() {
 
   return (
     <GameAuthGate>
-      <section className="space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="max-w-3xl">
-            <p className="admin-eyebrow">Decentrathon arcade</p>
-            <h1 className="heading-hero text-gradient mt-3 text-left">Tetris Challenge</h1>
-            <p className="mt-4 max-w-2xl text-sm leading-6 text-white/70 sm:text-base">
-              Классический Tetris с ускорением, линиями и очками. Сыграйте партию, сохраните счёт и
-              попробуйте подняться в лидерборде.
+      <section className="flex min-h-0 flex-1 flex-col space-y-2 lg:space-y-6">
+        <div className="lg:hidden">
+          <p className="admin-eyebrow">Decentrathon arcade</p>
+          <h1 className="heading-hero text-gradient mt-2 text-left text-2xl sm:text-3xl">Tetris</h1>
+          {lastScore !== null ? (
+            <p className="mt-2 text-xs text-white/65">
+              Последний счёт: <span className="font-semibold text-primary">{lastScore}</span>
+              {finishState === "saving" ? " · сохраняем..." : null}
+              {finishState === "saved" ? " · сохранено" : null}
+              {finishState === "error" ? " · не сохранено" : null}
             </p>
-          </div>
+          ) : null}
+        </div>
 
-          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
-            <Link
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm font-semibold text-white/80 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-              href="/game/profile"
-            >
-              <UserRound className="size-4" />
-              Профиль
-            </Link>
-            <Link
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-primary/25 bg-primary/10 px-4 text-sm font-semibold text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-              href="/game/leaderboard"
-            >
-              <Trophy className="size-4" />
-              Лидерборд
-            </Link>
+        <div className="hidden lg:block">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="max-w-3xl">
+              <p className="admin-eyebrow">Decentrathon arcade</p>
+              <h1 className="heading-hero text-gradient mt-3 text-left">Tetris Challenge</h1>
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-white/70 sm:text-base">
+                Классический Tetris с ускорением, линиями и очками. Сыграйте партию, сохраните счёт
+                и попробуйте подняться в лидерборде.
+              </p>
+            </div>
+
+            <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+              <Link
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm font-semibold text-white/80 transition hover:border-primary/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                href="/game/profile"
+              >
+                <UserRound className="size-4" />
+                Профиль
+              </Link>
+              <Link
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-primary/25 bg-primary/10 px-4 text-sm font-semibold text-primary transition hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                href="/game/leaderboard"
+              >
+                <Trophy className="size-4" />
+                Лидерборд
+              </Link>
+            </div>
           </div>
         </div>
 
         {lastScore !== null ? (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/70">
+          <div className="hidden rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/70 lg:block">
             Последний счёт: <span className="font-semibold text-primary">{lastScore}</span>
             {finishState === "saving" ? " · сохраняем..." : null}
             {finishState === "saved" ? " · сохранено" : null}
@@ -99,7 +114,7 @@ export function GamePageClient() {
           </div>
         ) : null}
 
-        <Tetris onGameOver={handleGameOver} onStart={handleStart} />
+        <Tetris className="min-h-0 flex-1" onGameOver={handleGameOver} onStart={handleStart} />
       </section>
     </GameAuthGate>
   );
