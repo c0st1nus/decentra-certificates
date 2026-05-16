@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Trophy } from "lucide-react";
+import { ArrowLeft, Ellipsis, Trophy } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -12,8 +12,16 @@ import {
 } from "@/lib/game-api";
 import { cn, formatCompactNumber } from "@/lib/utils";
 
+const TOP_N = 10;
+
+type LeaderboardPayload = {
+  entries: LeaderboardEntry[];
+  total_players: number;
+  viewer?: LeaderboardEntry;
+};
+
 export function LeaderboardPageClient() {
-  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const [payload, setPayload] = useState<LeaderboardPayload | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +33,7 @@ export function LeaderboardPageClient() {
       if (!response.ok || !data) {
         throw new Error("Leaderboard unavailable");
       }
-      setEntries(normalizeLeaderboard(data));
+      setPayload(parseLeaderboardPayload(data));
     } catch {
       setError("Не удалось загрузить лидерборд.");
     } finally {
@@ -37,8 +45,15 @@ export function LeaderboardPageClient() {
     void loadLeaderboard();
   }, [loadLeaderboard]);
 
+  const entries = payload?.entries ?? [];
+  const total_players = payload?.total_players ?? 0;
+  const viewer = payload?.viewer;
+
   const podium = useMemo(() => entries.slice(0, 3), [entries]);
-  const rest = useMemo(() => entries.slice(3), [entries]);
+  const rest = useMemo(() => entries.slice(3, TOP_N), [entries]);
+
+  const showManyMoreTeaser = total_players > TOP_N;
+  const othersBeyondTop = Math.max(0, total_players - TOP_N);
 
   return (
     <section className="space-y-6">
@@ -85,22 +100,28 @@ export function LeaderboardPageClient() {
           </Link>
         </div>
       ) : (
-        <>
+        <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-3">
             {podium.map((entry, index) => (
               <PodiumCard entry={entry} index={index} key={leaderboardKey(entry)} />
             ))}
           </div>
-          <div className="admin-panel overflow-hidden p-0">
-            {rest.map((entry, index) => (
-              <LeaderboardRow
-                entry={entry}
-                key={leaderboardKey(entry)}
-                rank={entry.rank ?? index + 4}
-              />
-            ))}
-          </div>
-        </>
+          {rest.length > 0 ? (
+            <div className="admin-panel overflow-hidden p-0">
+              {rest.map((entry, index) => (
+                <LeaderboardRow
+                  entry={entry}
+                  key={leaderboardKey(entry)}
+                  rank={entry.rank ?? index + 4}
+                />
+              ))}
+            </div>
+          ) : null}
+          {showManyMoreTeaser ? (
+            <ManyMorePlayersRow othersBeyondTop={othersBeyondTop} totalPlayers={total_players} />
+          ) : null}
+          {viewer ? <ViewerResultCard entry={viewer} /> : null}
+        </div>
       )}
     </section>
   );
@@ -115,6 +136,76 @@ function LeaderboardSkeleton() {
         <Skeleton className="h-56 rounded-2xl" />
       </div>
       <Skeleton className="h-80 rounded-2xl" />
+    </div>
+  );
+}
+
+function ManyMorePlayersRow({
+  othersBeyondTop,
+  totalPlayers,
+}: {
+  othersBeyondTop: number;
+  totalPlayers: number;
+}) {
+  return (
+    <div className="admin-panel flex flex-col items-center justify-center gap-2 border border-dashed border-primary/25 bg-primary/[0.04] py-6 text-center">
+      <div className="flex items-center gap-2 text-primary/90">
+        <Ellipsis className="size-6" strokeWidth={2.5} />
+        <span className="font-pixel text-lg tracking-wide">···</span>
+        <Ellipsis className="size-6" strokeWidth={2.5} />
+      </div>
+      <p className="text-base font-semibold text-white/85">И ещё сотни игроков…</p>
+      <p className="max-w-md px-4 text-sm leading-6 text-white/55">
+        Всего в таблице уже{" "}
+        <span className="font-medium text-primary/90">{formatCompactNumber(totalPlayers)}</span>
+        {othersBeyondTop > 0 ? (
+          <>
+            {" "}
+            — за пределами топ-{TOP_N} ещё минимум{" "}
+            <span className="font-medium text-white/75">
+              {formatCompactNumber(othersBeyondTop)}
+            </span>
+            .
+          </>
+        ) : (
+          "."
+        )}
+      </p>
+    </div>
+  );
+}
+
+function ViewerResultCard({ entry }: { entry: LeaderboardEntry }) {
+  const rank = entry.rank;
+  return (
+    <div className="admin-panel relative overflow-hidden border-primary/35 bg-gradient-to-br from-primary/[0.14] via-black/25 to-black/40 shadow-[0_0_40px_rgba(140,216,18,0.08)]">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(140,216,18,0.12),transparent_55%)]" />
+      <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="admin-eyebrow text-primary/90">Ваш результат</p>
+          <h2 className="mt-2 text-xl font-black text-white sm:text-2xl">
+            {typeof rank === "number" ? (
+              <>
+                Вы на <span className="text-primary">#{rank}</span> месте
+              </>
+            ) : (
+              <>Вы вне топ-{TOP_N}</>
+            )}
+          </h2>
+          <p className="mt-1 text-sm text-white/55">
+            Так держать — в следующий раз пробьётесь выше.
+          </p>
+        </div>
+        <div className="flex items-center gap-4 sm:shrink-0">
+          <Avatar className="size-14 sm:size-16" entry={entry} />
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-white">@{entry.username}</p>
+            <p className="font-pixel text-lg text-primary sm:text-xl">
+              {formatCompactNumber(entry.score)}
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -177,11 +268,27 @@ function Avatar({ className, entry }: { className?: string; entry: LeaderboardEn
   );
 }
 
-function normalizeLeaderboard(data: LeaderboardResponse | LeaderboardEntry[]) {
+function parseLeaderboardPayload(
+  data: LeaderboardResponse | LeaderboardEntry[],
+): LeaderboardPayload {
   if (Array.isArray(data)) {
-    return data;
+    const entries = data.slice(0, TOP_N);
+    return {
+      entries,
+      total_players: data.length,
+    };
   }
-  return data.items ?? data.leaders ?? data.leaderboard ?? [];
+  const rawItems = data.items ?? data.leaders ?? data.leaderboard ?? [];
+  const entries = rawItems.slice(0, TOP_N);
+  const total_players =
+    typeof data.total_players === "number" && Number.isFinite(data.total_players)
+      ? data.total_players
+      : rawItems.length;
+  const viewerRaw = data.viewer;
+  const viewer =
+    viewerRaw && typeof viewerRaw === "object" && viewerRaw.username ? viewerRaw : undefined;
+
+  return { entries, total_players, viewer };
 }
 
 function leaderboardKey(entry: LeaderboardEntry) {

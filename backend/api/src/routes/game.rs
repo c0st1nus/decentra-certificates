@@ -1,4 +1,5 @@
-use actix_web::{HttpResponse, get, post, web};
+use actix_web::{HttpRequest, HttpResponse, get, post, web};
+use actix_web::http::header::AUTHORIZATION;
 use chrono::Utc;
 use entity::{game_scores, game_sessions, game_users, prelude::*};
 use sea_orm::{
@@ -83,6 +84,52 @@ pub struct LeaderboardEntry {
     pub lines_cleared: i32,
     pub rank: u64,
     pub achieved_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LeaderboardViewer {
+    pub user_id: i32,
+    pub username: Option<String>,
+    pub avatar_url: Option<String>,
+    pub score: i32,
+    pub lines_cleared: i32,
+    pub rank: u64,
+    pub achieved_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PublicLeaderboardResponse {
+    pub items: Vec<LeaderboardEntry>,
+    pub total_players: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub viewer: Option<LeaderboardViewer>,
+}
+
+fn optional_authenticated_game_user_id(req: &HttpRequest, state: &AppState) -> Option<i32> {
+    let raw = req.headers().get(AUTHORIZATION)?.to_str().ok()?;
+    let token = raw.strip_prefix("Bearer ").map(str::trim).or_else(|| {
+        raw.strip_prefix("bearer ").map(str::trim)
+    })?;
+    if token.is_empty() {
+        return None;
+    }
+    GameAuthService::authenticate_token(&state.settings.jwt, token)
+        .ok()
+        .map(|u| u.id)
+}
+
+fn leaderboard_entry_from_deduped_row(
+    row: &game_leaderboard::LeaderboardDedupedRow,
+) -> LeaderboardEntry {
+    LeaderboardEntry {
+        user_id: row.user_id,
+        username: row.username.clone(),
+        avatar_url: row.avatar_url.clone(),
+        score: row.score,
+        lines_cleared: row.lines_cleared,
+        rank: row.rank.max(0) as u64,
+        achieved_at: row.created_at.with_timezone(&Utc),
+    }
 }
 
 #[post("/auth")]
@@ -314,46 +361,52 @@ async fn finish_session(
 
 #[get("/leaderboard")]
 async fn get_leaderboard(
-    query: web::Query<LeaderboardQuery>,
+    req: HttpRequest,
+    _query: web::Query<LeaderboardQuery>,
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
     let settings = game_leaderboard::apply_scheduled_reset_if_due(&state.db).await?;
+    let epoch = settings.current_epoch;
 
-    let page = query.page.unwrap_or(1).max(1);
-    let page_size = query.page_size.unwrap_or(20).clamp(1, 100);
+    let total_players =
+        game_leaderboard::count_leaderboard_players_in_epoch(&state.db, epoch).await?;
 
-    let scores = GameScores::find()
-        .filter(game_scores::Column::LeaderboardEpoch.eq(settings.current_epoch))
-        .find_also_related(GameUsers)
-        .order_by_desc(game_scores::Column::Score)
-        .order_by_asc(game_scores::Column::CreatedAt)
-        .paginate(&state.db, page_size)
-        .fetch_page(page - 1)
-        .await
-        .map_err(|e| AppError::Internal(e.into()))?;
+    const TOP_N: u64 = 10;
+    let rows =
+        game_leaderboard::fetch_deduplicated_leaderboard_page(&state.db, epoch, 0, TOP_N).await?;
 
-    let offset = (page - 1) * page_size;
-    let entries: Vec<LeaderboardEntry> = scores
-        .into_iter()
-        .enumerate()
-        .map(|(index, (score, user))| {
-            let u = user.unwrap();
-            LeaderboardEntry {
-                user_id: u.id,
-                username: u.username,
-                avatar_url: u.avatar_url,
-                score: score.score,
-                lines_cleared: score.lines_cleared,
-                rank: offset + index as u64 + 1,
-                achieved_at: chrono::DateTime::<Utc>::from_naive_utc_and_offset(
-                    score.created_at.naive_utc(),
-                    Utc,
-                ),
+    let top_ids: std::collections::HashSet<i32> = rows.iter().map(|r| r.user_id).collect();
+    let items: Vec<LeaderboardEntry> = rows.iter().map(leaderboard_entry_from_deduped_row).collect();
+
+    let viewer = match optional_authenticated_game_user_id(&req, &state) {
+        Some(viewer_id) if !top_ids.contains(&viewer_id) => {
+            match game_leaderboard::fetch_deduplicated_leaderboard_row_for_user(
+                &state.db,
+                epoch,
+                viewer_id,
+            )
+            .await?
+            {
+                Some(row) => Some(LeaderboardViewer {
+                    user_id: row.user_id,
+                    username: row.username.clone(),
+                    avatar_url: row.avatar_url.clone(),
+                    score: row.score,
+                    lines_cleared: row.lines_cleared,
+                    rank: row.rank.max(0) as u64,
+                    achieved_at: row.created_at.with_timezone(&Utc),
+                }),
+                None => None,
             }
-        })
-        .collect();
+        }
+        _ => None,
+    };
 
-    Ok(HttpResponse::Ok().json(serde_json::json!({ "items": entries })))
+    Ok(HttpResponse::Ok().json(PublicLeaderboardResponse {
+        items,
+        total_players,
+        viewer,
+    }))
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {

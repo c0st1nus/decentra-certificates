@@ -66,6 +66,10 @@ export interface LeaderboardResponse {
   items?: LeaderboardEntry[];
   leaders?: LeaderboardEntry[];
   leaderboard?: LeaderboardEntry[];
+  /** Total players with a score on the leaderboard (may exceed `items.length`). */
+  total_players?: number;
+  /** Present when the authenticated player is not in the top `items` slice. */
+  viewer?: LeaderboardEntry | null;
 }
 
 const ACCESS_TOKEN_KEY = "decentra_game_access_token";
@@ -154,11 +158,9 @@ export async function fetchGameProfile() {
 }
 
 export async function fetchGameLeaderboard() {
-  const response = await fetch(buildApiUrl("/api/v1/game/leaderboard"), {
+  return gameRequestJson<LeaderboardResponse | LeaderboardEntry[]>("/api/v1/game/leaderboard", {
     cache: "no-store",
   });
-  const data = await parseJson<LeaderboardResponse | LeaderboardEntry[]>(response);
-  return { response, data };
 }
 
 async function gameRequestJson<T>(

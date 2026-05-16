@@ -54,33 +54,25 @@ async fn get_leaderboard(
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(50).clamp(1, 100);
 
-    let scores = GameScores::find()
-        .filter(game_scores::Column::LeaderboardEpoch.eq(settings.current_epoch))
-        .find_also_related(GameUsers)
-        .order_by_desc(game_scores::Column::Score)
-        .paginate(&state.db, page_size)
-        .fetch_page(page - 1)
-        .await
-        .map_err(|e| AppError::Internal(e.into()))?;
-
     let offset = (page - 1) * page_size;
-    let items: Vec<AdminLeaderboardEntry> = scores
+    let rows = game_leaderboard::fetch_deduplicated_leaderboard_page(
+        &state.db,
+        settings.current_epoch,
+        offset,
+        page_size,
+    )
+    .await?;
+
+    let items: Vec<AdminLeaderboardEntry> = rows
         .into_iter()
-        .enumerate()
-        .map(|(index, (score, user))| {
-            let u = user.unwrap();
-            AdminLeaderboardEntry {
-                user_id: u.id,
-                username: u.username,
-                avatar_url: u.avatar_url,
-                score: score.score,
-                lines_cleared: score.lines_cleared,
-                rank: offset + index as u64 + 1,
-                last_played_at: chrono::DateTime::<Utc>::from_naive_utc_and_offset(
-                    score.created_at.naive_utc(),
-                    Utc,
-                ),
-            }
+        .map(|row| AdminLeaderboardEntry {
+            user_id: row.user_id,
+            username: row.username,
+            avatar_url: row.avatar_url,
+            score: row.score,
+            lines_cleared: row.lines_cleared,
+            rank: row.rank.max(0) as u64,
+            last_played_at: row.created_at.with_timezone(&Utc),
         })
         .collect();
 
